@@ -4594,6 +4594,8 @@ export default function ChatView(props: ChatViewProps) {
     if (!isServerThread || activeThreadId === null) {
       throw new Error("Messages from apps need a started thread.");
     }
+    const handoffBlockReason = threadHandoffSendBlockReason(activeThreadShell);
+    if (handoffBlockReason !== null) throw new Error(handoffBlockReason);
     const result = await startThreadTurn({
       environmentId,
       input: {
@@ -7507,27 +7509,27 @@ export default function ChatView(props: ChatViewProps) {
       backgroundWorkBannerItem,
     ].filter((item) => item !== null);
     const handoffItems = threadHandoffBannerItem === null ? [] : [threadHandoffBannerItem];
-    // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
-        ...handoffItems,
         ...feedbackBannerItems,
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
+        // After the system notices, so a reconnect or update notice wins a priority tie.
+        ...handoffItems,
         ...backgroundWorkItems,
       ];
     }
     return [
-      ...handoffItems,
       ...feedbackBannerItems,
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
+      ...handoffItems,
       ...backgroundWorkItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
@@ -8450,6 +8452,8 @@ export default function ChatView(props: ChatViewProps) {
     if (
       !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
       !activeThread ||
+      // The send button is closed for this too, but annotations reach onSend directly.
+      threadHandoffSendBlockReason(activeThreadShell) !== null ||
       (isSendBusy && !sendQueuesBehindSetup) ||
       isConnecting ||
       isRevertingCheckpoint ||

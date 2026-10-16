@@ -9,7 +9,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon, MonitorUpIcon, TriangleAlertIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { useEnvironmentIds } from "~/state/environments";
+import { useConnectedEnvironmentIds } from "~/state/environments";
 import { threadHandoffEnvironment } from "~/state/threadHandoff";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -39,9 +39,9 @@ export function useThreadHandoffBannerItem(
   const cancel = useAtomCommand(threadHandoffEnvironment.cancel, { label: "cancel thread move" });
   const [cancelling, setCancelling] = useState(false);
   const handoff = shell?.handoff ?? null;
-  const environmentIds = useEnvironmentIds();
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
   const canOpenThere =
-    handoff?.state === "departed" && environmentIds.includes(handoff.environmentId);
+    handoff?.state === "departed" && connectedEnvironmentIds.includes(handoff.environmentId);
   return useMemo(() => {
     const notice = threadHandoffNotice(handoff);
     if (shell == null || handoff === null || notice === null) return null;
