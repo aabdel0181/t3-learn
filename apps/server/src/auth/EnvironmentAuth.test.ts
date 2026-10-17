@@ -1,7 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   authScopeResponse,
-  AuthAdministrativeScopes,
+  AuthAccessWriteScope,
+  AuthRelayWriteScope,
   AuthStandardClientScopes,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -103,7 +104,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const authenticated = yield* serverAuth.authenticateHttpRequest(request);
       expect(devExchange.cookieName).toMatch(/^t3_dev_session_/);
       expect(devExchange.expireNormalCookie).toBe(true);
-      expect(devExchange.response).toMatchObject(authScopeResponse(AuthAdministrativeScopes));
+      expect(devExchange.response).toMatchObject(authScopeResponse(AuthStandardClientScopes));
       expect(authenticated.scopes).toEqual(["orchestration:read"]);
     }).pipe(
       Effect.provide(
@@ -253,7 +254,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       expect((yield* Effect.flip(sessions.verify(token)))._tag).toBe("SessionTokenRevokedError");
       expect(
         (yield* serverAuth.createBrowserSession(recovery.credential, requestMetadata)).response,
-      ).toMatchObject({ authenticated: true, ...authScopeResponse(AuthAdministrativeScopes) });
+      ).toMatchObject({ authenticated: true, ...authScopeResponse(AuthStandardClientScopes) });
     }).pipe(
       Effect.provide(
         layerEnvironmentAuth({
@@ -325,23 +326,36 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     }),
   );
 
-  it.effect("issues standard pairing credentials by default", () =>
+  it.effect("pairs with access and T3 Connect management unless scopes are narrowed", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sessions = yield* SessionStore.SessionStore;
+      const pairAndVerify = (input?: Parameters<typeof serverAuth.issuePairingCredential>[0]) =>
+        Effect.gen(function* () {
+          const pairingCredential = yield* serverAuth.issuePairingCredential(input);
+          const exchanged = yield* serverAuth.createBrowserSession(
+            pairingCredential.credential,
+            requestMetadata,
+          );
+          return yield* serverAuth.authenticateHttpRequest(
+            makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
+          );
+        });
 
-      const pairingCredential = yield* serverAuth.issuePairingCredential();
-      const exchanged = yield* serverAuth.createBrowserSession(
-        pairingCredential.credential,
-        requestMetadata,
-      );
-      const verified = yield* serverAuth.authenticateHttpRequest(
-        makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
-      );
+      const standard = yield* pairAndVerify();
+      expect(standard.scopes).toEqual(AuthStandardClientScopes);
+      expect(standard.scopes).toContain(AuthAccessWriteScope);
+      expect(standard.scopes).toContain(AuthRelayWriteScope);
+      expect(standard.subject).toBe("one-time-token");
 
-      expect(verified.sessionId.length).toBeGreaterThan(0);
-      expect(verified.scopes).toEqual(AuthStandardClientScopes);
-      expect(verified.subject).toBe("one-time-token");
+      const narrowed = yield* pairAndVerify({
+        scopes: ["orchestration:read", "orchestration:operate", "terminal:read"],
+      });
+      expect(narrowed.scopes).toEqual([
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:read",
+      ]);
     }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
 
@@ -362,7 +376,9 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
   it.effect("preserves pairing grants after rejecting scopes they do not grant", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-      const pairingCredential = yield* serverAuth.issuePairingCredential();
+      const pairingCredential = yield* serverAuth.issuePairingCredential({
+        scopes: ["orchestration:read", "orchestration:operate"],
+      });
 
       const error = yield* serverAuth
         .exchangeBootstrapCredentialForAccessToken(
@@ -510,12 +526,10 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     ),
   );
 
-  it.effect("keeps user-issued administrative pairing links manageable", () =>
+  it.effect("keeps user-issued pairing links with access management manageable", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-      const pairingCredential = yield* serverAuth.issuePairingCredential({
-        scopes: AuthAdministrativeScopes,
-      });
+      const pairingCredential = yield* serverAuth.issuePairingCredential();
       const listedPairingLinks = yield* serverAuth.listPairingLinks();
 
       expect(
@@ -544,7 +558,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
       );
 
-      expect(verified.scopes).toEqual(AuthAdministrativeScopes);
+      expect(verified.scopes).toEqual(AuthStandardClientScopes);
       expect(verified.subject).toBe("administrative-bootstrap");
     }).pipe(Effect.provide(layerEnvironmentAuth())),
   );

@@ -1,9 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  AuthAdministrativeScopes,
-  type AuthCreatePairingCredentialInput,
-  EnvironmentHttpApi,
-} from "@t3tools/contracts";
+import { type AuthCreatePairingCredentialInput, EnvironmentHttpApi } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -485,9 +481,9 @@ it.live("one-click approves only access the browser session holds the scopes for
     Effect.gen(function* () {
       const clientId = yield* registeredClientId(handler);
       const params = authorizeParams(clientId);
-      const browserCookie = (scopes: NonNullable<AuthCreatePairingCredentialInput["scopes"]>) =>
+      const browserCookie = (scopes?: AuthCreatePairingCredentialInput["scopes"]) =>
         Effect.gen(function* () {
-          const pairing = yield* auth.issuePairingCredential({ scopes });
+          const pairing = yield* auth.issuePairingCredential(scopes ? { scopes } : undefined);
           const response = yield* handler(
             at("/api/auth/browser-session", {
               method: "POST",
@@ -502,10 +498,10 @@ it.live("one-click approves only access the browser session holds the scopes for
           Effect.flatMap(json<{ csrfToken?: string; oneClickAccess?: ReadonlyArray<string> }>),
         );
 
-      const admin = yield* browserCookie([...AuthAdministrativeScopes]);
-      const adminDetails = yield* details(admin);
-      expect(adminDetails.csrfToken).toEqual(expect.any(String));
-      expect(adminDetails.oneClickAccess).toEqual([
+      const paired = yield* browserCookie();
+      const pairedDetails = yield* details(paired);
+      expect(pairedDetails.csrfToken).toEqual(expect.any(String));
+      expect(pairedDetails.oneClickAccess).toEqual([
         "read-only",
         "approval-required",
         "auto-accept-edits",
@@ -515,8 +511,8 @@ it.live("one-click approves only access the browser session holds the scopes for
       const oneClick = yield* decide(
         handler,
         params,
-        { _tag: "browser-session", access: "auto", csrfToken: adminDetails.csrfToken! },
-        admin,
+        { _tag: "browser-session", access: "auto", csrfToken: pairedDetails.csrfToken! },
+        paired,
       );
       expect(new URL(oneClick.redirectTo!).searchParams.get("code")).toEqual(expect.any(String));
 

@@ -75,19 +75,23 @@ const postJson = (path: string, body: unknown, headers?: Readonly<Record<string,
     body: encodeJson(body),
   });
 
+const makeRequestContext = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
+  const unusedSecretStore = ServerSecretStore.ServerSecretStore.of({
+    get: () => Effect.succeedNone,
+    set: () => Effect.void,
+    create: () => Effect.void,
+    getOrCreateRandom: () => Effect.die("Not used by these routes."),
+    remove: () => Effect.void,
+  });
+  return Context.make(Crypto.Crypto, crypto).pipe(
+    Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
+  );
+});
+
 it.effect("sets the selected browser session cookies through the HTTP route", () =>
   Effect.gen(function* () {
-    const crypto = yield* Crypto.Crypto;
-    const unusedSecretStore = ServerSecretStore.ServerSecretStore.of({
-      get: () => Effect.succeedNone,
-      set: () => Effect.void,
-      create: () => Effect.void,
-      getOrCreateRandom: () => Effect.die("Not used by these routes."),
-      remove: () => Effect.void,
-    });
-    const requestContext = Context.make(Crypto.Crypto, crypto).pipe(
-      Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
-    );
+    const requestContext = yield* makeRequestContext;
     return yield* Effect.acquireUseRelease(
       Effect.sync(
         () =>
@@ -158,6 +162,61 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
         }),
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("narrows a default pairing link to the scopes its creator holds", () =>
+  Effect.gen(function* () {
+    const requestContext = yield* makeRequestContext;
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
+      (environment) =>
+        Effect.tryPromise(async () => {
+          const browserCookie = async (credential: string) => {
+            const response = await environment.handler(
+              postJson("/api/auth/browser-session", { credential }),
+              requestContext,
+            );
+            const cookie = response.headers.getSetCookie().find((value) => !value.includes("=;"));
+            return cookie?.split(";", 1)[0] ?? "";
+          };
+          const createPairing = (cookie: string, body: unknown) =>
+            environment.handler(
+              postJson("/api/auth/pairing-token", body, { cookie }),
+              requestContext,
+            );
+
+          const creatorScopes = ["orchestration:read", "access:read", "access:write"];
+          const creatorPairing = await createPairing(await browserCookie(DEV_TOKEN), {
+            scopes: creatorScopes,
+          });
+          const creatorCookie = await browserCookie(
+            ((await creatorPairing.json()) as { credential: string }).credential,
+          );
+
+          const widened = await createPairing(creatorCookie, {
+            scopes: ["orchestration:read", "relay:write"],
+          });
+          expect(widened.status).toBe(403);
+          expect(await widened.json()).toMatchObject({ requiredPermission: "relay:write" });
+
+          const created = await createPairing(creatorCookie, {});
+          expect(created.status).toBe(200);
+          const { id } = (await created.json()) as { id: string };
+          const links = await environment.handler(
+            new Request("http://127.0.0.1/api/auth/pairing-links", {
+              headers: { cookie: creatorCookie },
+            }),
+            requestContext,
+          );
+          const listed = (await links.json()) as ReadonlyArray<{
+            id: string;
+            permissions?: ReadonlyArray<string>;
+          }>;
+          expect(listed.find((link) => link.id === id)?.permissions).toEqual(creatorScopes);
+        }),
+      (environment) => Effect.promise(() => environment.dispose()),
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
