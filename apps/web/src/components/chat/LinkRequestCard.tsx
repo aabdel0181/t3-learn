@@ -32,7 +32,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { accessConfig } from "../auth/ConnectAgentSurface";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { LinkAccessPicker } from "../settings/LinkAccessPicker";
-import { Badge } from "../ui/badge";
+import { ANOTHER_ADDRESS, LinkMachineBadge } from "../settings/LinkMachineSelect";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
@@ -41,9 +41,6 @@ import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } fro
 import { WorkLogRow } from "./WorkLog";
 
 const accessLabel = (access: AuthMcpClientAccess) => accessConfig[access].label;
-
-/** The machine list's row for linking by an address typed in. */
-const ANOTHER_ADDRESS = "another-address";
 
 /** Whether the agent left the machine for the user to pick. */
 const picksMachine = (item: LinkRequestItem) =>
@@ -493,15 +490,7 @@ function MachinePicker(props: {
               className="size-4 shrink-0 text-muted-foreground"
             />
             <span className="min-w-0 flex-1 truncate font-medium">{machine.label}</span>
-            {machine.linked ? (
-              <Badge variant="success" size="sm">
-                Linked
-              </Badge>
-            ) : machine.connected ? null : (
-              <Badge variant="outline" size="sm">
-                Not connected
-              </Badge>
-            )}
+            <LinkMachineBadge machine={machine} />
           </label>
         ))}
         <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm">
