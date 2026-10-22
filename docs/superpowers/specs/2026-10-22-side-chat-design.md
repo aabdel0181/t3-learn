@@ -420,8 +420,18 @@ cascade for free.
     T3 server hosts the agent sessions, including the one building this feature, so restarting it kills them
     mid-turn. Provide a script (`scripts/fork-service-switch.sh`, fork-only) that med runs from a plain terminal:
     `--to-fork` / `--to-official` rewrite `ExecStart`, run `daemon-reload`, restart, and check health. The rollback
-    to the official nightly is the same script with `--to-official`. The downgrade-safety rule in §Constraints is
+    to an official build is the same script with `--to-official`. The downgrade-safety rule in §Constraints is
     what makes that rollback safe.
+  - **The switch script protects live threads.** Before restarting it must:
+    1. **Refuse** if any thread has an active run, a queued run or a running workflow. It checks this with a
+       read-only query of `statev2.sqlite`, or through the server API. It lists the busy threads, so med can wait.
+       med specifically depends on "Audit AI PCB Eval Verdicts" (PCB-GOD project, 516+ runs).
+    2. Take an **online SQLite backup** of `~/.t3/userdata/statev2.sqlite` (plus `settings.json`) into
+       `~/.t3/backups/fork-switch-<timestamp>/`, and print the restore command.
+    3. After restarting, check health and that the thread count matches.
+  - **Rollback goes to a current official build, not the old nightly.** The fork may run upstream migrations newer
+    than `0.0.46-nightly.20261015`. Starting that older server on the migrated database is unsafe, so
+    `--to-official` installs or uses an official release at or after the fork's upstream base.
   - A fork-to-fork upgrade repeats the same pair: rebase onto `upstream/main`, build both, install, switch.
 - Upstream later: an Ideas discussion with the demo, then mobile and MCP tools if maintainers want them, then one
   focused PR.
