@@ -220,8 +220,11 @@ highlighted text, with an open/done indicator. It may become an outline later.
 1. Build in med's GitHub fork of T3 Code, on a feature branch, merged into the
    fork's `main` through a pull request.
 2. med uses it day to day as a **Mac desktop build of the fork**, downloaded
-   from the fork's GitHub Releases. The build replaces the official app, keeps
-   med's data, and has auto-update turned off.
+   from the fork's GitHub Releases, connected to projects on med's **Ubuntu
+   machine, whose T3 Code server also runs the fork**. Both are built from the
+   same fork commit, keep med's data, and have auto-update turned off. med
+   switches the Ubuntu server with a one-line script that can also switch it
+   back.
 3. Write user docs (`docs/user/side-chats.md`), a short demo video, and a
    changelog entry.
 4. When med loves it: open an Ideas discussion on `pingdotgg/t3code` with the

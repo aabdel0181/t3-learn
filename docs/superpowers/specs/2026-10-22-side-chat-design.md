@@ -403,9 +403,26 @@ cascade for free.
     replaces the fork. Updating means rebasing the fork on `upstream/main` and rebuilding (document a short
     script). Always build from a fork that is at or ahead of the official version that last ran, so the database is
     never newer than the app.
-  - Side chats only work in environments whose server runs the fork. The Mac build's own environment does.
-    Environments med connects to on other machines (like this Ubuntu box) keep the button hidden, through the
-    capability flag, until they run the fork too. That can come later.
+  - **The Ubuntu server runs the fork too (v1).** med uses the Mac app connected to projects on this Ubuntu
+    machine. Side chats need fork code on both ends: the client UI lives in the Mac app and the commands live in
+    the server. Ship two artifacts from the **same fork commit**, so the orchestration protocol versions match
+    (mismatched versions are refused, `docs/user/updating.md`):
+    1. the Mac desktop build (above);
+    2. a fork server runtime for Ubuntu, installed **next to** the official one under `~/.t3/runtime/versions/<fork
+       version>/`. The `t3code.service` user unit (`~/.config/systemd/user/t3code.service`, currently `ExecStart=…/
+       0.0.46-nightly.20261015.3145/t3 __service-launcher`) is pointed at it. Same `T3CODE_HOME`, so med keeps all
+       threads. The fork is built from upstream `main` (2026-10-22), which is newer than that nightly, so the
+       database moves forward, never backward.
+  - **Self-update off on both ends.** Turn off the desktop auto-updater, server self-update, and the "update every
+    connected machine" button's server updates in fork builds. Otherwise either end can be silently replaced by an
+    official release, and the two ends stop matching.
+  - **Switching the Ubuntu service is the last step and must not be done from inside a T3 thread.** This machine's
+    T3 server hosts the agent sessions, including the one building this feature, so restarting it kills them
+    mid-turn. Provide a script (`scripts/fork-service-switch.sh`, fork-only) that med runs from a plain terminal:
+    `--to-fork` / `--to-official` rewrite `ExecStart`, run `daemon-reload`, restart, and check health. The rollback
+    to the official nightly is the same script with `--to-official`. The downgrade-safety rule in §Constraints is
+    what makes that rollback safe.
+  - A fork-to-fork upgrade repeats the same pair: rebase onto `upstream/main`, build both, install, switch.
 - Upstream later: an Ideas discussion with the demo, then mobile and MCP tools if maintainers want them, then one
   focused PR.
 
