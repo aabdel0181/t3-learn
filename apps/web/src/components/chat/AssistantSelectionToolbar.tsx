@@ -49,14 +49,24 @@ export function AssistantSelectionToolbar({
   const [focusedAction, setFocusedAction] = useState<"cite" | "ask">("cite");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
+  // A sheet traps focus and dismisses on outside presses, so the toolbar must live inside it.
+  const sheet = viewport?.closest<HTMLElement>('[data-slot="sheet-popup"]') ?? null;
 
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
     const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
-  }, [selection]);
+    // The sheet is transformed, so it is the toolbar's containing block: measure from its padding edge.
+    const sheetRect = sheet?.getBoundingClientRect();
+    const origin = {
+      x: sheet && sheetRect ? sheetRect.left + sheet.clientLeft : 0,
+      y: sheet && sheetRect ? sheetRect.top + sheet.clientTop : 0,
+    };
+    const x = Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8));
+    const y = Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8));
+    toolbar.style.left = `${x - origin.x}px`;
+    toolbar.style.top = `${y - origin.y}px`;
+  }, [selection, sheet]);
 
   useEffect(() => {
     if (!viewport) return;
@@ -224,7 +234,7 @@ export function AssistantSelectionToolbar({
       ref={toolbarRef}
       role="toolbar"
       aria-label="Selection actions"
-      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
+      className={`${sheet ? "absolute" : "fixed"} z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1`}
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
       onKeyDown={(event) => {
@@ -288,6 +298,6 @@ export function AssistantSelectionToolbar({
         </Tooltip>
       ) : null}
     </div>,
-    document.body,
+    sheet ?? document.body,
   );
 }

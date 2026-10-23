@@ -174,6 +174,41 @@ describe("AssistantSelectionToolbar", () => {
     await expect.element(askButton()).not.toBeInTheDocument();
   });
 
+  it("stays inside the right-panel sheet so the sheet's focus trap keeps it usable", async () => {
+    await using screen = await render(
+      <div data-slot="sheet-popup" className="fixed top-0 right-0 bottom-0 w-96">
+        <Reply onAskInSideChat={() => true} />
+      </div>,
+    );
+    select(screen.container, 20, 37);
+    await expect.element(askButton()).toBeVisible();
+
+    expect(toolbar().element().parentElement).toBe(
+      screen.container.querySelector('[data-slot="sheet-popup"]'),
+    );
+  });
+
+  it("places the toolbar by the sheet's own corner when the sheet is offset and transformed", async () => {
+    await using screen = await render(
+      <div
+        data-slot="sheet-popup"
+        className="fixed top-40 left-24 w-96 border-s will-change-transform"
+        style={{ translate: "12px 0" }}
+      >
+        <Reply onAskInSideChat={() => true} />
+      </div>,
+    );
+    select(screen.container, 20, 37);
+    await expect.element(askButton()).toBeVisible();
+
+    const selected = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+    const actions = toolbar().element().getBoundingClientRect();
+    expect(Math.abs(actions.left - selected.left)).toBeLessThan(120);
+    expect(
+      Math.min(Math.abs(actions.bottom - selected.top), Math.abs(actions.top - selected.bottom)),
+    ).toBeLessThan(24);
+  });
+
   it("dismisses both actions on Escape", async () => {
     const onCite = vi.fn(() => true);
     const onAskInSideChat = vi.fn(() => true);
