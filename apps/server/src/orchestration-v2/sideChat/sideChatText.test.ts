@@ -58,16 +58,16 @@ it("uses the selection prefix to pick between repeated text", () => {
 
 it("finds an excerpt the reply wrote with Markdown emphasis", () => {
   const first = `An opening paragraph. ${filler}`;
-  const second = `The agent reads the **observation space** each step. ${filler}`;
+  // The markers sit inside the excerpt, so the raw text never contains it verbatim.
+  const second = `The agent reads the **observation** _space_ each step. ${filler}`;
   const third = `A closing paragraph. ${filler}`;
   const text = `${first}\n\n${second}\n\n${third}`;
+  assert.isFalse(text.includes("observation space"));
 
+  // The anchor sits in the first paragraph, so only matching the rendered text can reach the
+  // second one.
   assert.strictEqual(
-    extractExcerptContext(
-      text,
-      { start: text.indexOf("observation"), prefix: "The agent reads the " },
-      "observation space",
-    ),
+    extractExcerptContext(text, { start: 0, prefix: "" }, "observation space"),
     second,
   );
 });
