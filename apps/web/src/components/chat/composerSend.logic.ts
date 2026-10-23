@@ -1,5 +1,12 @@
-import type { EnvironmentId, ThreadContextRecord } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationMessageContext,
+  ThreadContextRecord,
+} from "@t3tools/contracts";
 import { collectInlineContextIds } from "../../lib/composerContextReferences";
+import type { ProviderInstanceEntry } from "../../providerInstances";
+import { formatOutgoingPrompt, withMessageContext } from "../ChatView.logic";
+import { getComposerPromptLengthValidationMessage } from "./composerSubmission";
 
 /** Attached threads the prompt still links to; replacing linked text leaves stale records. */
 export function referencedThreadContexts(draft: {
@@ -78,4 +85,72 @@ export function approvalRedirectNotice(input: {
     return "Another approval arrived, so your message wasn't sent.";
   }
   return null;
+}
+
+export type SideChatSendPlan =
+  | {
+      readonly _tag: "Blocked";
+      readonly reason:
+        | "no-operate-scope"
+        | "in-flight"
+        | "starting"
+        | "provider-unavailable"
+        | "run-active"
+        | "empty";
+    }
+  | { readonly _tag: "AnswerPendingInput" }
+  | { readonly _tag: "Invalid"; readonly message: string }
+  | {
+      readonly _tag: "Ready";
+      readonly outgoingText: string;
+      readonly message: { readonly text: string; readonly context?: OrchestrationMessageContext };
+    };
+
+/**
+ * What Send does in the side-chat composer. The checks run in order: scope, in-flight, starting,
+ * pending-input answer, provider, run active, empty, then length. It reuses the lesson
+ * composer's prompt helpers; `useComposerSend`'s own guards carry lesson-only concerns.
+ */
+export function planSideChatSend(input: {
+  readonly canOperate: boolean;
+  readonly sendInFlight: boolean;
+  readonly shellReady: boolean;
+  readonly answeringPendingUserInput: boolean;
+  readonly providerEntry:
+    | Pick<ProviderInstanceEntry, "driverKind" | "enabled" | "isAvailable" | "models">
+    | undefined;
+  readonly model: string;
+  readonly runActive: boolean;
+  readonly prompt: string;
+}): SideChatSendPlan {
+  if (!input.canOperate) return { _tag: "Blocked", reason: "no-operate-scope" };
+  if (input.sendInFlight) return { _tag: "Blocked", reason: "in-flight" };
+  if (!input.shellReady) return { _tag: "Blocked", reason: "starting" };
+  if (input.answeringPendingUserInput) return { _tag: "AnswerPendingInput" };
+  const entry = input.providerEntry;
+  if (entry === undefined || !entry.enabled || !entry.isAvailable) {
+    return { _tag: "Blocked", reason: "provider-unavailable" };
+  }
+  if (input.runActive) return { _tag: "Blocked", reason: "run-active" };
+  const text = input.prompt.trim();
+  if (text.length === 0) return { _tag: "Blocked", reason: "empty" };
+  const outgoingText = formatOutgoingPrompt({
+    provider: entry.driverKind,
+    model: input.model,
+    models: entry.models,
+    effort: null,
+    text,
+  });
+  const lengthMessage = getComposerPromptLengthValidationMessage(outgoingText);
+  if (lengthMessage !== null) return { _tag: "Invalid", message: lengthMessage };
+  return {
+    _tag: "Ready",
+    outgoingText,
+    // Composer v1 sends text and inline quotes only, so there are no context records to inline.
+    message: withMessageContext({
+      text: outgoingText,
+      context: undefined,
+      supportsInlineMessageContext: true,
+    }),
+  };
 }
