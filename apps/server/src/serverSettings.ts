@@ -59,6 +59,7 @@ import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./sett
 
 export {
   resolveReviewGuideModelSelection,
+  resolveSideChatTextModel,
   resolveSourceControlWriterModelSelection,
 } from "@t3tools/shared/serverSettings";
 
