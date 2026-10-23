@@ -1,12 +1,25 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { SideChatTreeRow } from "@t3tools/client-runtime/state/thread-relationships";
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+
+const state = vi.hoisted(() => ({
+  shells: [] as ReadonlyArray<{ readonly id: string }>,
+}));
+
+vi.mock(import("../../state/entities"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useQuietThreadShell: (() => null) as never,
+  useSideChatTreeShells: (() => state.shells) as never,
+}));
 
 import "~/index.css";
 
 import { render, type Screen } from "../../../test/render";
-import { SideChatMap } from "./SideChatMap";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { makeSideChatThreadFixture, makeThreadFixture } from "../../test-fixtures";
+import { SideChatMap, SideChatMapSurface } from "./SideChatMap";
 
 function row(
   id: string,
@@ -54,7 +67,7 @@ it("walks the tree with arrow keys and opens the focused node with Enter", async
   await expect.element(node(screen, "RL environments")).toHaveAttribute("aria-level", "1");
   await expect.element(node(screen, "Box")).toHaveAttribute("aria-level", "3");
 
-  (node(screen, "reward shaping").element() as HTMLElement).focus();
+  node(screen, "reward shaping").element().focus();
   await userEvent.keyboard("{ArrowUp}");
   await expect.element(node(screen, "RL environments")).toHaveFocus();
   await userEvent.keyboard("{ArrowDown}");
@@ -70,4 +83,30 @@ it("walks the tree with arrow keys and opens the focused node with Enter", async
   expect(onOpenSideChat).toHaveBeenLastCalledWith(ThreadId.make("c"));
   await userEvent.click(node(screen, "RL environments"));
   expect(onFocusLesson).toHaveBeenCalledOnce();
+});
+
+it("marks the side chat of the tab the learner was last on", async () => {
+  const environmentId = EnvironmentId.make("environment-local");
+  const lessonId = ThreadId.make("lesson");
+  const lessonRef = scopeThreadRef(environmentId, lessonId);
+  const sideChat = (id: string, label: string) =>
+    makeSideChatThreadFixture({ id: ThreadId.make(id), lessonId, label, environmentId });
+  state.shells = [
+    makeThreadFixture({ id: lessonId, environmentId, title: "RL environments" }),
+    sideChat("a", "observation space"),
+    sideChat("b", "episode"),
+    sideChat("c", "reward shaping"),
+  ];
+  useRightPanelStore.setState({ byThreadKey: {} });
+  const panels = useRightPanelStore.getState();
+  for (const id of ["a", "b", "c"])
+    panels.openSideChat(lessonRef, { topThreadId: id, threadId: id });
+  panels.activateSurface(lessonRef, "side-chat:a");
+  panels.activateSurface(lessonRef, "side-chat:c");
+  panels.open(lessonRef, "thread-map");
+
+  await using screen = await render(<SideChatMapSurface threadRef={lessonRef} />);
+
+  await expect.element(node(screen, "reward shaping")).toHaveAttribute("aria-selected", "true");
+  await expect.element(node(screen, "observation space")).toHaveAttribute("aria-selected", "false");
 });

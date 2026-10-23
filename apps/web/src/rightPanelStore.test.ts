@@ -11,6 +11,7 @@ import {
   pullRequestSurfaceId,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
+  selectLastSideChatSurface,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
   useRightPanelStore,
@@ -1226,7 +1227,45 @@ describe("side chat surfaces", () => {
         { id: "diff", kind: "diff" },
         { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" },
       ],
+      lastSideChatSurfaceId: "side-chat:side-1",
     });
+  });
+
+  it("remembers the side-chat tab last made active until it closes", () => {
+    const store = useRightPanelStore.getState();
+    const last = () => selectLastSideChatSurface(state())?.id ?? null;
+    expect(last()).toBeNull();
+    openSideChat("side-1");
+    openSideChat("side-2");
+    openSideChat("side-3");
+    store.activateSurface(refA, "side-chat:side-2");
+    store.open(refA, "thread-map");
+    expect(last()).toBe("side-chat:side-2");
+
+    store.navigateSideChat(refA, "side-chat:side-3", ["side-3", "nested-3"], ["side-3"]);
+    store.open(refA, "thread-map");
+    expect(last()).toBe("side-chat:side-3");
+
+    store.closeSurface(refA, "side-chat:side-3");
+    expect(state().lastSideChatSurfaceId).toBeUndefined();
+    expect(last()).toBe("side-chat:side-1");
+  });
+
+  it("remembers the side chat a saved panel showed when the Map opens", () => {
+    useRightPanelStore.setState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "side-chat:side-2",
+          surfaces: [
+            { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+            { id: "side-chat:side-2", kind: "side-chat", threadId: "side-2" },
+          ],
+        },
+      },
+    });
+    useRightPanelStore.getState().open(refA, "thread-map");
+    expect(selectLastSideChatSurface(state())?.id).toBe("side-chat:side-2");
   });
 
   it("walks the breadcrumb up and back down in one tab", () => {
@@ -1352,6 +1391,7 @@ describe("side chat surfaces", () => {
           "env-1:thread-A": {
             isOpen: true,
             activeSurfaceId: "side-chat:side-1",
+            lastSideChatSurfaceId: "side-chat:side-1",
             surfaces: [
               sideChat,
               { id: "side-chat:side-2", kind: "side-chat", threadId: 5 },
@@ -1368,6 +1408,7 @@ describe("side chat surfaces", () => {
           isOpen: true,
           activeSurfaceId: "side-chat:side-1",
           surfaces: [sideChat, { id: "thread-map", kind: "thread-map" }],
+          lastSideChatSurfaceId: "side-chat:side-1",
         },
       },
       threadPanelVisibilityByThreadKey: {},

@@ -13,8 +13,8 @@ import { observeResize } from "../../lib/observeResize";
 import { layoutSideChatTree } from "../../lib/sideChatTreeLayout";
 import { cn } from "../../lib/utils";
 import {
+  selectLastSideChatSurface,
   selectThreadRightPanelState,
-  type ThreadRightPanelState,
   useRightPanelStore,
 } from "../../rightPanelStore";
 import { useQuietThreadShell, useSideChatTreeShells } from "../../state/entities";
@@ -176,16 +176,6 @@ export function SideChatMap(props: {
   );
 }
 
-/** The side chat the lesson's panel shows: the active tab's if it is one, else the first tab's. */
-function shownSideChatThreadId(panel: ThreadRightPanelState): string | null {
-  const active = panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId);
-  const surface =
-    active?.kind === "side-chat"
-      ? active
-      : panel.surfaces.find((candidate) => candidate.kind === "side-chat");
-  return surface?.kind === "side-chat" ? surface.threadId : null;
-}
-
 /** The Map tab: the lesson's side-chat tree, whichever of the lesson's threads it opens on. */
 export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef }) {
   const { threadRef } = props;
@@ -197,8 +187,11 @@ export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef 
     routeShell?.sideChat?.lessonThreadId ?? threadRef.threadId,
   );
   const rows = deriveSideChatTree(useSideChatTreeShells(lessonRef), lessonRef.threadId);
-  const shownThreadId = useRightPanelStore((state) =>
-    shownSideChatThreadId(selectThreadRightPanelState(state.byThreadKey, lessonRef)),
+  // The active tab is the Map itself, so mark the side chat the learner was last on.
+  const shownThreadId = useRightPanelStore(
+    (state) =>
+      selectLastSideChatSurface(selectThreadRightPanelState(state.byThreadKey, lessonRef))
+        ?.threadId ?? null,
   );
 
   if (rows.length <= 1) {

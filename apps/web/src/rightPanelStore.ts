@@ -114,6 +114,8 @@ export interface ThreadRightPanelState {
   dismissedDeviceSurfaceIds?: string[];
   maximized?: true;
   proactiveDiffTurnId?: RunId;
+  /** The side-chat tab last made active, kept while it is open; the Map marks what it shows. */
+  lastSideChatSurfaceId?: SideChatSurface["id"];
 }
 
 export interface ThreadPanelVisibility {
@@ -396,6 +398,16 @@ export function hasSideChatSurfaces(surfaces: readonly RightPanelSurface[]): boo
   return surfaces.some((surface) => surface.kind === "side-chat" || surface.kind === "thread-map");
 }
 
+/** The side-chat tab the learner was last on, else the first side-chat tab. */
+export function selectLastSideChatSurface(state: ThreadRightPanelState): SideChatSurface | null {
+  const sideChats = state.surfaces.filter(
+    (surface): surface is SideChatSurface => surface.kind === "side-chat",
+  );
+  return (
+    sideChats.find((surface) => surface.id === state.lastSideChatSurfaceId) ?? sideChats[0] ?? null
+  );
+}
+
 const strictlyExtends = (path: readonly string[], prefix: readonly string[]): boolean =>
   path.length > prefix.length && prefix.every((id, index) => path[index] === id);
 
@@ -412,13 +424,37 @@ const upsertSurface = (
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
 });
 
+const activeSideChatSurfaceId = (
+  state: ThreadRightPanelState,
+): SideChatSurface["id"] | undefined => {
+  const active = state.surfaces.find((surface) => surface.id === state.activeSurfaceId);
+  return active?.kind === "side-chat" ? active.id : undefined;
+};
+
+/**
+ * Remembers the side-chat tab last made active, which the Map still needs once it is
+ * the active tab itself. `current` counts too, for a panel saved before this was kept.
+ */
+const rememberSideChatSurface = (
+  current: ThreadRightPanelState,
+  next: ThreadRightPanelState,
+): ThreadRightPanelState => {
+  if (next === current) return next;
+  const last =
+    activeSideChatSurfaceId(next) ?? activeSideChatSurfaceId(current) ?? next.lastSideChatSurfaceId;
+  const kept = next.surfaces.some((surface) => surface.id === last) ? last : undefined;
+  if (kept === next.lastSideChatSurfaceId) return next;
+  const { lastSideChatSurfaceId: _previous, ...rest } = next;
+  return kept === undefined ? rest : { ...rest, lastSideChatSurfaceId: kept };
+};
+
 const updateThreadStateMap = (
   byThreadKey: Record<string, ThreadRightPanelState>,
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Record<string, ThreadRightPanelState> => {
   const current = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
-  const next = updater(current);
+  const next = rememberSideChatSurface(current, updater(current));
   if (
     !next.isOpen &&
     next.activeSurfaceId === null &&
@@ -660,6 +696,11 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
               const activeSurfaceId =
                 persistedActiveSurfaceId ??
                 (isOpen || rawActiveSurfaceId === "agents" ? (surfaces[0]?.id ?? null) : null);
+              const lastSideChatSurfaceId = surfaces.find(
+                (surface): surface is SideChatSurface =>
+                  surface.kind === "side-chat" &&
+                  surface.id === validThreadState?.lastSideChatSurfaceId,
+              )?.id;
               return [
                 threadKey,
                 {
@@ -678,6 +719,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       }
                     : {}),
                   ...(validThreadState?.maximized === true ? { maximized: true as const } : {}),
+                  ...(lastSideChatSurfaceId === undefined ? {} : { lastSideChatSurfaceId }),
                 },
               ];
             }),
