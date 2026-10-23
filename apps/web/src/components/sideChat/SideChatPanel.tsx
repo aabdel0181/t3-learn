@@ -53,7 +53,12 @@ import type { ChatMessage } from "../../types";
 import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import { ComposerBanner } from "../chat/ComposerBanner";
-import { pasteTextToFocusComposer, shouldTypeToFocusComposer } from "../chat/composerFocusRedirect";
+import {
+  eventPathContainsSelector,
+  pasteTextToFocusComposer,
+  shouldTypeToFocusComposer,
+  TYPE_TO_FOCUS_EDITABLE_SELECTOR,
+} from "../chat/composerFocusRedirect";
 import { ComposerPendingApprovalActions } from "../chat/ComposerPendingApprovalActions";
 import { ComposerPendingApprovalPanel } from "../chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "../chat/ComposerPendingUserInputPanel";
@@ -180,6 +185,10 @@ export function SideChatPanel(props: {
     : optimistic.messages;
 
   const [citationRequest, setCitationRequest] = useState<AssistantCitationRequest | null>(null);
+  // A reveal belongs to the walk that made it; walking back to its thread later must not replay it.
+  if (citationRequest !== null && citationRequest.citation.threadId !== surface.threadId) {
+    setCitationRequest(null);
+  }
   const listRef = useRef<LegendListRef | null>(null);
   const composerHandleRef = useRef<SideChatComposerHandle | null>(null);
   const pageScrollRef = useRef<ReturnType<typeof createPageScrollController> | null>(null);
@@ -289,12 +298,15 @@ export function SideChatPanel(props: {
           if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) {
             return;
           }
+          // An editable keeps the key to scroll itself, such as a long draft. The composer
+          // hands the timeline only the keys its draft can't use, via onPageScrollKeyDown.
           if (
             (event.key === "PageUp" || event.key === "PageDown") &&
             !event.altKey &&
             !event.ctrlKey &&
             !event.metaKey &&
-            !event.shiftKey
+            !event.shiftKey &&
+            !eventPathContainsSelector(event.nativeEvent, TYPE_TO_FOCUS_EDITABLE_SELECTOR)
           ) {
             event.preventDefault();
             pageScrollRef.current?.handleKeyDown(event.key);
@@ -393,9 +405,7 @@ export function SideChatPanel(props: {
             detailLoading={detailRef !== null && projection === null}
             optimisticMessages={optimisticMessages}
             listRef={listRef}
-            citationRequest={
-              citationRequest?.citation.threadId === surface.threadId ? citationRequest : null
-            }
+            citationRequest={citationRequest}
             askInSideChatPending={askPending}
             onCiteAssistantText={(cited, sourceAnchor) =>
               composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false

@@ -87,6 +87,7 @@ import {
   makeThreadProjectionFixture,
 } from "../../test-fixtures";
 import type { Thread } from "../../types";
+import { toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore } from "./pendingSideChatStore";
 import { SideChatPanel } from "./SideChatPanel";
@@ -444,14 +445,31 @@ it("shows the note a finished side chat sent to the lesson", async () => {
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
-  state.projections = { "nested-1": sideChatProjection(NESTED_1) };
+  // side-1's history lacks the cited reply, so each reveal ends in one warning.
+  state.projections = {
+    "side-1": sideChatProjection(SIDE_1),
+    "nested-1": sideChatProjection(NESTED_1),
+  };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
   showSideChat("side-1", "nested-1");
   await using screen = await renderPanel();
+  using toast = vi.spyOn(toastManager, "add");
+  const revealWarnings = () =>
+    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
 
   await expect.element(revealButton(screen)).toHaveTextContent("Box");
   await revealButton(screen).click();
 
   expect(surfaces()).toMatchObject([{ id: "side-chat:side-1", threadId: "side-1" }]);
+  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+
+  // Walking forward and back returns to side-1 without revealing the highlight again.
+  await crumb(screen, "Box").click();
+  await expect.element(crumb(screen, "Box")).toHaveAttribute("aria-current", "page");
+  await crumb(screen, "observation space").click();
+  await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
+  expect(revealWarnings()).toHaveLength(1);
 });
 
 it("quotes a selection cited inside the panel into the side chat's draft, not the lesson's", async () => {
@@ -491,6 +509,33 @@ it("types into the side chat when focus is elsewhere in the panel", async () => 
 
   expect(draft("side-1")).toBe("w");
   await expect.element(composer(screen)).toHaveFocus();
+});
+
+it("leaves PageUp to a draft that can scroll and pages the timeline otherwise", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  const lines = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`);
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), lines.join("\n"));
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+  const pageUp = (target: Element) => {
+    const event = new KeyboardEvent("keydown", { key: "PageUp", bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  };
+
+  const editor = await vi.waitFor(() => {
+    const element = composer(screen).element() as HTMLElement;
+    if (element.scrollHeight <= element.clientHeight) throw new Error("the draft fits");
+    return element;
+  });
+  editor.scrollTop = editor.scrollHeight;
+  expect(editor.scrollTop).toBeGreaterThan(0);
+  expect(pageUp(editor).defaultPrevented).toBe(false);
+
+  expect(pageUp(screen.getByRole("region", { name: "Side chat" }).element()).defaultPrevented).toBe(
+    true,
+  );
 });
 
 it("answers an approval the side chat's AI is waiting on from the panel", async () => {
