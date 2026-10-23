@@ -88,6 +88,8 @@ export function SideChatComposer(props: {
   readonly autoFocus: boolean;
   readonly handleRef: React.RefObject<SideChatComposerHandle | null>;
   readonly onAdvancePendingUserInput: () => void;
+  /** The pending question's custom answer, shown in the editor while answering. */
+  readonly pendingUserInputCustomAnswer?: string | undefined;
   readonly onPendingUserInputCustomAnswerChange?:
     | ((value: string, cursor: number) => void)
     | undefined;
@@ -101,15 +103,17 @@ export function SideChatComposer(props: {
     props;
   const sideChatKey = scopedThreadKey(sideChatRef);
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
-  const prompt = useComposerThreadDraft(sideChatRef).prompt;
-  // The draft's caret, kept per side chat so another side chat's draft opens at its end.
+  const draftPrompt = useComposerThreadDraft(sideChatRef).prompt;
+  // While a question is pending the editor holds its answer, apart from the side chat's draft.
+  const answer = answeringPendingUserInput ? (props.pendingUserInputCustomAnswer ?? "") : null;
+  const prompt = answer ?? draftPrompt;
+  // The editor's caret, kept per side chat and per text so a new one opens at its end.
+  const caretKey = answer === null ? sideChatKey : `${sideChatKey}:answer`;
   const [caret, setCaret] = useState<{ readonly key: string; readonly cursor: number } | null>(
     null,
   );
   const cursor =
-    caret?.key === sideChatKey
-      ? caret.cursor
-      : collapseExpandedComposerCursor(prompt, prompt.length);
+    caret?.key === caretKey ? caret.cursor : collapseExpandedComposerCursor(prompt, prompt.length);
   // The send-state ref dedupes across remounts; this state re-renders the button.
   const [sending, setSending] = useState(false);
   const canOperate = useEnvironmentScope(sideChatRef.environmentId, AuthOrchestrationOperateScope);
@@ -121,11 +125,22 @@ export function SideChatComposer(props: {
   const isSoftwareKeyboardOpen = useSoftwareKeyboardOpen();
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, { reportFailure: false });
 
-  const readPrompt = () =>
+  const readDraft = () =>
     useComposerDraftStore.getState().getComposerDraft(sideChatRef)?.prompt ?? "";
-  const writePrompt = (next: string, expandedCursor: number) => {
+  const writeDraft = (next: string, expandedCursor: number) => {
     useComposerDraftStore.getState().setPrompt(sideChatRef, next);
     setCaret({ key: sideChatKey, cursor: collapseExpandedComposerCursor(next, expandedCursor) });
+  };
+  // The editor's text: the pending answer while answering, the side chat's draft otherwise.
+  const readPrompt = () => answer ?? readDraft();
+  const writePrompt = (next: string, expandedCursor: number) => {
+    if (answer === null) {
+      writeDraft(next, expandedCursor);
+      return;
+    }
+    const nextCursor = collapseExpandedComposerCursor(next, expandedCursor);
+    props.onPendingUserInputCustomAnswerChange?.(next, nextCursor);
+    setCaret({ key: caretKey, cursor: nextCursor });
   };
   const planSend = (input: { readonly sendInFlight: boolean; readonly prompt: string }) =>
     planSideChatSend({
@@ -141,7 +156,7 @@ export function SideChatComposer(props: {
 
   const send = async () => {
     const { sendInFlight } = draftSendState(sideChatKey);
-    const text = readPrompt();
+    const text = readDraft();
     const plan = planSend({ sendInFlight: sendInFlight.current, prompt: text });
     if (plan._tag === "AnswerPendingInput") {
       props.onAdvancePendingUserInput();
@@ -162,7 +177,7 @@ export function SideChatComposer(props: {
       createdAt,
       updatedAt: createdAt,
     });
-    writePrompt("", 0);
+    writeDraft("", 0);
     const result = await startTurn({
       environmentId: sideChatRef.environmentId,
       input: {
@@ -180,7 +195,7 @@ export function SideChatComposer(props: {
 
     props.onOptimisticMessageFailed(messageId);
     // Text typed while the send was in flight stays; the failed row still shows the message.
-    if (readPrompt() === "") writePrompt(text, text.length);
+    if (readDraft() === "") writeDraft(text, text.length);
     if (isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
     toastManager.add(
@@ -250,11 +265,9 @@ export function SideChatComposer(props: {
           containerClassName="min-w-0 flex-1"
           className="min-h-10"
           onChange={(value, nextCursor) => {
-            useComposerDraftStore.getState().setPrompt(sideChatRef, value);
-            setCaret({ key: sideChatKey, cursor: nextCursor });
-            if (answeringPendingUserInput) {
-              props.onPendingUserInputCustomAnswerChange?.(value, nextCursor);
-            }
+            if (answer === null) useComposerDraftStore.getState().setPrompt(sideChatRef, value);
+            else props.onPendingUserInputCustomAnswerChange?.(value, nextCursor);
+            setCaret({ key: caretKey, cursor: nextCursor });
           }}
           onCommandKeyDown={(key, event) => {
             if (key !== "Enter") return false;

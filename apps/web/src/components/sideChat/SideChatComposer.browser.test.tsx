@@ -10,7 +10,7 @@ import {
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
-import { createRef, type ComponentProps } from "react";
+import { createRef, useState, type ComponentProps } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -249,4 +249,40 @@ it("quotes a cited selection into the side chat's own draft", async () => {
   expect(cited).toBe(true);
   expect(draft()).toBe(`Why ${serializeAssistantCitation(CITATION)} `);
   await expect.element(page.getByLabelText("Comment on selected text")).toBeVisible();
+});
+
+it("keeps a pending question's answer apart from the side chat's draft", async () => {
+  const dispatch = setup();
+  useComposerDraftStore.getState().setPrompt(SIDE_CHAT_REF, "A follow-up");
+  const onAnswer = vi.fn();
+  const onAdvancePendingUserInput = vi.fn();
+  const handleRef = createRef<SideChatComposerHandle>();
+  function Answering() {
+    const [answer, setAnswer] = useState("");
+    return composer({
+      answeringPendingUserInput: true,
+      pendingUserInputCustomAnswer: answer,
+      onPendingUserInputCustomAnswerChange: (value, cursor) => {
+        setAnswer(value);
+        onAnswer(value, cursor);
+      },
+      onAdvancePendingUserInput,
+      handleRef,
+    });
+  }
+  await using screen = await render(<Answering />);
+
+  await expect.element(editor(screen)).not.toHaveTextContent("A follow-up");
+  await editor(screen).click();
+  await userEvent.keyboard("A box");
+  await expect.element(editor(screen)).toHaveTextContent("A box");
+  expect(onAnswer).toHaveBeenLastCalledWith("A box", 5);
+  await act(() => handleRef.current?.insertTextAtEnd("!"));
+  expect(onAnswer).toHaveBeenLastCalledWith("A box!", 6);
+  expect(draft()).toBe("A follow-up");
+
+  await userEvent.keyboard("{Enter}");
+  expect(onAdvancePendingUserInput).toHaveBeenCalledOnce();
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(draft()).toBe("A follow-up");
 });
