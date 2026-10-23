@@ -66,6 +66,9 @@ export interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
 }
 
+/** The wait shown while a send holds for a side-chat note that is still being written. */
+export type SideChatWaitLabel = "Adding side-chat note…";
+
 export interface TimelineRowActivityState {
   isWorking: boolean;
   isCompacting: boolean;
@@ -73,6 +76,7 @@ export interface TimelineRowActivityState {
   activeTurnInProgress: boolean;
   awaitingUser: boolean;
   isPreparingWorktree: boolean;
+  sideChatWaitLabel: SideChatWaitLabel | null;
   latestRunId: RunId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
 }

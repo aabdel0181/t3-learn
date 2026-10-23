@@ -368,6 +368,23 @@ describe("MessagesTimeline agent messages", () => {
   });
 });
 
+describe("MessagesTimeline side-chat note wait", () => {
+  it("shows the note wait as plain text ahead of the worktree and compaction labels", async () => {
+    setup();
+    await using screen = await renderTimeline([message("Explain the loop")], {
+      isWorking: true,
+      isPreparingWorktree: true,
+      isCompacting: true,
+      sideChatWaitLabel: "Adding side-chat note…",
+    });
+
+    await vi.waitFor(() => expect(screen.text()).toContain("Adding side-chat note…"));
+    expect(screen.text()).not.toContain("Setting up worktree…");
+    expect(screen.text()).not.toContain("Compacting");
+    expect(screen.container.querySelector(".live-activity-focus")).toBeNull();
+  });
+});
+
 describe("compact reasoning math", () => {
   it("keeps formulas while flattening compact reasoning previews", () => {
     const tree = parseMarkdownWithMath("## Reasoning\n\nUse **norm** $|x|$ and \\[x^2\\]");

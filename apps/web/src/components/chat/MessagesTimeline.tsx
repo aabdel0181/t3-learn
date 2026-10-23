@@ -89,6 +89,7 @@ import { TimelineMinimap } from "./TimelineMinimap";
 import {
   type TimelineRowSharedState,
   type TimelineRowActivityState,
+  type SideChatWaitLabel,
   TimelineRowCtx,
   TimelineRowActivityCtx,
   type WorkGroupViewState,
@@ -198,6 +199,7 @@ interface MessagesTimelineProps {
   onOpenWorktreeSetupTerminal?: (terminalId: string) => void;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
+  sideChatWaitLabel?: SideChatWaitLabel | null;
   awaitingUser?: boolean;
   footer?: ReactNode;
 
@@ -307,6 +309,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenWorktreeSetupTerminal,
   isPreparingWorktree = false,
   isCompacting = false,
+  sideChatWaitLabel = null,
   awaitingUser = false,
   listRef,
   timelineEntries,
@@ -957,6 +960,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     activeTurnInProgress,
     awaitingUser,
     isPreparingWorktree,
+    sideChatWaitLabel,
     latestRunId: latestRun?.runId ?? null,
   };
   const listHeaderLeadingContent =

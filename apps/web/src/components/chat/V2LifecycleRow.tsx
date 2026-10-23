@@ -53,9 +53,10 @@ import { getTriggerDisplayModelName } from "./providerIconUtils";
 import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
-import { subagentResumedSince } from "./V2LifecycleRow.logic";
+import { sideChatHandoffDividerLabel, subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
+import { SideChatContextDivider } from "../sideChat/SideChatContextDivider";
 
 const LIFECYCLE_TYPES = new Set<OrchestrationV2TurnItem["type"]>([
   "run_interrupt_request",
@@ -130,6 +131,10 @@ export function V2LifecycleRow(props: {
     );
   }
   if (item.type === "handoff") {
+    const sideChatLabel = sideChatHandoffDividerLabel(item);
+    if (sideChatLabel !== null) {
+      return <SideChatContextDivider label={sideChatLabel} summary={item.summary ?? ""} />;
+    }
     return (
       <EnvironmentHandoffRow
         environmentId={props.environmentId}
