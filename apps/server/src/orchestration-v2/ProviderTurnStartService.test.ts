@@ -16,6 +16,7 @@ import {
   RunId,
   ThreadId,
   ProjectId,
+  type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
@@ -52,6 +53,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import { sideChatOpeningEffectId, sideChatOpeningHandoffId } from "./sideChat/sideChatOpening.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -279,6 +281,8 @@ function makeLocalCommandHarness(input: {
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
+  readonly sideChat?: OrchestrationV2SideChat;
+  readonly awaitSettled?: EffectOutbox.EffectOutboxV2Shape["awaitSettled"];
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -355,6 +359,7 @@ function makeLocalCommandHarness(input: {
       projectId: ProjectId.make("project-native-account-command"),
       branch: input.worktreePath === undefined ? null : "feature/restore",
       worktreePath: input.worktreePath ?? null,
+      ...(input.sideChat === undefined ? {} : { sideChat: input.sideChat }),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -671,6 +676,15 @@ function makeLocalCommandHarness(input: {
           return { committed, storedEvents: [] };
         }),
   );
+  const write = vi.fn(({ events: incoming }: Parameters<EventSink.EventSinkV2Shape["write"]>[0]) =>
+    Effect.sync(() => {
+      for (const event of incoming) {
+        events.push(event);
+        projection = ProjectionStore.applyToProjection(projection, event);
+      }
+      return [];
+    }),
+  );
   const resolveRuntimePolicy = vi.fn(
     ({ thread }: Parameters<RuntimePolicy.RuntimePolicyV2Shape["resolve"]>[0]) =>
       Effect.succeed({ cwd: thread.worktreePath ?? "/tmp/native-account-command" } as never),
@@ -695,7 +709,7 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
           prepareProviderHandoff: () => Effect.die("history read must fail first"),
         }),
-        Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
+        Layer.mock(EventSink.EventSinkV2)({ write, writeIfRunCurrent }),
         IdAllocator.layer,
         layerWorktreeLocation(input.worktreesDir),
         input.fileSystem === undefined
@@ -747,7 +761,9 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
         }),
-        Layer.mock(EffectOutbox.EffectOutboxV2)({}),
+        Layer.mock(EffectOutbox.EffectOutboxV2)(
+          input.awaitSettled === undefined ? {} : { awaitSettled: input.awaitSettled },
+        ),
       ),
     ),
   );
@@ -1023,6 +1039,137 @@ effectIt.effect("reads current startup state after waiting for the workspace lea
     yield* Fiber.join(startup);
     expect(harness.open).not.toHaveBeenCalled();
     expect(harness.startRootRun).not.toHaveBeenCalled();
+  }),
+);
+
+const SIDE_CHAT_OPENING_REQUEST_ID = "command-side-chat-open";
+const pendingSideChat: OrchestrationV2SideChat = {
+  lessonThreadId: ThreadId.make("thread-lesson"),
+  anchor: {
+    threadId: ThreadId.make("thread-lesson"),
+    messageId: MessageId.make("message-lesson-reply"),
+    start: 0,
+    end: 17,
+    prefix: "",
+    suffix: "",
+  },
+  excerpt: "observation space",
+  excerptContext: "",
+  label: "observation space",
+  opening: { status: "pending", text: null, requestId: SIDE_CHAT_OPENING_REQUEST_ID },
+  done: null,
+};
+const openingSummaryText = (events: ReadonlyArray<OrchestrationV2DomainEvent>) =>
+  events.flatMap((event) =>
+    event.type === "context-handoff.updated" ? [event.payload.summaryText] : [],
+  );
+
+effectIt.effect("waits for a side chat's opening summary before taking the workspace lease", () =>
+  Effect.gen(function* () {
+    const worktreePath = "/tmp/provider-start-side-chat-opening";
+    const waiting = yield* Deferred.make<void>();
+    const settled = yield* Deferred.make<void>();
+    const harness = makeLocalCommandHarness({
+      text: "What is an observation space?",
+      worktreePath,
+      failReadsAfterRunning: true,
+      sideChat: pendingSideChat,
+      awaitSettled: (effectId) => {
+        expect(effectId).toBe(sideChatOpeningEffectId(SIDE_CHAT_OPENING_REQUEST_ID));
+        return Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(settled)));
+      },
+    });
+
+    const startup = yield* harness.start.pipe(Effect.forkChild({ startImmediately: true }));
+    yield* Deferred.await(waiting);
+    // A side chat shares the lesson's worktree, which stays free for the lesson while it waits.
+    const leaseHolder = yield* withWorkspaceLease(worktreePath, Effect.void).pipe(
+      Effect.forkChild({ startImmediately: true }),
+    );
+    expect(leaseHolder.pollUnsafe()).toBeDefined();
+    expect(harness.getTurnStartContext).not.toHaveBeenCalled();
+
+    const projection = harness.projection();
+    harness.setProjection({
+      ...projection,
+      thread: {
+        ...projection.thread,
+        sideChat: {
+          ...pendingSideChat,
+          opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
+        },
+      },
+    });
+    yield* Deferred.succeed(settled, undefined);
+    yield* Fiber.join(startup);
+
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+    const summaries = openingSummaryText(harness.events);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain("Summary of the lesson so far:\nLESSON SUMMARY");
+  }),
+);
+
+effectIt.effect.each([
+  { name: "a retried start already has its opening context", earlierRun: false },
+  { name: "an earlier run already had the opening context", earlierRun: true },
+])("does not wait for a side chat's opening summary when $name", ({ earlierRun }) =>
+  Effect.gen(function* () {
+    const awaitSettled = vi.fn(() => Effect.void);
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      failReadsAfterRunning: true,
+      sideChat: pendingSideChat,
+      awaitSettled,
+    });
+    const projection = harness.projection();
+    const run = projection.runs.at(-1)!;
+    const handoffRunId = earlierRun ? RunId.make("run-side-chat-earlier") : run.id;
+    harness.setProjection({
+      ...projection,
+      contextHandoffs: [
+        {
+          id: sideChatOpeningHandoffId(handoffRunId),
+          transferId: null,
+          threadId: run.threadId,
+          targetRunId: handoffRunId,
+          fromProviderThreadIds: [],
+          toProviderThreadId: projection.providerThreads.at(-1)!.id,
+          coveredRunOrdinals: { from: 1, to: 1 },
+          strategy: "manual_context",
+          status: "ready",
+          summaryMessageId: null,
+          summaryText: "Earlier opening context",
+          createdByProviderInstanceId: null,
+          createdAt: run.requestedAt,
+          updatedAt: run.requestedAt,
+        },
+      ],
+    });
+
+    yield* harness.start;
+
+    expect(awaitSettled).not.toHaveBeenCalled();
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+  }),
+);
+
+effectIt.effect("starts with the fallback context when waiting for the opening summary fails", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "What is an observation space?",
+      failReadsAfterRunning: true,
+      sideChat: pendingSideChat,
+      awaitSettled: (effectId) =>
+        Effect.fail(new EffectOutbox.EffectOutboxError({ operation: "get", effectId })),
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+    const summaries = openingSummaryText(harness.events);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain("The lesson summary is unavailable.");
   }),
 );
 

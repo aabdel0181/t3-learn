@@ -29,8 +29,6 @@ export const makePromptRecordingAdapter = Effect.fn("makePromptRecordingAdapter"
     readonly cwd: string;
     /** Every native resume fails, so each turn after the first binds a fresh native thread. */
     readonly failResume?: boolean;
-    /** Runs whenever a session opens, before it is returned. */
-    readonly onOpenSession?: Effect.Effect<void>;
   }) {
     const { instanceId, driver, capabilities } = input;
     const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
@@ -43,7 +41,6 @@ export const makePromptRecordingAdapter = Effect.fn("makePromptRecordingAdapter"
       getCapabilities: () => Effect.succeed(capabilities),
       planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
       openSession: Effect.fn("PromptRecordingAdapter.openSession")(function* (session) {
-        if (input.onOpenSession !== undefined) yield* input.onOpenSession;
         const now = yield* DateTime.now;
         return {
           instanceId,

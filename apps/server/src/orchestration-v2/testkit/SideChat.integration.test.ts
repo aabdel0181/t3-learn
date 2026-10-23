@@ -21,6 +21,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
+import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
 import { ClaudeProviderCapabilitiesV2 } from "../Adapters/ClaudeAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "../Adapters/CodexAdapterV2.ts";
 import * as EffectOutbox from "../EffectOutbox.ts";
@@ -350,7 +351,6 @@ describe("side chat opening context", () => {
     options: {
       readonly generateSideChatText?: GenerateSideChatText;
       readonly failResume?: boolean;
-      readonly onOpenSession?: Effect.Effect<void>;
     } = {},
   ) {
     const cwd = yield* checkpointWorkspace(name);
@@ -360,7 +360,6 @@ describe("side chat opening context", () => {
       capabilities: CodexProviderCapabilitiesV2,
       cwd,
       ...(options.failResume === undefined ? {} : { failResume: options.failResume }),
-      ...(options.onOpenSession === undefined ? {} : { onOpenSession: options.onOpenSession }),
     });
     const switched = yield* makePromptRecordingAdapter({
       instanceId: CLAUDE_SELECTION.instanceId,
@@ -528,7 +527,6 @@ describe("side chat opening context", () => {
               Effect.andThen(Deferred.await(gate)),
               Effect.as({ text: LESSON_SUMMARY }),
             ),
-          onOpenSession: Deferred.succeed(gate, undefined).pipe(Effect.asVoid),
         });
         yield* Effect.gen(function* () {
           const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -547,7 +545,13 @@ describe("side chat opening context", () => {
 
           const opening = yield* worker.runOnce.pipe(Effect.forkChild);
           yield* Deferred.await(entered);
-          assert.isTrue(yield* worker.runOnce);
+          const turnStart = yield* worker.runOnce.pipe(
+            Effect.forkChild({ startImmediately: true }),
+          );
+          // The side chat waits without holding the lesson's worktree, so the lesson can still
+          // take it, here to let the summary land.
+          yield* withWorkspaceLease(cwd, Deferred.succeed(gate, undefined));
+          assert.isTrue(yield* Fiber.join(turnStart));
           yield* Fiber.join(opening);
         }).pipe(Effect.provide(layer));
 

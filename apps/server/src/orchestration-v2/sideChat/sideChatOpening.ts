@@ -50,6 +50,13 @@ export function sideChatOpeningHandoffId(runId: RunId): ContextHandoffId {
   return ContextHandoffId.make(`side-chat-opening:${runId}`);
 }
 
+/** Whether `handoff` is the opening context some run of a side chat received. */
+export function isSideChatOpeningHandoff(
+  handoff: Pick<OrchestrationV2ContextHandoff, "id" | "targetRunId">,
+): boolean {
+  return handoff.id === sideChatOpeningHandoffId(handoff.targetRunId);
+}
+
 export interface SideChatContextHandoff {
   readonly handoff: OrchestrationV2ContextHandoff;
   readonly turnItem: OrchestrationV2TurnItem;
