@@ -1,8 +1,12 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import type { ProviderInstanceId } from "@t3tools/contracts";
-import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
+import type {
+  ProviderTextGeneration,
+  SideChatTextGenerationInput,
+} from "@t3tools/provider-core/server/textGeneration";
 import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -101,3 +105,22 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(TextGeneration, make);
+
+// Providers honour `cwd` and Codex/Claude load AGENTS.md or CLAUDE.md from it, so side-chat text never runs in the project.
+export const generateIsolatedSideChatText = Effect.fn(
+  "TextGeneration.generateIsolatedSideChatText",
+)(function* (input: Omit<SideChatTextGenerationInput, "cwd">) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const textGeneration = yield* TextGeneration;
+  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-side-chat-" }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new TextGenerationError({
+          operation: "generateSideChatText",
+          detail: "Failed to create an empty side-chat directory.",
+          cause,
+        }),
+    ),
+  );
+  return yield* textGeneration.generateSideChatText({ ...input, cwd });
+}, Effect.scoped);
