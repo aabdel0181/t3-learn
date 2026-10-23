@@ -60,6 +60,7 @@ import {
   RunId,
   RuntimeMode,
   SIDE_CHAT_EXCERPT_MAX_CHARS,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
   ThreadLinkedPullRequest,
   ThreadId,
   type TurnItemId,
@@ -145,12 +146,18 @@ import {
   planSideChatThread,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
-import { pendingSideChatOpeningEffect } from "./sideChat/sideChatOpening.ts";
+import { buildSideChatNotesSummaryText, isUserAuthoredSideChatTrigger } from "./sideChat/notes.ts";
+import {
+  buildSideChatContextHandoff,
+  pendingSideChatOpeningEffect,
+} from "./sideChat/sideChatOpening.ts";
 import { deriveSideChatLabel, extractExcerptContext } from "./sideChat/sideChatText.ts";
 import {
+  sideChatChildren,
   sideChatDescendants,
   sideChatLessonThreadId,
   sideChatOutcomeRequestId,
+  undeliveredReadySideChatNotes,
 } from "./sideChat/tree.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -10526,6 +10533,121 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  /**
+   * Hands the ready notes of the thread's side chats that it has not received to the run about to
+   * start, as one handoff that reaches the provider with the user's message, and records them as
+   * delivered. Only a user's own message takes notes, and only before its provider turn starts.
+   */
+  const dispatchSideChatNotesAttach = Effect.fn("orchestrationV2.dispatch.sideChatNotesAttach")(
+    function* (
+      command: Extract<
+        OrchestrationV2ServerCommand,
+        { readonly type: "thread.side_chat.notes.attach" }
+      >,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      const records = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs", "attempts", "messages"], {
+          runIds: [command.runId],
+          messageRunIds: [command.runId],
+          messageRoles: ["user"],
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const { thread } = records;
+      const run = records.runs.find((candidate) => candidate.id === command.runId);
+      const attempt = records.attempts.find((candidate) => candidate.id === run?.activeAttemptId);
+      const message = records.messages.find((candidate) => candidate.id === run?.userMessageId);
+      const now = yield* DateTime.now;
+      const emitEvent = emit(events, command);
+      // A command must emit an event, so a run that takes no notes gets the row unchanged.
+      const emitUnchanged = emitEvent({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: thread,
+      });
+      if (
+        run === undefined ||
+        run.status !== "starting" ||
+        attempt?.status !== "pending" ||
+        run.providerThreadId === null ||
+        run.rootNodeId === null ||
+        run.restartContinuationOfRunId !== undefined ||
+        message === undefined ||
+        !isUserAuthoredSideChatTrigger(message)
+      ) {
+        yield* emitUnchanged;
+        return;
+      }
+      const notes = undeliveredReadySideChatNotes(
+        thread,
+        sideChatChildren(yield* readSideChatTree(thread), thread.id),
+      );
+      if (notes.length === 0) {
+        yield* emitUnchanged;
+        return;
+      }
+
+      const handoffId = yield* mapDispatchError(command)(
+        idAllocator.allocate.contextHandoff({
+          threadId: thread.id,
+          fromProviderInstanceId: run.providerInstanceId,
+          toProviderInstanceId: run.providerInstanceId,
+        }),
+      );
+      const { handoff, turnItem } = buildSideChatContextHandoff({
+        id: handoffId,
+        title: SIDE_CHAT_NOTES_HANDOFF_TITLE,
+        ordinalOffset: -2,
+        coveredRunOrdinals: { from: run.ordinal, to: run.ordinal },
+        run,
+        rootNodeId: run.rootNodeId,
+        providerThreadId: run.providerThreadId,
+        summaryText: buildSideChatNotesSummaryText(notes),
+        turnItemId: idAllocator.derive.runSignalTurnItem({
+          runId: run.id,
+          signal: `context-handoff:${handoffId}`,
+        }),
+        createdAt: now,
+      });
+      yield* emitEvent({
+        type: "context-handoff.updated",
+        threadId: thread.id,
+        runId: run.id,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+        payload: handoff,
+      });
+      yield* emitEvent({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          ...thread,
+          sideChatNoteDeliveries: {
+            ...thread.sideChatNoteDeliveries,
+            ...Object.fromEntries(notes.map((note) => [note.threadId, note.requestId])),
+          },
+        },
+      });
+      yield* emitEvent({
+        type: "turn-item.updated",
+        threadId: thread.id,
+        runId: run.id,
+        nodeId: run.rootNodeId,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+        payload: turnItem,
+      });
+    },
+  );
+
   const dispatchCheckpointRollback = Effect.fn("Orchestrator.dispatchCheckpointRollback")(
     function* (
       command: Extract<OrchestrationV2Command, { readonly type: "checkpoint.rollback" }>,
@@ -12018,6 +12140,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.side_chat.outcome.complete":
         yield* dispatchSideChatOutcomeComplete(command, events);
+        break;
+      case "thread.side_chat.notes.attach":
+        yield* dispatchSideChatNotesAttach(command, events);
         break;
       case "delegated_task.request":
         yield* dispatchDelegatedTaskRequest(command, events, effects);

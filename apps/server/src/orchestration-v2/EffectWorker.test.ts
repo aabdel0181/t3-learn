@@ -153,7 +153,9 @@ function layerExecutorFor(input: {
       }),
     ),
     Layer.mock(SideChatOpeningService.SideChatOpeningService)({ execute: () => Effect.void }),
-    Layer.mock(SideChatLifecycleService.SideChatLifecycleService)({}),
+    Layer.mock(SideChatLifecycleService.SideChatLifecycleService)({
+      awaitNotesForRunStart: () => Effect.void,
+    }),
   );
   return EffectWorker.layerExecutor.pipe(
     Layer.provide(

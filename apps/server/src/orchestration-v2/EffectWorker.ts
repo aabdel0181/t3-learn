@@ -145,9 +145,17 @@ export const layerExecutor: Layer.Layer<
                 ),
               );
           case "provider-turn.start":
-            return providerTurnStart
-              .start({ threadId: effect.threadId, runId: effect.request.runId, willRetry })
+            // Side-chat notes ride a user's message, so they are attached before its turn starts.
+            return sideChatLifecycle
+              .awaitNotesForRunStart({ threadId: effect.threadId, runId: effect.request.runId })
               .pipe(
+                Effect.andThen(
+                  providerTurnStart.start({
+                    threadId: effect.threadId,
+                    runId: effect.request.runId,
+                    willRetry,
+                  }),
+                ),
                 Effect.mapError(
                   (cause) =>
                     new OrchestrationEffectExecutionError({

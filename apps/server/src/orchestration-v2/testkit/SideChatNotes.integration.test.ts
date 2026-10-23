@@ -1,0 +1,307 @@
+import {
+  CommandId,
+  type OrchestrationV2SideChatOutcome,
+  ScheduledTaskId,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { assert, describe, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as TestClock from "effect/testing/TestClock";
+
+import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
+import * as Orchestrator from "../Orchestrator.ts";
+import {
+  buildSideChatNotesSummaryText,
+  isSideChatNotesHandoff,
+  SIDE_CHAT_NOTES_HEADER,
+} from "../sideChat/notes.ts";
+import {
+  makeSideChatHarness,
+  type SideChatHarness,
+  type SideChatNoteScript,
+} from "./SideChatHarness.ts";
+
+const SPACE = "observation space";
+const BOX = "Box";
+const SPACE_QUESTION = "What is an observation space?";
+const BOX_QUESTION = "What is a Box?";
+const SPACE_NOTE = "They had not met observation spaces before.";
+const BOX_NOTE = "They did not know that a Box has bounds.";
+const spaceLine = `• re "observation space": ${SPACE_NOTE}`;
+
+const headerCount = (prompt: string): number => prompt.split(SIDE_CHAT_NOTES_HEADER).length - 1;
+
+/** Presses Done on `threadId` with its note scripted, and returns the request id it settled on. */
+const finishWithNote = Effect.fn("finishWithNote")(function* (
+  harness: SideChatHarness,
+  threadId: ThreadId,
+  excerpt: string,
+  script: SideChatNoteScript,
+  status: OrchestrationV2SideChatOutcome["status"],
+) {
+  harness.scriptNote(excerpt, script);
+  const after = yield* harness.mark;
+  yield* harness.finish(threadId);
+  const finished = yield* harness.awaitOutcome(after, threadId, status);
+  return finished.sideChat?.done?.outcome.requestId;
+});
+
+/** A lesson with the `observation space` side chat answered and done with a ready note. */
+const lessonWithSpaceNote = Effect.fn("lessonWithSpaceNote")(function* (harness: SideChatHarness) {
+  const lesson = yield* harness.createLesson("Teach me RL environments.");
+  const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+  yield* harness.send(space, SPACE_QUESTION);
+  yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+  return lesson;
+});
+
+/**
+ * A lesson whose turn `[hold] Explain rewards.` is still running, with the `observation space`
+ * side chat done with a ready note. The side chat's own turn was held while the lesson's started.
+ */
+const heldLessonWithSpaceNote = Effect.fn("heldLessonWithSpaceNote")(function* (
+  harness: SideChatHarness,
+) {
+  const lesson = yield* harness.createLesson("Teach me RL environments.");
+  const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+  const spaceQuestion = yield* harness.send(space, `[hold] ${SPACE_QUESTION}`);
+  const heldLessonMessage = yield* harness.send(lesson, "[hold] Explain rewards.");
+  const afterSpace = yield* harness.mark;
+  yield* harness.finishHeldTurn(space);
+  yield* harness.awaitRun(afterSpace, spaceQuestion, "completed");
+  yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+  return { lesson, heldLessonMessage };
+});
+
+describe("side-chat notes", () => {
+  it.effect("the lesson's next user prompt carries every ready note in one handoff", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-ready");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        const box = yield* harness.openSideChat({ parentThreadId: lesson, label: BOX });
+        yield* harness.send(space, SPACE_QUESTION);
+        yield* harness.send(box, BOX_QUESTION);
+        const spaceRequestId = yield* finishWithNote(
+          harness,
+          space,
+          SPACE,
+          { text: SPACE_NOTE },
+          "ready",
+        );
+        yield* TestClock.adjust("1 second");
+        const boxRequestId = yield* finishWithNote(harness, box, BOX, { text: BOX_NOTE }, "ready");
+
+        yield* harness.send(lesson, "Continue the lesson.");
+
+        const expected = buildSideChatNotesSummaryText([
+          { label: SPACE, note: SPACE_NOTE },
+          { label: BOX, note: BOX_NOTE },
+        ]);
+        const prompt = harness.prompts(lesson).at(-1) ?? "";
+        assert.include(prompt, expected);
+        assert.equal(headerCount(prompt), 1);
+        assert.isTrue(prompt.endsWith("User message:\nContinue the lesson."));
+        // R3: the side chats' conversations stay out of the lesson.
+        assert.notInclude(prompt, SPACE_QUESTION);
+        assert.notInclude(prompt, BOX_QUESTION);
+
+        const projection = yield* orchestrator.getThreadProjection(lesson);
+        assert.deepEqual(
+          projection.contextHandoffs
+            .filter(isSideChatNotesHandoff)
+            .map((handoff) => handoff.summaryText),
+          [expected],
+        );
+        assert.deepEqual(projection.thread.sideChatNoteDeliveries, {
+          [space]: spaceRequestId,
+          [box]: boxRequestId,
+        });
+        assert.lengthOf(
+          projection.turnItems.filter(
+            (item) => item.type === "handoff" && item.title === SIDE_CHAT_NOTES_HANDOFF_TITLE,
+          ),
+          1,
+        );
+        assert.deepEqual(
+          projection.contextTransfers.filter(
+            (transfer) => transfer.type === "fork" || transfer.type === "merge_back",
+          ),
+          [],
+        );
+
+        yield* harness.send(lesson, "Next step.");
+        assert.equal(headerCount(harness.prompts(lesson).at(-1) ?? ""), 0);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("no note and a failed note add nothing to the lesson's prompt", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-none");
+      yield* Effect.gen(function* () {
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        const box = yield* harness.openSideChat({ parentThreadId: lesson, label: BOX });
+        yield* harness.send(space, SPACE_QUESTION);
+        yield* harness.send(box, BOX_QUESTION);
+        yield* finishWithNote(harness, space, SPACE, { text: null }, "none");
+        yield* finishWithNote(harness, box, BOX, { fail: "model unavailable" }, "failed");
+
+        yield* harness.send(lesson, "Continue the lesson.");
+
+        assert.equal(headerCount(harness.prompts(lesson).at(-1) ?? ""), 0);
+        assert.isUndefined((yield* harness.thread(lesson)).sideChatNoteDeliveries);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a scheduled-task message neither carries nor consumes notes", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-scheduled");
+      yield* Effect.gen(function* () {
+        const lesson = yield* lessonWithSpaceNote(harness);
+
+        yield* harness.send(lesson, "Run the nightly check.", {
+          scheduledTaskId: ScheduledTaskId.make("scheduled:nightly"),
+        });
+
+        assert.equal(headerCount(harness.prompts(lesson).at(-1) ?? ""), 0);
+        assert.isUndefined((yield* harness.thread(lesson)).sideChatNoteDeliveries);
+
+        yield* harness.send(lesson, "Continue the lesson.");
+        assert.include(harness.prompts(lesson).at(-1), spaceLine);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a queued lesson message carries notes that became ready before it started", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-queued");
+      yield* Effect.gen(function* () {
+        const { lesson } = yield* heldLessonWithSpaceNote(harness);
+
+        const after = yield* harness.mark;
+        const queued = yield* harness.send(lesson, "Continue the lesson.", {
+          dispatchMode: { type: "queue_after_active" },
+          await: "none",
+        });
+        yield* harness.finishHeldTurn(lesson);
+        yield* harness.awaitRun(after, queued, "completed");
+
+        const prompts = harness.prompts(lesson);
+        assert.equal(headerCount(prompts.at(-2) ?? ""), 0);
+        assert.include(prompts.at(-1), spaceLine);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a user message waits for a note that is still being written", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-wait");
+      yield* Effect.gen(function* () {
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        yield* harness.send(space, SPACE_QUESTION);
+        const gate = yield* Deferred.make<string | null>();
+        harness.scriptNote(SPACE, { gate });
+        yield* harness.finish(space);
+        yield* harness.noteRequested(SPACE);
+
+        const after = yield* harness.mark;
+        const message = yield* harness.send(lesson, "Continue the lesson.", { await: "none" });
+        yield* Deferred.succeed(gate, SPACE_NOTE);
+        yield* harness.awaitRun(after, message, "completed");
+
+        assert.include(harness.prompts(lesson).at(-1), spaceLine);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a cancelled queued lesson message does not consume notes", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-cancelled");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const { lesson, heldLessonMessage } = yield* heldLessonWithSpaceNote(harness);
+
+        const after = yield* harness.mark;
+        const queued = yield* harness.send(lesson, "Continue.", {
+          dispatchMode: { type: "queue_after_active" },
+          await: "none",
+        });
+        const queuedRun = (yield* orchestrator.getThreadProjection(lesson)).runs.find(
+          (run) => run.status === "queued",
+        );
+        assert(queuedRun !== undefined);
+        yield* orchestrator.dispatch({
+          type: "queued-run.cancel",
+          commandId: CommandId.make("cancel-queued"),
+          threadId: lesson,
+          runId: queuedRun.id,
+        });
+        yield* harness.awaitRun(after, queued, "cancelled");
+
+        yield* harness.finishHeldTurn(lesson);
+        yield* harness.awaitRun(after, heldLessonMessage, "completed");
+        assert.isUndefined((yield* harness.thread(lesson)).sideChatNoteDeliveries);
+
+        yield* harness.send(lesson, "Next step.");
+        assert.include(harness.prompts(lesson).at(-1), spaceLine);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  // PF-11: a handoff left by a run that never reached the provider rides the next run, but notes
+  // only ride the user's own messages.
+  it.effect("a stopped lesson turn's notes wait for the user's next message", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-notes-stopped");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* lessonWithSpaceNote(harness);
+        const worktreePath = (yield* harness.thread(lesson)).worktreePath;
+        assert(worktreePath !== null);
+        // Holding the lesson's worktree keeps its next turn from reaching the provider.
+        const leaseTaken = yield* Deferred.make<void>();
+        const releaseLease = yield* Deferred.make<void>();
+        yield* withWorkspaceLease(
+          worktreePath,
+          Deferred.succeed(leaseTaken, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseLease)),
+          ),
+        ).pipe(Effect.forkScoped);
+        yield* Deferred.await(leaseTaken);
+
+        const after = yield* harness.mark;
+        const stopped = yield* harness.send(lesson, "Continue the lesson.", { await: "none" });
+        yield* harness.awaitEvent(
+          after,
+          (event) =>
+            event.type === "context-handoff.updated" &&
+            event.threadId === lesson &&
+            isSideChatNotesHandoff(event.payload),
+        );
+        yield* orchestrator.dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("stop-lesson"),
+          threadId: lesson,
+        });
+        yield* harness.awaitRun(after, stopped, "interrupted");
+        yield* Deferred.succeed(releaseLease, undefined);
+
+        yield* harness.send(lesson, "Run the nightly check.", {
+          scheduledTaskId: ScheduledTaskId.make("scheduled:nightly"),
+        });
+        assert.equal(headerCount(harness.prompts(lesson).at(-1) ?? ""), 0);
+
+        yield* harness.send(lesson, "Next step.");
+        assert.include(harness.prompts(lesson).at(-1), spaceLine);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+});

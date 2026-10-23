@@ -68,7 +68,7 @@ import {
   sideChatOpeningEffectId,
   sideChatOpeningHandoffId,
 } from "./sideChat/sideChatOpening.ts";
-import { isSideChatNotesHandoff } from "./sideChat/notes.ts";
+import { isSideChatNotesHandoff, isUserAuthoredSideChatTrigger } from "./sideChat/notes.ts";
 import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
@@ -273,12 +273,16 @@ export const layer: Layer.Layer<
           .filter((transfer) => transfer.type === "subagent_result")
           .map((transfer) => transfer.id),
       );
+      // Side-chat notes ride only the user's own messages, so notes carried over from an earlier
+      // run wait for the user's next message.
+      const takesSideChatNotes = message !== undefined && isUserAuthoredSideChatTrigger(message);
       const handoffs = projection.contextHandoffs.filter(
         (handoff) =>
           (handoff.transferId == null || !subagentResultTransfers.has(handoff.transferId)) &&
           handoff.status === "ready" &&
           (handoff.targetRunId === run.id ||
-            (handoff.toProviderThreadId === run.providerThreadId &&
+            ((takesSideChatNotes || !isSideChatNotesHandoff(handoff)) &&
+              handoff.toProviderThreadId === run.providerThreadId &&
               projection.runs.some(
                 (source) =>
                   source.id === handoff.targetRunId &&
