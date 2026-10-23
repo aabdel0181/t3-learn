@@ -192,21 +192,24 @@ describe("AssistantSelectionToolbar", () => {
     await using screen = await render(
       <div
         data-slot="sheet-popup"
-        className="fixed top-40 left-24 w-96 border-s will-change-transform"
+        className="fixed top-40 left-12 w-96 border-s will-change-transform"
         style={{ translate: "12px 0" }}
       >
         <Reply onAskInSideChat={() => true} />
       </div>,
     );
-    select(screen.container, 20, 37);
+    // Early in the first line, so the toolbar fits beside the selection and the window-edge clamp
+    // stays out of the way.
+    select(screen.container, 4, 9);
     await expect.element(askButton()).toBeVisible();
 
-    const selected = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+    // The toolbar opens at the selection's last line, right edge and 4px below its bottom.
+    const selected = Array.from(window.getSelection()!.getRangeAt(0).getClientRects()).at(-1)!;
     const actions = toolbar().element().getBoundingClientRect();
-    expect(Math.abs(actions.left - selected.left)).toBeLessThan(120);
-    expect(
-      Math.min(Math.abs(actions.bottom - selected.top), Math.abs(actions.top - selected.bottom)),
-    ).toBeLessThan(24);
+    expect(selected.right + actions.width + 8).toBeLessThan(window.innerWidth);
+    // Under half a pixel, so the sheet's 1px start border (clientLeft) is pinned as well.
+    expect(Math.abs(actions.left - selected.right)).toBeLessThan(0.5);
+    expect(Math.abs(actions.top - (selected.bottom + 4))).toBeLessThan(8);
   });
 
   it("dismisses both actions on Escape", async () => {
