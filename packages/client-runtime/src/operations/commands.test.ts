@@ -15,6 +15,7 @@ import {
   TurnItemId,
   WS_METHODS,
   type OrchestrationV2Command,
+  type OrchestrationV2SideChatAnchor,
   type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2ThreadProjection,
   type ProjectMutation,
@@ -37,7 +38,9 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  finishSideChat,
   interruptThreadTurn,
+  openSideChat,
   revertThreadCheckpoint,
   resumeThreadQueue,
   startThreadTurn,
@@ -171,6 +174,70 @@ describe("V2 environment commands", () => {
 
       expect(commands).toEqual([
         { type: "thread.archive", commandId: "queued-command", threadId: "thread-1" },
+      ]);
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("sends side chat open and finish as dedicated commands", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const anchor: OrchestrationV2SideChatAnchor = {
+        threadId: ThreadId.make("lesson-1"),
+        messageId: MessageId.make("message-1"),
+        start: 12,
+        end: 29,
+        prefix: "the ",
+        suffix: " is",
+      };
+      const provide = Effect.provideService(
+        EnvironmentSupervisor.EnvironmentSupervisor,
+        supervisor,
+      );
+
+      yield* openSideChat({
+        commandId: CommandId.make("open-1"),
+        threadId: ThreadId.make("side-1"),
+        anchorThreadId: ThreadId.make("lesson-1"),
+        anchor,
+        excerpt: "observation space",
+      }).pipe(provide);
+      yield* finishSideChat({
+        commandId: CommandId.make("done-1"),
+        threadId: ThreadId.make("side-1"),
+      }).pipe(provide);
+      yield* finishSideChat({
+        commandId: CommandId.make("done-2"),
+        threadId: ThreadId.make("side-1"),
+        discard: true,
+      }).pipe(provide);
+
+      expect(commands).toEqual([
+        {
+          type: "thread.side_chat.open",
+          commandId: "open-1",
+          createdBy: "user",
+          creationSource: "web",
+          threadId: "side-1",
+          anchorThreadId: "lesson-1",
+          anchor,
+          excerpt: "observation space",
+        },
+        {
+          type: "thread.side_chat.done",
+          commandId: "done-1",
+          createdBy: "user",
+          creationSource: "web",
+          threadId: "side-1",
+        },
+        {
+          type: "thread.side_chat.done",
+          commandId: "done-2",
+          createdBy: "user",
+          creationSource: "web",
+          threadId: "side-1",
+          discard: true,
+        },
       ]);
     }).pipe(Effect.provide(layerTestCrypto)),
   );
