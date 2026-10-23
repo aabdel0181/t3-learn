@@ -3,10 +3,12 @@ import {
   EventId,
   MessageId,
   type ModelSelection,
+  type OrchestrationV2Command,
   type OrchestrationV2SideChat,
   type OrchestrationV2SideChatAnchor,
   ProjectId,
   ProviderInstanceId,
+  type RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -39,6 +41,7 @@ export interface SeedMessage {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly streaming?: boolean;
+  readonly runId?: RunId;
 }
 
 export const LESSON_MESSAGES: ReadonlyArray<SeedMessage> = [
@@ -63,6 +66,25 @@ export function observationAnchor(
   };
 }
 
+/** The user's open of a side chat on `anchor`, highlighted in its anchor thread. */
+export function openSideChatCommand(input: {
+  readonly commandId: string;
+  readonly threadId: ThreadId;
+  readonly anchor: OrchestrationV2SideChatAnchor;
+  readonly excerpt: string;
+}): Extract<OrchestrationV2Command, { readonly type: "thread.side_chat.open" }> {
+  return {
+    type: "thread.side_chat.open",
+    commandId: CommandId.make(input.commandId),
+    threadId: input.threadId,
+    anchorThreadId: input.anchor.threadId,
+    anchor: input.anchor,
+    excerpt: input.excerpt,
+    createdBy: "user",
+    creationSource: "web",
+  };
+}
+
 /** Writes finished messages one second apart, as if the provider had produced them. */
 export const seedThreadMessages = Effect.fn("sideChatFixtures.seedThreadMessages")(function* (
   threadId: ThreadId,
@@ -84,7 +106,7 @@ export const seedThreadMessages = Effect.fn("sideChatFixtures.seedThreadMessages
             : { createdBy: "user" as const, creationSource: "web" as const }),
           id: message.id,
           threadId,
-          runId: null,
+          runId: message.runId ?? null,
           nodeId: null,
           role: message.role,
           text: message.text,

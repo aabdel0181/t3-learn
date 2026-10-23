@@ -1841,7 +1841,9 @@ export const layerWsRpc = (
                   : command.threadId,
             ...(command.type === "thread.fork" || command.type === "thread.merge_back"
               ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
-              : {}),
+              : command.type === "thread.side_chat.open"
+                ? { "orchestration_v2.source_thread_id": command.anchorThreadId }
+                : {}),
           }).pipe(
             Effect.andThen(
               startup

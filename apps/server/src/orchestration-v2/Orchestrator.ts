@@ -59,6 +59,7 @@ import {
   type ProviderSessionId,
   RunId,
   RuntimeMode,
+  SIDE_CHAT_EXCERPT_MAX_CHARS,
   ThreadLinkedPullRequest,
   ThreadId,
   type TurnItemId,
@@ -141,8 +142,11 @@ import {
 import {
   forkableSourceRunStatusError,
   isForkableSourceRunStatus,
+  planSideChatThread,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
+import { pendingSideChatOpeningEffect } from "./sideChat/sideChatOpening.ts";
+import { deriveSideChatLabel, extractExcerptContext } from "./sideChat/sideChatText.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
@@ -3935,6 +3939,107 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchSideChatOpen = Effect.fn("orchestrationV2.dispatch.sideChatOpen")(function* (
+    command: Extract<OrchestrationV2Command, { readonly type: "thread.side_chat.open" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "orchestration_v2.command_id": command.commandId,
+      "orchestration_v2.command_type": command.type,
+      "orchestration_v2.source_thread_id": command.anchorThreadId,
+      "orchestration_v2.target_thread_id": command.threadId,
+    });
+
+    // Tombstones reserve their ids too, as in thread.create.
+    const existing = yield* projectionStore.getThread(command.threadId).pipe(
+      Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+      Effect.mapError(
+        (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+      ),
+    );
+    if (existing !== null) {
+      return yield* new OrchestratorThreadAlreadyExistsError({
+        commandId: command.commandId,
+        threadId: command.threadId,
+      });
+    }
+    const refuse = (cause: string) =>
+      new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause,
+      });
+    if (command.anchor.threadId !== command.anchorThreadId) {
+      return yield* refuse("The highlight belongs to a different thread.");
+    }
+
+    const anchorProjection = yield* projectionStore
+      .getThreadRecords(command.anchorThreadId, ["messages"], {
+        messageIds: [command.anchor.messageId],
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.anchorThreadId, cause }),
+        ),
+      );
+    const anchorThread = anchorProjection.thread;
+    if (anchorThread.archivedAt !== null || anchorThread.deletedAt !== null) {
+      return yield* refuse(`Thread ${command.anchorThreadId} is not active.`);
+    }
+    // No source run is required: only the highlighted reply itself must be finished.
+    const message = anchorProjection.messages.find(
+      (candidate) => candidate.id === command.anchor.messageId,
+    );
+    if (message === undefined || message.role !== "assistant") {
+      return yield* refuse(
+        `Message ${command.anchor.messageId} is not an assistant reply in thread ${command.anchorThreadId}.`,
+      );
+    }
+    if (message.streaming) {
+      return yield* refuse("The highlighted reply is still streaming.");
+    }
+    if (command.excerpt.length > SIDE_CHAT_EXCERPT_MAX_CHARS || command.excerpt.trim() === "") {
+      return yield* refuse(
+        `Side chat excerpts must be 1-${SIDE_CHAT_EXCERPT_MAX_CHARS} characters.`,
+      );
+    }
+    // The anchor is not under this command's lock, so check the modes the side chat copies.
+    yield* refuseAboveDispatchModeLimit(command, command.anchorThreadId, anchorThread);
+
+    const now = command.createdAt ?? (yield* DateTime.now);
+    const thread = planSideChatThread({
+      anchorThread,
+      threadId: command.threadId,
+      sideChat: {
+        lessonThreadId: anchorThread.sideChat?.lessonThreadId ?? anchorThread.id,
+        anchor: command.anchor,
+        excerpt: command.excerpt,
+        excerptContext: extractExcerptContext(message.text, command.anchor, command.excerpt),
+        label: deriveSideChatLabel(command.excerpt),
+        opening: { status: "pending", text: null, requestId: command.commandId },
+        done: null,
+      },
+      createdBy: command.createdBy,
+      creationSource: command.creationSource,
+      createdAt: now,
+    });
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.created",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: thread,
+    });
+    yield* Ref.update(effects, (existing) => [
+      ...existing,
+      pendingSideChatOpeningEffect(command.commandId, command.threadId),
+    ]);
+  });
+
   const dispatchSideChatOpeningComplete = Effect.fn(
     "orchestrationV2.dispatch.sideChatOpeningComplete",
   )(function* (
@@ -5029,8 +5134,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const userMessages = projection.messages.filter((message) => message.role === "user");
     const onlyMaintenanceHistory =
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
+    // A side chat keeps the title of its highlight.
     if (
       !isNativeMaintenanceCommand(command) &&
+      projection.thread.sideChat === undefined &&
       ((command.titleSeed !== undefined &&
         (yield* projectionStore
           .getMessageCount(command.threadId)
@@ -11593,6 +11700,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.merge_back":
         yield* dispatchThreadMergeBack(command, events);
+        break;
+      case "thread.side_chat.open":
+        yield* dispatchSideChatOpen(command, events, effects);
         break;
       case "thread.side_chat.opening.complete":
         yield* dispatchSideChatOpeningComplete(command, events);
