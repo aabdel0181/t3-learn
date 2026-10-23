@@ -27,6 +27,15 @@ export const LESSON_SELECTION: ModelSelection = {
   model: "gpt-5.4",
 };
 
+/** A provider the side chat can switch to. */
+export const CLAUDE_SELECTION: ModelSelection = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-sonnet-4-6",
+};
+
+/** What the fake summarizer writes for the lesson. */
+export const LESSON_SUMMARY = "LESSON SUMMARY: RL environments; the learner knows Python.";
+
 export const LESSON_TOPIC = "Teach me how reinforcement-learning environments work.";
 export const OBSERVATION_PARAGRAPH =
   "Every environment exposes an observation space that describes what the agent can see at each step.";
@@ -84,6 +93,52 @@ export function openSideChatCommand(input: {
     creationSource: "web",
   };
 }
+
+/** The user's message in `threadId`, started right away. */
+export function sideChatMessageCommand(input: {
+  readonly commandId: string;
+  readonly threadId: ThreadId;
+  readonly text: string;
+  readonly modelSelection?: ModelSelection;
+}): Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }> {
+  return {
+    type: "message.dispatch",
+    commandId: CommandId.make(input.commandId),
+    threadId: input.threadId,
+    messageId: MessageId.make(`message:${input.commandId}`),
+    text: input.text,
+    attachments: [],
+    ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+    dispatchMode: { type: "start_immediately" },
+    createdBy: "user",
+    creationSource: "web",
+  };
+}
+
+/** Marks the thread's newest run completed, as if its provider turn had finished. */
+export const completeLatestRun = Effect.fn("sideChatFixtures.completeLatestRun")(function* (
+  threadId: ThreadId,
+) {
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const eventSink = yield* EventSink.EventSinkV2;
+  const { runs } = yield* orchestrator.getThreadProjection(threadId);
+  const run = runs.reduce((newest, candidate) =>
+    candidate.ordinal > newest.ordinal ? candidate : newest,
+  );
+  const now = yield* DateTime.now;
+  yield* eventSink.write({
+    events: [
+      {
+        id: EventId.make(`event:complete-run:${run.id}`),
+        type: "run.updated",
+        threadId,
+        runId: run.id,
+        occurredAt: now,
+        payload: { ...run, status: "completed", completedAt: now },
+      },
+    ],
+  });
+});
 
 /** Writes finished messages one second apart, as if the provider had produced them. */
 export const seedThreadMessages = Effect.fn("sideChatFixtures.seedThreadMessages")(function* (

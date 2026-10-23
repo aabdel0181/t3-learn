@@ -58,6 +58,12 @@ import {
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
+import {
+  buildSideChatOpeningContext,
+  loadSideChatOpeningSources,
+  sideChatOpeningHandoffId,
+} from "./sideChat/sideChatOpening.ts";
+import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -873,6 +879,65 @@ export const layer: Layer.Layer<
         modelSelectionsEqual(previousSelection, run.modelSelection);
       const sameNativeThread =
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
+      // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
+      // along with its first prompt there. A retried start finds this handoff among `handoffs`.
+      const sideChat = projection.thread.sideChat;
+      const openingHandoffId = sideChatOpeningHandoffId(run.id);
+      if (
+        sideChat !== undefined &&
+        providerThread.nativeThreadRef === null &&
+        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId)
+      ) {
+        const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Side chat opening sources are unavailable", {
+              threadId: projection.thread.id,
+              runId,
+              error,
+            }).pipe(Effect.as({ lessonTopic: null, parentOpeningText: null })),
+          ),
+        );
+        const opening = buildSideChatOpeningContext({
+          run,
+          rootNodeId: rootNode.id,
+          providerThreadId: providerThread.id,
+          summaryText: buildSideChatOpeningSummaryText({
+            opening: sideChat.opening,
+            excerpt: sideChat.excerpt,
+            excerptContext: sideChat.excerptContext,
+            ...sources,
+          }),
+          turnItemId: idAllocator.derive.runSignalTurnItem({
+            runId,
+            signal: `context-handoff:${openingHandoffId}`,
+          }),
+          createdAt: now,
+        });
+        yield* eventSink.write({
+          events: [
+            {
+              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              type: "context-handoff.updated",
+              threadId: projection.thread.id,
+              runId,
+              providerInstanceId: run.providerInstanceId,
+              occurredAt: now,
+              payload: opening.handoff,
+            },
+            {
+              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              type: "turn-item.updated",
+              threadId: projection.thread.id,
+              runId,
+              nodeId: rootNode.id,
+              providerInstanceId: run.providerInstanceId,
+              occurredAt: now,
+              payload: opening.turnItem,
+            },
+          ],
+        });
+        effectiveHandoffs = [opening.handoff, ...effectiveHandoffs];
+      }
       const threadUsage = loadedProviderThread.contextUsage ?? providerThread.contextUsage;
       const previousUsage = measuredContext
         ? { ...threadUsage, ...measuredContext.usage }
