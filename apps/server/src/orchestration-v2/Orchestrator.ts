@@ -147,6 +147,11 @@ import {
 } from "./ThreadForkService.ts";
 import { pendingSideChatOpeningEffect } from "./sideChat/sideChatOpening.ts";
 import { deriveSideChatLabel, extractExcerptContext } from "./sideChat/sideChatText.ts";
+import {
+  sideChatDescendants,
+  sideChatLessonThreadId,
+  sideChatOutcomeRequestId,
+} from "./sideChat/tree.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
@@ -2123,7 +2128,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     for (const threadId of threadIds) {
       const resumedThread = yield* Effect.gen(function* () {
         if (!(yield* projectionStore.canStartQueuedRun(threadId))) return false;
-        yield* threadDispatch.withLock(threadId, startNextQueuedRun(threadId));
+        yield* withSideChatLessonLock(threadId, startNextQueuedRun(threadId));
         return true;
       }).pipe(
         Effect.catch((cause) =>
@@ -4059,10 +4064,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
     const sideChat = thread.sideChat;
-    // Only the pending request lands. A stale or late completion emits the row unchanged,
-    // because a command must emit an event. Background work keeps updatedAt either way.
+    // Only the pending request of a side chat that still exists lands. A stale or late completion
+    // emits the row unchanged, because a command must emit an event. Background work keeps
+    // updatedAt either way.
     const updatedThread =
       sideChat !== undefined &&
+      thread.deletedAt === null &&
       sideChat.opening.requestId === command.requestId &&
       sideChat.opening.status === "pending"
         ? {
@@ -10282,6 +10289,243 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     return undefined;
   });
 
+  const refuseNonSideChat = (command: OrchestrationV2ServerCommand, threadId: ThreadId) =>
+    new OrchestratorDispatchError({
+      commandId: command.commandId,
+      commandType: command.type,
+      cause: `Thread ${threadId} is not a side chat.`,
+    });
+
+  /** Every side chat of `thread`'s lesson, archived ones included, and the lesson itself. */
+  const readSideChatTree = Effect.fn("Orchestrator.readSideChatTree")(
+    function* (thread: OrchestrationV2AppThread) {
+      const lessonThreadId = sideChatLessonThreadId(thread);
+      const lesson =
+        lessonThreadId === thread.id ? thread : yield* projectionStore.getThread(lessonThreadId);
+      const sideChats = yield* projectionStore.getSideChatThreads({
+        projectId: lesson.projectId,
+        lessonThreadId,
+      });
+      return [lesson, ...sideChats];
+    },
+    (effect, thread) =>
+      effect.pipe(
+        Effect.mapError((cause) => new OrchestratorProjectionError({ threadId: thread.id, cause })),
+      ),
+  );
+
+  /**
+   * Ends one side chat for `command`. A side chat that has user messages gets its note written in
+   * the background; an empty one, or any one when discarding, is deleted. `depth`, how far it sits
+   * below the side chat Done was pressed on, makes deeper notes run first.
+   */
+  const finishSideChat = Effect.fn("Orchestrator.finishSideChat")(function* (input: {
+    readonly command: OrchestrationV2ServerCommand;
+    readonly threadId: ThreadId;
+    readonly depth: number;
+    readonly discard: boolean;
+    readonly events: Ref.Ref<Array<OrchestrationV2DomainEvent>>;
+    readonly effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>;
+  }) {
+    const { command, threadId } = input;
+    const { thread, messages } = yield* projectionStore
+      .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
+      .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    const sideChat = thread.sideChat;
+    if (sideChat === undefined) {
+      return yield* refuseNonSideChat(command, threadId);
+    }
+
+    if (input.discard || messages.length === 0) {
+      const projection = yield* projectionStore
+        .getThreadRecords(threadId, [
+          "runs",
+          "attempts",
+          "nodes",
+          "runtimeRequests",
+          "subagents",
+          "providerSessions",
+        ])
+        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+      const deletion = yield* mapDispatchError(command)(
+        planThreadDeletion({
+          command: {
+            type: "thread.delete",
+            commandId: CommandId.make(`${command.commandId}:side-chat-delete:${threadId}`),
+            threadId,
+          },
+          projection,
+          attachmentIds: yield* projectionStore
+            .getThreadAttachmentIds(threadId)
+            .pipe(mapDispatchError(command)),
+          now: yield* DateTime.now,
+          idAllocator,
+        }),
+      );
+      yield* Ref.update(input.events, (existing) => [...existing, ...deletion.events]);
+      yield* Ref.update(input.effects, (existing) => [...existing, ...deletion.effects]);
+      return;
+    }
+
+    const now = yield* DateTime.now;
+    const requestId = sideChatOutcomeRequestId(command.commandId, input.depth, threadId);
+    yield* emit(
+      input.events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        sideChat: {
+          ...sideChat,
+          done: {
+            at: DateTime.formatIso(now),
+            outcome: { status: "generating", note: null, requestId },
+          },
+        },
+        updatedAt: now,
+      },
+    });
+    yield* Ref.update(input.effects, (existing) => [
+      ...existing,
+      {
+        id: `effect:${requestId}:side-chat.outcome`,
+        commandId: command.commandId,
+        threadId,
+        request: { type: "side-chat.outcome", requestId },
+      } satisfies PendingOrchestrationEffectV2,
+    ]);
+  });
+
+  /** Done: writes the side chat's note, or deletes it when it is empty or discarded. */
+  const dispatchSideChatDone = Effect.fn("orchestrationV2.dispatch.sideChatDone")(function* (
+    command: Extract<OrchestrationV2Command, { readonly type: "thread.side_chat.done" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const sideChat = thread.sideChat;
+    if (sideChat === undefined) {
+      return yield* refuseNonSideChat(command, command.threadId);
+    }
+    if (thread.deletedAt !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is deleted.`,
+      });
+    }
+
+    if (command.discard === true) {
+      // The whole branch goes, deepest first, so no nested side chat outlives its parent.
+      const tree = yield* readSideChatTree(thread);
+      for (const descendant of sideChatDescendants(tree, thread.id)) {
+        yield* finishSideChat({
+          command,
+          threadId: descendant.thread.id,
+          depth: descendant.depth,
+          discard: true,
+          events,
+          effects,
+        });
+      }
+      yield* finishSideChat({
+        command,
+        threadId: thread.id,
+        depth: 0,
+        discard: true,
+        events,
+        effects,
+      });
+    } else if (sideChat.done === null) {
+      yield* finishSideChat({
+        command,
+        threadId: thread.id,
+        depth: 0,
+        discard: false,
+        events,
+        effects,
+      });
+    } else {
+      // Already done: an accepted no-op keeps the first outcome.
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: thread,
+      });
+    }
+    return undefined;
+  });
+
+  const dispatchSideChatOutcomeComplete = Effect.fn(
+    "orchestrationV2.dispatch.sideChatOutcomeComplete",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.side_chat.outcome.complete" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const sideChat = thread.sideChat;
+    const done = sideChat?.done ?? null;
+    // Only the generating request of a side chat that still exists lands. A stale or late
+    // completion emits the row unchanged, because a command must emit an event. Background work
+    // keeps updatedAt either way.
+    const updatedThread =
+      sideChat !== undefined &&
+      done !== null &&
+      thread.deletedAt === null &&
+      done.outcome.status === "generating" &&
+      done.outcome.requestId === command.requestId
+        ? {
+            ...thread,
+            sideChat: {
+              ...sideChat,
+              done: {
+                ...done,
+                outcome: {
+                  status: command.status,
+                  note: command.note,
+                  requestId: command.requestId,
+                  ...(command.error === undefined ? {} : { error: command.error }),
+                },
+              },
+            },
+          }
+        : thread;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      providerInstanceId: updatedThread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: updatedThread,
+    });
+  });
+
   const dispatchCheckpointRollback = Effect.fn("Orchestrator.dispatchCheckpointRollback")(
     function* (
       command: Extract<OrchestrationV2Command, { readonly type: "checkpoint.rollback" }>,
@@ -10511,6 +10755,68 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : undefined;
     },
   );
+
+  /**
+   * The lesson whose lock goes before `threadId`'s when it is a side chat. Done writes a lesson's
+   * nested side chats under the lesson's lock alone, so a write under a side chat's own lock could
+   * read it before Done and then overwrite Done's `done`. The lesson lock always comes first, as
+   * dispatchDelegatedTaskRequest takes parent then child, so no lock is ever taken in reverse.
+   */
+  const sideChatLessonLockThreadId = (threadId: ThreadId) =>
+    projectionStore
+      .getSideChatLessonThreadId(threadId)
+      .pipe(
+        Effect.map((lessonThreadId) =>
+          lessonThreadId === null || lessonThreadId === threadId ? undefined : lessonThreadId,
+        ),
+      );
+
+  /** `threadId`'s lock, taken after its lesson's lock when it is a side chat. */
+  const withSideChatLessonLock = <A, E, R>(threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
+    sideChatLessonLockThreadId(threadId).pipe(
+      Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
+      Effect.flatMap((lessonThreadId) => {
+        const locked = threadDispatch.withLock(threadId, effect);
+        return lessonThreadId === undefined
+          ? locked
+          : threadDispatch.withLock(lessonThreadId, locked);
+      }),
+    );
+
+  /**
+   * The lock a dispatched command takes before its own thread's: the parent of an app-owned
+   * subagent for a user or MCP message (follow-up intake and Stop serialize on the parent), and
+   * otherwise the lesson of a side chat. A thread that does not exist takes no parent lock.
+   */
+  const dispatchLockParentThreadId =
+    /* Runs before every dispatch; dispatchWithReceiptEffect owns the dispatch span. */
+    Effect.fnUntraced(
+      function* (command: OrchestrationV2ServerCommand) {
+        if (
+          command.type === "message.dispatch" &&
+          (command.createdBy === "user" || command.creationSource === "mcp")
+        ) {
+          const subagentParentThreadId = yield* appOwnedSubagentParentThreadId(command.threadId);
+          if (subagentParentThreadId !== undefined) return subagentParentThreadId;
+        }
+        if (command.type !== "thread.side_chat.open") {
+          return yield* sideChatLessonLockThreadId(commandThreadId(command));
+        }
+        // The new side chat does not exist yet, so its lesson comes from the anchor. An open that
+        // reuses that id is refused under its own lock, which a second take would wait on forever.
+        const lessonThreadId =
+          (yield* projectionStore.getSideChatLessonThreadId(command.anchorThreadId)) ??
+          command.anchorThreadId;
+        return lessonThreadId === command.threadId ? undefined : lessonThreadId;
+      },
+      (effect, command) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestratorProjectionError({ threadId: commandThreadId(command), cause }),
+          ),
+        ),
+    );
 
   const awaitsRestartContinuation = (run: OrchestrationV2Run) =>
     effectOutbox
@@ -11707,6 +12013,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.side_chat.opening.complete":
         yield* dispatchSideChatOpeningComplete(command, events);
         break;
+      case "thread.side_chat.done":
+        cancelUnsettledEffects = yield* dispatchSideChatDone(command, events, effects);
+        break;
+      case "thread.side_chat.outcome.complete":
+        yield* dispatchSideChatOutcomeComplete(command, events);
+        break;
       case "delegated_task.request":
         yield* dispatchDelegatedTaskRequest(command, events, effects);
         break;
@@ -11948,17 +12260,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       commandThreadId(command),
       dispatchWithReceiptEffect(command),
     );
-    if (
-      command.type !== "message.dispatch" ||
-      (command.createdBy !== "user" && command.creationSource !== "mcp")
-    )
-      return yield* dispatch;
-    const parentThreadId = yield* appOwnedSubagentParentThreadId(command.threadId).pipe(
-      Effect.mapError(
-        (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
-      ),
-    );
-    // Follow-up intake and Stop serialize on the parent before taking the child lock.
+    const parentThreadId = yield* dispatchLockParentThreadId(command);
     return yield* parentThreadId === undefined
       ? dispatch
       : threadDispatch.withLock(parentThreadId, dispatch);
@@ -11974,25 +12276,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // nested: dispatchDelegatedTaskRequest already writes child events
       // while holding the parent lock, so nesting the parent lock inside the
       // child lock here would invert that order, and the keyed executor's
-      // semaphores are neither reentrant nor deadlock-aware.
+      // semaphores are neither reentrant nor deadlock-aware. A side chat's
+      // writes take its lesson's lock first, as its commands do.
       if (delegatedTaskTerminalStatus(run.status) !== null) {
-        yield* threadDispatch.withLock(
+        yield* withSideChatLessonLock(
           threadId,
           finalizeDelegatedCompletionDelivery(threadId, run.id),
         );
-        yield* threadDispatch
-          .withLock(
-            threadId,
-            startNextQueuedRun(threadId, {
-              endedRunId: run.id,
-              ...(run.status === "failed" ? { failedRunId: run.id } : {}),
-            }),
-          )
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to start the next queued V2 run", { threadId, cause }),
-            ),
-          );
+        yield* withSideChatLessonLock(
+          threadId,
+          startNextQueuedRun(threadId, {
+            endedRunId: run.id,
+            ...(run.status === "failed" ? { failedRunId: run.id } : {}),
+          }),
+        ).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to start the next queued V2 run", { threadId, cause }),
+          ),
+        );
       }
       const parentThreadId = yield* appOwnedSubagentParentThreadId(threadId);
       if (parentThreadId !== undefined) {
@@ -12240,7 +12541,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       effectOutbox.awaitSettled(`effect:restart-continuation:${run.id}`).pipe(Effect.ignore),
     dispatch: dispatchWithReceipt,
     autoArmLimitRecovery: (input) =>
-      threadDispatch.withLock(
+      withSideChatLessonLock(
         input.threadId,
         Effect.gen(function* () {
           const thread = yield* projectionStore

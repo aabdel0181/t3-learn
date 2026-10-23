@@ -24,6 +24,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
 import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
+import * as SideChatLifecycleService from "./sideChat/SideChatLifecycleService.ts";
 import * as SideChatOpeningService from "./sideChat/SideChatOpeningService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -80,6 +81,7 @@ export const layerExecutor: Layer.Layer<
   | RuntimeRequestService.RuntimeRequestServiceV2
   | ThreadTitleRegenerationService.ThreadTitleRegenerationService
   | SideChatOpeningService.SideChatOpeningService
+  | SideChatLifecycleService.SideChatLifecycleService
   | ThreadManagementService.ThreadManagementService
   | ServerSettings.ServerSettingsService
 > = Layer.effect(
@@ -95,6 +97,7 @@ export const layerExecutor: Layer.Layer<
     const threadTitleRegeneration =
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
     const sideChatOpening = yield* SideChatOpeningService.SideChatOpeningService;
+    const sideChatLifecycle = yield* SideChatLifecycleService.SideChatLifecycleService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const settings = yield* ServerSettings.ServerSettingsService;
     return OrchestrationEffectExecutorV2.of({
@@ -528,6 +531,12 @@ export const layerExecutor: Layer.Layer<
             return sideChatOpening.execute({
               threadId: effect.threadId,
               requestId: effect.commandId,
+            });
+          // Nothing to map either: a failed note is recorded as the side chat's outcome.
+          case "side-chat.outcome":
+            return sideChatLifecycle.writeOutcome({
+              threadId: effect.threadId,
+              requestId: effect.request.requestId,
             });
           case "delegated-tasks.stop":
             return threads

@@ -621,6 +621,13 @@ it.effect.each([
       yield* hasChildren(lessonThreadId, ProjectId.make("project:side-chat-list:empty")),
     );
     assert.isFalse(yield* hasChildren(ThreadId.make("thread:side-chat-list:unknown")));
+
+    // The dispatch lock's lesson lookup, which reads deleted side chats too.
+    const lessonOf = (id: string) => store.getSideChatLessonThreadId(ThreadId.make(id));
+    assert.equal(yield* lessonOf("side:a"), lessonThreadId);
+    assert.equal(yield* lessonOf("side:deleted"), lessonThreadId);
+    assert.isNull(yield* lessonOf(lessonThreadId));
+    assert.isNull(yield* lessonOf("thread:side-chat-list:unknown"));
   }).pipe(Effect.provide(layer)),
 );
 

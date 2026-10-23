@@ -117,6 +117,10 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     type: Schema.Literal("side-chat.opening"),
   }),
   Schema.Struct({
+    type: Schema.Literal("side-chat.outcome"),
+    requestId: Schema.String,
+  }),
+  Schema.Struct({
     type: Schema.Literal("delegated-tasks.stop"),
     reason: Schema.optional(Schema.String),
   }),
@@ -134,6 +138,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "attachment.cleanup",
   "thread-title.generate",
   "side-chat.opening",
+  "side-chat.outcome",
   "delegated-tasks.stop",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 
@@ -141,6 +146,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
 export const TEXT_GENERATION_LANE_EFFECT_TYPES = [
   "thread-title.generate",
   "side-chat.opening",
+  "side-chat.outcome",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 export const TEXT_GENERATION_LANE_MAX_CONCURRENCY = 2;
 

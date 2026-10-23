@@ -225,6 +225,7 @@ it.effect(
           getThreadWorktreePaths: () => Effect.die("unused getThreadWorktreePaths"),
           getSideChatThreads: () => Effect.die("unused"),
           hasSideChatChildren: () => Effect.die("unused"),
+          getSideChatLessonThreadId: () => Effect.die("unused"),
           getThreadProjection: () => Effect.die("control effects must not load transcript"),
           getTurnStartContext: () => Effect.die("unused"),
           getTurnStartHistory: () => Effect.die("unused"),

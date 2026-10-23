@@ -47,6 +47,7 @@ import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
+import * as SideChatLifecycleService from "./sideChat/SideChatLifecycleService.ts";
 import * as SideChatOpeningService from "./sideChat/SideChatOpeningService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
@@ -312,6 +313,16 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
 const layerSideChatOpeningProvided = SideChatOpeningService.layer.pipe(
   Layer.provide(Layer.mergeAll(layerThreadManagementProvided, TextGeneration.layer)),
 );
+const layerSideChatLifecycleProvided = SideChatLifecycleService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadManagementProvided,
+      layerStores,
+      layerEventSinkProvided,
+      TextGeneration.layer,
+    ),
+  ),
+);
 const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -323,6 +334,7 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       layerRuntimeRequestServiceProvided,
       layerThreadTitleRegenerationProvided,
       layerSideChatOpeningProvided,
+      layerSideChatLifecycleProvided,
       layerThreadManagementProvided,
     ),
   ),

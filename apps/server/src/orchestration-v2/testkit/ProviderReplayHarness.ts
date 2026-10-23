@@ -52,6 +52,7 @@ import * as ProviderTurnStartServiceTestkit from "../ProviderTurnStartService.te
 import * as McpAppModelContext from "../../mcpApps/McpAppModelContext.ts";
 import * as RunExecutionService from "../RunExecutionService.ts";
 import * as RunFinalizationService from "../RunFinalizationService.ts";
+import * as SideChatLifecycleService from "../sideChat/SideChatLifecycleService.ts";
 import * as SideChatOpeningService from "../sideChat/SideChatOpeningService.ts";
 import * as ThreadTitleRegenerationService from "../ThreadTitleRegenerationService.ts";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
@@ -494,17 +495,21 @@ export function layerWithRegistry<Error>(
           ),
         )
       : Layer.empty;
+  const layerSideChatTextDependencies = Layer.mergeAll(
+    layerThreadManagementProvided,
+    layerServerSettings,
+    Layer.mock(TextGeneration.TextGeneration)({
+      generateSideChatText:
+        options.sideChatTextGeneration ?? (() => Effect.succeed({ text: null })),
+    }),
+    Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+  );
   const layerSideChatOpeningProvided = SideChatOpeningService.layer.pipe(
+    Layer.provide(layerSideChatTextDependencies),
+  );
+  const layerSideChatLifecycleProvided = SideChatLifecycleService.layer.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        layerThreadManagementProvided,
-        layerServerSettings,
-        Layer.mock(TextGeneration.TextGeneration)({
-          generateSideChatText:
-            options.sideChatTextGeneration ?? (() => Effect.succeed({ text: null })),
-        }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-      ),
+      Layer.mergeAll(layerSideChatTextDependencies, layerStores, layerEventSinkProvided),
     ),
   );
   const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
@@ -518,6 +523,7 @@ export function layerWithRegistry<Error>(
         layerRuntimeRequestServiceProvided,
         layerThreadTitleRegenerationTest,
         layerSideChatOpeningProvided,
+        layerSideChatLifecycleProvided,
         layerServerSettings,
         layerThreadManagementProvided,
       ),

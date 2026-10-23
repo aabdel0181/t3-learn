@@ -474,6 +474,13 @@ export interface ProjectionStoreV2Shape {
     readonly projectId: ProjectId;
     readonly parentThreadId: ThreadId;
   }) => Effect.Effect<boolean, ProjectionStoreV2Error>;
+  /**
+   * The lesson of a side chat, deleted ones included, or null for any other
+   * thread and an unknown id. It reads one column, so every dispatch can afford it.
+   */
+  readonly getSideChatLessonThreadId: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -6189,6 +6196,22 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ),
     );
 
+    const getSideChatLessonThreadId: ProjectionStoreV2Shape["getSideChatLessonThreadId"] = (
+      threadId,
+    ) =>
+      /* Every dispatch reads this before taking its locks; the dispatch owns the span. */
+      sql<{ readonly lesson_thread_id: string | null }>`
+        SELECT json_extract(payload_json, '$.sideChat.lessonThreadId') AS lesson_thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE thread_id = ${threadId}
+      `.pipe(
+        Effect.map((rows) => {
+          const lessonThreadId = rows[0]?.lesson_thread_id ?? null;
+          return lessonThreadId === null ? null : ThreadId.make(lessonThreadId);
+        }),
+        Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
+      );
+
     const shellThreadStateFromRow =
       /* Runs once per shell row; the enclosing snapshot or thread read owns the span. */
       Effect.fnUntraced(function* (input: {
@@ -6557,6 +6580,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadWorktreePaths,
       getSideChatThreads,
       hasSideChatChildren,
+      getSideChatLessonThreadId,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -6746,6 +6770,12 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 thread.deletedAt === null &&
                 thread.sideChat?.anchor.threadId === input.parentThreadId,
             ),
+          ),
+        ),
+      getSideChatLessonThreadId: (threadId) =>
+        Ref.get(replayState).pipe(
+          Effect.map(
+            (state) => state.projections.get(threadId)?.thread.sideChat?.lessonThreadId ?? null,
           ),
         ),
       getThreadsWithPullRequests: (threadId) =>
