@@ -8,8 +8,10 @@ import {
   CheckpointScopeId,
   MessageId,
   type ModelSelection,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
+  type OrchestrationV2ThreadShellSideChat,
   type OrchestrationV2ThreadShellSnapshot,
   NodeId,
   PlanId,
@@ -369,6 +371,118 @@ it.effect.each([
     yield* assertBlocked(true);
     yield* updateItem({ ...blockingDelegation, status: "completed", completedAt: at });
     yield* assertBlocked(false);
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect.each([
+  ["memory", ProjectionStore.layerMemory],
+  ["SQL", layerTest],
+] as const)("%s shells carry the slim side chat and none of its text", ([, layer]) =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const lessonThreadId = ThreadId.make("thread:side-chat-shell:lesson");
+    const threadId = ThreadId.make("thread:side-chat-shell:side");
+    const anchor = {
+      threadId: lessonThreadId,
+      messageId: MessageId.make("message:side-chat-shell:reply"),
+      start: 120,
+      end: 137,
+      prefix: "the agent reads the ",
+      suffix: " and picks an action",
+    };
+    const excerptContext = "Each step, the agent reads the observation space and picks an action.";
+    const openingText = "Lesson: RL environments with Gym.";
+    const note = "Define terms before using them.";
+    const thread = {
+      createdBy: "user",
+      creationSource: "web",
+      id: threadId,
+      projectId: ProjectId.make("project:side-chat-shell"),
+      title: "observation space",
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      activeProviderThreadId: null,
+      lineage: {
+        parentThreadId: lessonThreadId,
+        relationshipToParent: "fork",
+        rootThreadId: lessonThreadId,
+      },
+      forkedFrom: null,
+      sideChat: {
+        lessonThreadId,
+        anchor,
+        excerpt: "observation space",
+        excerptContext,
+        label: "observation space",
+        opening: { status: "ready", text: openingText, requestId: "opening-1" },
+        done: null,
+      },
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      lastVisitedAt: null,
+      deletedAt: null,
+    } satisfies OrchestrationV2AppThread;
+    const shellsOf = Effect.fnUntraced(function* (id: ThreadId) {
+      const listed = (yield* store.getShellSnapshot()).threads.find((row) => row.id === id);
+      return [yield* store.getThreadShell(id), listed] as const;
+    });
+    const slim = {
+      lessonThreadId,
+      anchor,
+      label: "observation space",
+      state: "open",
+      noteStatus: null,
+      excerptLength: 17,
+    } satisfies OrchestrationV2ThreadShellSideChat;
+
+    yield* store.apply({
+      id: EventId.make("event:side-chat-shell:created"),
+      type: "thread.created",
+      threadId,
+      occurredAt: now,
+      payload: thread,
+    });
+    for (const shell of yield* shellsOf(threadId)) {
+      assert.deepEqual(shell?.sideChat, slim);
+    }
+
+    yield* store.apply({
+      id: EventId.make("event:side-chat-shell:done"),
+      type: "thread.metadata-updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        sideChat: {
+          ...thread.sideChat,
+          done: {
+            at: DateTime.formatIso(now),
+            outcome: { status: "ready", note, requestId: "outcome-1" },
+          },
+        },
+      },
+    });
+    for (const shell of yield* shellsOf(threadId)) {
+      assert.deepEqual(shell?.sideChat, { ...slim, state: "done", noteStatus: "ready" });
+      const json = JSON.stringify(shell);
+      for (const text of [excerptContext, openingText, note]) {
+        assert.notInclude(json, text);
+      }
+    }
+
+    const plainThreadId = yield* addRolledBackRecoveryCandidate("side-chat-shell-plain");
+    for (const shell of yield* shellsOf(plainThreadId)) {
+      assert.isDefined(shell);
+      assert.notProperty(shell, "sideChat");
+    }
   }).pipe(Effect.provide(layer)),
 );
 
