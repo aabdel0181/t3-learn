@@ -57,6 +57,7 @@ import {
   type AssistantCitation,
   type ChatFileAttachment,
   isProviderNativeSubagentThread,
+  isSideChatThread,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -146,6 +147,7 @@ import {
 } from "../rightPanelLayout";
 import { PopoverCreateHandle } from "./ui/popover";
 import {
+  hasSideChatSurfaces,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectThreadPanelOpen,
@@ -346,6 +348,7 @@ import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
+import { useLessonSideChats } from "./sideChat/useLessonSideChats";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { useTimelineFollow } from "./chat/useTimelineFollow";
@@ -1185,6 +1188,14 @@ export default function ChatView(props: ChatViewProps) {
   const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
+  const lessonSideChats = useLessonSideChats({
+    lessonRef:
+      activeThreadShell !== null && !isSideChatThread(activeThreadShell) ? activeThreadRef : null,
+    supported: serverConfig?.environment.capabilities.sideChats === true,
+    // The capability comes with the server config, which can arrive after the shells.
+    bootstrapComplete: activeEnvironmentBootstrapComplete && serverConfig !== null,
+    activityRunStatus: activeActivityRun?.status ?? null,
+  });
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
   const attachmentUploadsCapabilityKnown = attachmentEnvironmentConfig !== null;
   const supportsQuestionAttachments =
@@ -3124,7 +3135,7 @@ export default function ChatView(props: ChatViewProps) {
     threadPanelPresentation,
     threadPanelPopoverHandle,
     threadPanelShortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
-    rightPanelAvailable: activeProject !== null,
+    rightPanelAvailable: activeProject !== null || hasSideChatSurfaces(rightPanelState.surfaces),
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
     onToggleTerminal: toggleTerminalVisibilityStable,
@@ -3267,6 +3278,8 @@ export default function ChatView(props: ChatViewProps) {
                 {...(!paintOnlyDisplayedTimeline
                   ? {
                       onCiteAssistantText: citeAssistantTextStable,
+                      onAskInSideChat: lessonSideChats.onAskInSideChat,
+                      askInSideChatPending: lessonSideChats.askPending,
                       ...(activeProject ? { onRunShellCommand: runShellCommandStable } : {}),
                     }
                   : {})}
@@ -3276,6 +3289,9 @@ export default function ChatView(props: ChatViewProps) {
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
                 }
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                sideChatWaitLabel={
+                  paintOnlyDisplayedTimeline ? null : lessonSideChats.noteWaitLabel
+                }
                 awaitingUser={
                   !paintOnlyDisplayedTimeline &&
                   (activePendingApproval !== null ||
@@ -3855,6 +3871,7 @@ export default function ChatView(props: ChatViewProps) {
           desktopByTabId={activePreviewState.desktopByTabId}
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
           terminalLabelsById={activeTerminalLabelsById}
+          sideChatLabelsById={lessonSideChats.labelsById}
           onActivate={activateRightPanelSurfaceStable}
           onCloseSurface={closeRightPanelSurfaceStable}
           onRenameDevice={(surfaceId, title) => {
