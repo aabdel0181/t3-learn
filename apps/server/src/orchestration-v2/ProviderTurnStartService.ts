@@ -68,6 +68,7 @@ import {
   sideChatOpeningEffectId,
   sideChatOpeningHandoffId,
 } from "./sideChat/sideChatOpening.ts";
+import { isSideChatNotesHandoff } from "./sideChat/notes.ts";
 import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
@@ -1261,6 +1262,7 @@ export const layer: Layer.Layer<
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff],
             deferInline: compact,
+            optional: isSideChatNotesHandoff,
             providerThread: runningProviderThread,
             budget: Effect.gen(function* () {
               return handoffBudget({
