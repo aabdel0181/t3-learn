@@ -719,4 +719,63 @@ describe("side chats", () => {
     );
     expect(decodeOld({ ...storedShell, sideChat: slim })).not.toHaveProperty("sideChat");
   });
+
+  it("accepts side chat open and done from clients", () => {
+    const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
+    const open = {
+      type: "thread.side_chat.open",
+      commandId: "c-open",
+      createdBy: "user",
+      creationSource: "web",
+      threadId: "thread-side-chat",
+      anchorThreadId: "thread-lesson",
+      anchor,
+      excerpt: "observation space",
+    };
+    expect(decodeCommand(open)).toMatchObject({
+      type: "thread.side_chat.open",
+      anchorThreadId: "thread-lesson",
+      anchor,
+      excerpt: "observation space",
+    });
+    expect(
+      decodeCommand({
+        type: "thread.side_chat.done",
+        commandId: "c-done",
+        createdBy: "user",
+        creationSource: "web",
+        threadId: "thread-side-chat",
+        discard: true,
+      }),
+    ).toMatchObject({ type: "thread.side_chat.done", discard: true });
+    expect(() =>
+      decodeCommand({ ...open, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS + 1) }),
+    ).toThrow();
+    expect(() => decodeCommand({ ...open, excerpt: "" })).toThrow();
+  });
+
+  it("refuses side chat completions and note attachment from clients", () => {
+    const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
+    for (const internal of [
+      {
+        type: "thread.side_chat.opening.complete",
+        commandId: "c1",
+        threadId: "t",
+        requestId: "r",
+        status: "ready",
+        text: "s",
+      },
+      {
+        type: "thread.side_chat.outcome.complete",
+        commandId: "c2",
+        threadId: "t",
+        requestId: "r",
+        status: "none",
+        note: null,
+      },
+      { type: "thread.side_chat.notes.attach", commandId: "c3", threadId: "t", runId: "run-1" },
+    ]) {
+      expect(() => decodeCommand(internal)).toThrow();
+    }
+  });
 });

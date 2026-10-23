@@ -176,7 +176,10 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.user-input.dismiss":
     case "checkpoint.rollback":
     case "provider.switch":
+    case "thread.side_chat.done":
       return [command.threadId];
+    case "thread.side_chat.open":
+      return [command.anchorThreadId, command.threadId];
     case "delegated_task.request":
     case "delegated_task.wake-policy":
     case "delegated_task.completion-delivery.acknowledge":

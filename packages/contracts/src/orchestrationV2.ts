@@ -3047,6 +3047,25 @@ export const OrchestrationV2Command = Schema.Union([
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.side_chat.open"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    /** The new side chat. The client allocates the id. */
+    threadId: ThreadId,
+    anchorThreadId: ThreadId,
+    anchor: OrchestrationV2SideChatAnchor,
+    excerpt: OrchestrationV2SideChat.fields.excerpt,
+    createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.done"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    threadId: ThreadId,
+    discard: Schema.optional(Schema.Boolean),
+    createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
     type: Schema.Literal("delegated_task.request"),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
@@ -3166,6 +3185,33 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.String,
     placeholder: Schema.optional(Schema.String),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /** Dropped unless requestId matches and the status is still pending/generating. */
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.opening.complete"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: Schema.String,
+    status: Schema.Literals(["ready", "fallback", "failed"]),
+    text: Schema.NullOr(Schema.String),
+  }),
+  /** Dropped unless requestId matches and the status is still pending/generating. */
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.outcome.complete"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: Schema.String,
+    status: Schema.Literals(["ready", "none", "failed"]),
+    note: Schema.NullOr(Schema.String),
+    error: Schema.optional(Schema.String),
+    /** Child notes folded into this note, by child thread id. */
+    childNoteDeliveries: Schema.optional(Schema.Record(ThreadId, Schema.String)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.notes.attach"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

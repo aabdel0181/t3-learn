@@ -489,6 +489,12 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.background-work.settle":
     case "thread.stop":
     case "provider.switch":
+    // For open this is the new side chat, whose lock the command takes.
+    case "thread.side_chat.open":
+    case "thread.side_chat.done":
+    case "thread.side_chat.opening.complete":
+    case "thread.side_chat.outcome.complete":
+    case "thread.side_chat.notes.attach":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.wake-policy":
