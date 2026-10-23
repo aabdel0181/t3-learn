@@ -13,8 +13,11 @@ import {
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
@@ -510,6 +513,48 @@ describe("side chat opening context", () => {
           prompt,
           `Context from the side chat this one was opened from:\n${LESSON_SUMMARY}`,
         );
+      }),
+    ),
+  );
+
+  it.effect("waits for an opening summary still being written before the first turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const entered = yield* Deferred.make<void>();
+        const gate = yield* Deferred.make<void>();
+        const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-opening-wait", {
+          generateSideChatText: () =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Deferred.await(gate)),
+              Effect.as({ text: LESSON_SUMMARY }),
+            ),
+          onOpenSession: Deferred.succeed(gate, undefined).pipe(Effect.asVoid),
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* createLesson({ worktreePath: cwd });
+          yield* openOnObservation;
+          // The turn start becomes claimable after the opening, so the first claim takes the opening.
+          yield* TestClock.adjust("1 millis");
+          yield* orchestrator.dispatch(
+            sideChatMessageCommand({
+              commandId: "command:side-chat:ask",
+              threadId: SIDE_CHAT_THREAD_ID,
+              text: "What is an observation space?",
+            }),
+          );
+
+          const opening = yield* worker.runOnce.pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          assert.isTrue(yield* worker.runOnce);
+          yield* Fiber.join(opening);
+        }).pipe(Effect.provide(layer));
+
+        const [prompt] = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.isDefined(prompt);
+        assert.include(prompt, LESSON_SUMMARY);
+        assert.notInclude(prompt, "The lesson summary is unavailable.");
       }),
     ),
   );

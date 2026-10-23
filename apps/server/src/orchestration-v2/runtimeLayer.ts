@@ -173,6 +173,8 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      // The same instance the effect worker settles, so a turn start can await an opening summary.
+      EffectOutbox.layer,
     ),
   ),
 );

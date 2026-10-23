@@ -9,11 +9,13 @@ import {
   type ProviderThreadId,
   type RunId,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_WAIT_CAP_MS,
   type ThreadId,
   type TurnItemId,
 } from "@t3tools/contracts";
 import type * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import type { PendingOrchestrationEffectV2 } from "../EffectOutbox.ts";
 import type * as ProjectionStore from "../ProjectionStore.ts";
@@ -34,6 +36,13 @@ export function pendingSideChatOpeningEffect(
     threadId,
     request: { type: "side-chat.opening" },
   };
+}
+
+/** Waits at most `SIDE_CHAT_WAIT_CAP_MS` for `settled`; `true` when it finished in time. */
+export function awaitWithinSideChatWaitCap<E>(
+  settled: Effect.Effect<void, E>,
+): Effect.Effect<boolean, E> {
+  return settled.pipe(Effect.timeoutOption(SIDE_CHAT_WAIT_CAP_MS), Effect.map(Option.isSome));
 }
 
 /** The opening context handed to the provider thread that `runId` starts fresh. */

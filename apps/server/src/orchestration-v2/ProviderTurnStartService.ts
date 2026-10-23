@@ -33,6 +33,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
 import {
   DEFAULT_HANDOFF_TOKEN_CAP,
   handoffTokenCapConfig,
@@ -59,8 +60,10 @@ import {
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
 import {
+  awaitWithinSideChatWaitCap,
   buildSideChatOpeningContext,
   loadSideChatOpeningSources,
+  sideChatOpeningEffectId,
   sideChatOpeningHandoffId,
 } from "./sideChat/sideChatOpening.ts";
 import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
@@ -119,6 +122,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | EffectOutbox.EffectOutboxV2
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -136,6 +140,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     // These callbacks outlive startup while a run drains background work. Build
@@ -881,7 +886,9 @@ export const layer: Layer.Layer<
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
       // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
       // along with the first prompt there: either the first turn, or the first turn after a failed
-      // resume bound a replacement. A retried start finds this handoff among `handoffs`.
+      // resume bound a replacement. A retried start finds this handoff among `handoffs`. A summary
+      // still being written gets a bounded wait; one that misses it leaves this context the
+      // fallback and serves the next fresh one.
       const sideChat = projection.thread.sideChat;
       const openingHandoffId = sideChatOpeningHandoffId(run.id);
       if (
@@ -889,6 +896,23 @@ export const layer: Layer.Layer<
         (providerThread.nativeThreadRef === null || !sameNativeThread) &&
         !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId)
       ) {
+        const settledInTime =
+          sideChat.opening.status === "pending" &&
+          (yield* awaitWithinSideChatWaitCap(
+            effectOutbox.awaitSettled(sideChatOpeningEffectId(sideChat.opening.requestId)),
+          ).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Side chat opening wait failed", {
+                threadId: projection.thread.id,
+                runId,
+                error,
+              }).pipe(Effect.as(false)),
+            ),
+          ));
+        const currentOpening = settledInTime
+          ? ((yield* projectionStore.getThreadRecords(projection.thread.id, [])).thread.sideChat
+              ?.opening ?? sideChat.opening)
+          : sideChat.opening;
         const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
           Effect.catch((error) =>
             Effect.logWarning("Side chat opening sources are unavailable", {
@@ -903,7 +927,7 @@ export const layer: Layer.Layer<
           rootNodeId: rootNode.id,
           providerThreadId: providerThread.id,
           summaryText: buildSideChatOpeningSummaryText({
-            opening: sideChat.opening,
+            opening: currentOpening,
             excerpt: sideChat.excerpt,
             excerptContext: sideChat.excerptContext,
             ...sources,
