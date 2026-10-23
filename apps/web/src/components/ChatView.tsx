@@ -3113,6 +3113,7 @@ export default function ChatView(props: ChatViewProps) {
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
       }}
+      sideChat={{ onFocusLesson: focusComposerStable }}
     />
   ) : null;
   const panelToggleControlProps = {

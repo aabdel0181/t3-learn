@@ -1,0 +1,569 @@
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadStructure } from "@t3tools/client-runtime/state/shell";
+import {
+  type AssistantCitation,
+  EnvironmentId,
+  MessageId,
+  NodeId,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2SideChat,
+  type OrchestrationV2ThreadProjection,
+  ProviderSessionId,
+  RuntimeRequestId,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
+import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
+import { AsyncResult } from "effect/reactivity";
+import { expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+
+import "~/index.css";
+
+const state = vi.hoisted(() => ({
+  shells: [] as ReadonlyArray<{ readonly id: string }>,
+  projections: {} as Record<string, unknown>,
+  visibleTurnItems: [] as ReadonlyArray<unknown>,
+  dispatch: (async () => undefined) as (...args: never) => Promise<unknown>,
+}));
+
+vi.mock(import("../../state/entities"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useSideChatTreeShells: (() => state.shells) as never,
+  useQuietThreadShell: ((ref: { threadId: string } | null) =>
+    ref === null
+      ? null
+      : (state.shells.find((shell) => shell.id === ref.threadId) ?? null)) as never,
+  useQuietThreadProjection: ((ref: { threadId: string } | null) =>
+    ref === null ? null : (state.projections[ref.threadId] ?? null)) as never,
+  useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
+}));
+
+vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useOrchestrationCommand: (() => state.dispatch) as never,
+}));
+
+vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useAtomCommand: (() => async () => undefined) as never,
+}));
+
+vi.mock(import("../../state/session"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  readEnvironmentScope: () => true,
+  useEnvironmentScope: () => true,
+}));
+
+// The real settings and keybindings watch environment connections the test does not serve.
+vi.mock(import("../../state/server"), async (importOriginal) => {
+  const { Atom } = await import("effect/reactivity");
+  const { mergeWithDefaultKeybindings } = await import("@t3tools/shared/keybindings");
+  return {
+    ...(await importOriginal()),
+    primaryServerKeybindingsAtom: Atom.make(mergeWithDefaultKeybindings([])),
+  };
+});
+vi.mock(import("../../hooks/useSettings"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useEnvironmentSettings: ((
+    _environmentId: EnvironmentId,
+    selector: (settings: { sendShortcut: "enter" }) => unknown,
+  ) => selector({ sendShortcut: "enter" })) as never,
+}));
+
+import { act, render, type Screen } from "../../../test/render";
+import { useClosedViewStore } from "../../closedViewStore";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import {
+  type SideChatSurface,
+  selectThreadRightPanelState,
+  useRightPanelStore,
+} from "../../rightPanelStore";
+import {
+  makeSideChatThreadFixture,
+  makeStreamingTimelineFixture,
+  makeThreadFixture,
+  makeThreadProjectionFixture,
+} from "../../test-fixtures";
+import type { Thread } from "../../types";
+import { askInSideChat } from "./openSideChat";
+import { usePendingSideChatStore } from "./pendingSideChatStore";
+import { SideChatPanel } from "./SideChatPanel";
+
+const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
+const LESSON_ID = ThreadId.make("lesson-1");
+const LESSON_REF = scopeThreadRef(ENVIRONMENT_ID, LESSON_ID);
+const LESSON_PATH = "/environment-local/lesson-1";
+const LESSON_SHELL = makeThreadFixture({
+  id: LESSON_ID,
+  environmentId: ENVIRONMENT_ID,
+  title: "Reinforcement learning",
+});
+const sideChatRef = (id: string) => scopeThreadRef(ENVIRONMENT_ID, ThreadId.make(id));
+
+function sideChatShell(
+  id: string,
+  anchorThreadId: string,
+  label: string,
+  overrides: Partial<Thread> = {},
+): Thread {
+  return {
+    ...makeSideChatThreadFixture({
+      id: ThreadId.make(id),
+      lessonId: LESSON_ID,
+      parentId: ThreadId.make(anchorThreadId),
+      messageId: MessageId.make(`${anchorThreadId}-reply`),
+      label,
+    }),
+    ...overrides,
+  };
+}
+
+const SIDE_1 = sideChatShell("side-1", LESSON_ID, "observation space");
+const NESTED_1 = sideChatShell("nested-1", "side-1", "Box");
+
+/** The side chat's detail, as the quiet projection carries it once loaded. */
+function sideChatProjection(
+  shell: Thread,
+  sideChat: Partial<OrchestrationV2SideChat> = {},
+  projection: Partial<OrchestrationV2ThreadProjection> = {},
+): EnvironmentThreadStructure {
+  const base = makeThreadProjectionFixture();
+  const anchor = shell.sideChat!.anchor;
+  return {
+    environmentId: ENVIRONMENT_ID,
+    projection: {
+      ...base,
+      thread: {
+        ...base.thread,
+        id: shell.id,
+        sideChat: {
+          lessonThreadId: LESSON_ID,
+          anchor,
+          excerpt: shell.sideChat!.label,
+          excerptContext: "",
+          label: shell.sideChat!.label,
+          opening: { status: "ready", text: null, requestId: "opening-1" },
+          done: null,
+          ...sideChat,
+        },
+      },
+      ...projection,
+    },
+  };
+}
+
+/** A pending request of the side chat's AI, as the projection holds it. */
+function pendingRequest(
+  id: string,
+  request: Pick<OrchestrationV2ThreadProjection["runtimeRequests"][number], "kind">,
+  item: Record<string, unknown>,
+): Pick<OrchestrationV2ThreadProjection, "runtimeRequests" | "turnItems"> {
+  const createdAt = makeThreadProjectionFixture().updatedAt;
+  return {
+    runtimeRequests: [
+      {
+        id: RuntimeRequestId.make(id),
+        nodeId: NodeId.make(id),
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: request.kind,
+        status: "pending",
+        responseCapability: {
+          type: "live",
+          providerSessionId: ProviderSessionId.make("session-1"),
+        },
+        createdAt,
+        resolvedAt: null,
+      },
+    ],
+    turnItems: [
+      {
+        id: TurnItemId.make(id),
+        threadId: SIDE_1.id,
+        runId: null,
+        nodeId: NodeId.make(id),
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 0,
+        status: "running",
+        title: null,
+        startedAt: createdAt,
+        completedAt: null,
+        updatedAt: createdAt,
+        requestId: RuntimeRequestId.make(id),
+        ...item,
+      } as OrchestrationV2ThreadProjection["turnItems"][number],
+    ],
+  };
+}
+
+function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.success({}))) {
+  const dispatch = vi.fn((_value: unknown) => dispatchResult);
+  state.dispatch = dispatch;
+  state.shells = [LESSON_SHELL];
+  state.projections = {};
+  state.visibleTurnItems = [];
+  useRightPanelStore.setState({
+    byThreadKey: {},
+    threadPanelVisibilityByThreadKey: {},
+    userActionRevisionByThreadKey: {},
+    closeRevisionByThreadKey: {},
+  });
+  useClosedViewStore.setState({ entries: [] });
+  usePendingSideChatStore.setState({ byThreadKey: {} });
+  useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
+  return dispatch;
+}
+
+/** Shows `threadId` in the tab of the top-level side chat `topThreadId`. */
+function showSideChat(topThreadId: string, threadId: string) {
+  useRightPanelStore.getState().openSideChat(LESSON_REF, { topThreadId, threadId });
+}
+
+const surfaces = () =>
+  selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces;
+
+/** The lesson's side-chat tab, as the right panel renders it. */
+function Panel(props: { readonly onFocusLesson: () => void }) {
+  const surface = useRightPanelStore((store) =>
+    selectThreadRightPanelState(store.byThreadKey, LESSON_REF).surfaces.find(
+      (entry): entry is SideChatSurface => entry.kind === "side-chat",
+    ),
+  );
+  if (surface === undefined) return null;
+  return (
+    <SideChatPanel
+      key={`${scopedThreadKey(LESSON_REF)}:${surface.id}`}
+      lessonRef={LESSON_REF}
+      surface={surface}
+      visible
+      onFocusLesson={props.onFocusLesson}
+    />
+  );
+}
+
+function renderPanel(
+  options: { readonly router?: string; readonly onFocusLesson?: () => void } = {},
+) {
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  return render(<Panel onFocusLesson={options.onFocusLesson ?? (() => {})} />, {
+    container,
+    ...(options.router === undefined ? {} : { router: options.router }),
+  });
+}
+
+const crumb = (screen: Screen, name: string) =>
+  screen
+    .getByRole("navigation", { name: "Side chat path" })
+    .getByRole("button", { name, exact: true });
+const composer = (screen: Screen) => screen.getByRole("textbox", { name: "Side chat message" });
+const revealButton = (screen: Screen) =>
+  screen.getByRole("button", { name: "Show this highlight where it was asked" });
+const doneButton = (screen: Screen) => screen.getByRole("button", { name: "Done", exact: true });
+const draft = (id: string) =>
+  useComposerDraftStore.getState().getComposerDraft(sideChatRef(id))?.prompt ?? "";
+
+/** Double-clicks `word` in the rendered reply `messageId`, which selects it as a reader would. */
+async function selectReplyWord(screen: Screen, messageId: string, word: string) {
+  const target = await vi.waitFor(() => {
+    const source = screen.container.querySelector(
+      `[data-assistant-citation-source="${messageId}"]`,
+    );
+    if (source === null) throw new Error(`${messageId} has not rendered`);
+    const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const start = node.textContent?.indexOf(word) ?? -1;
+      if (start === -1 || node.parentElement === null) continue;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + word.length);
+      const wordRect = range.getBoundingClientRect();
+      const elementRect = node.parentElement.getBoundingClientRect();
+      return {
+        element: node.parentElement,
+        position: {
+          x: wordRect.left - elementRect.left + wordRect.width / 2,
+          y: wordRect.top - elementRect.top + wordRect.height / 2,
+        },
+      };
+    }
+    throw new Error(`"${word}" has not rendered in ${messageId}`);
+  });
+  await userEvent.dblClick(target.element, { position: target.position });
+}
+
+it("shows a starting side chat with its excerpt and puts the cursor in its composer", async () => {
+  setup();
+  const citation: AssistantCitation = {
+    version: 1,
+    environmentId: ENVIRONMENT_ID,
+    threadId: LESSON_ID,
+    messageId: MessageId.make("lesson-1-reply"),
+    text: "observation space",
+    start: 3,
+    end: 20,
+    prefix: "An ",
+    suffix: " is what the agent can see.",
+  };
+  // The server has not answered yet, so the side chat has no shell.
+  const run = vi.fn(() => new Promise<never>(() => {}));
+  await using screen = await renderPanel({ router: LESSON_PATH });
+
+  await act(() =>
+    askInSideChat({
+      lessonRef: LESSON_REF,
+      citation,
+      sideChatShells: [],
+      topThreadId: null,
+      run,
+    }),
+  );
+
+  await expect.element(screen.getByText("Starting side chat…")).toBeVisible();
+  await expect.element(revealButton(screen)).toHaveTextContent("observation space");
+  await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+});
+
+it("Done on a nested side chat returns to its parent without waiting for the note", async () => {
+  // The finish never settles: the panel must not wait for the note.
+  const dispatch = setup(new Promise(() => {}));
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  showSideChat("side-1", "nested-1");
+  await using screen = await renderPanel();
+
+  await doneButton(screen).click();
+
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith({
+    environmentId: ENVIRONMENT_ID,
+    input: { threadId: "nested-1" },
+  });
+  expect(surfaces()).toEqual([
+    {
+      id: "side-chat:side-1",
+      kind: "side-chat",
+      threadId: "side-1",
+      trail: ["side-1", "nested-1"],
+    },
+  ]);
+});
+
+it("Done on a top-level side chat closes its tab and remembers it for reopening", async () => {
+  const dispatch = setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await doneButton(screen).click();
+
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith({
+    environmentId: ENVIRONMENT_ID,
+    input: { threadId: "side-1" },
+  });
+  expect(surfaces()).toEqual([]);
+  expect(useClosedViewStore.getState().entries).toEqual([
+    {
+      id: expect.any(String),
+      kind: "panel-tab",
+      threadRef: LESSON_REF,
+      surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+    },
+  ]);
+});
+
+it("Discard finishes the side chat without a note", async () => {
+  const dispatch = setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await screen.getByRole("button", { name: "More side chat actions" }).click();
+  await page.getByRole("menuitem", { name: "Discard" }).click();
+
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith({
+    environmentId: ENVIRONMENT_ID,
+    input: { threadId: "side-1", discard: true },
+  });
+  expect(surfaces()).toEqual([]);
+});
+
+it("walks the breadcrumb Lesson › observation space › Box in place", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  showSideChat("side-1", "nested-1");
+  const onFocusLesson = vi.fn();
+  await using screen = await renderPanel({ onFocusLesson });
+
+  await expect.element(crumb(screen, "Box")).toHaveAttribute("aria-current", "page");
+  await crumb(screen, "observation space").click();
+  expect(surfaces()).toEqual([
+    {
+      id: "side-chat:side-1",
+      kind: "side-chat",
+      threadId: "side-1",
+      trail: ["side-1", "nested-1"],
+    },
+  ]);
+  await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
+
+  await crumb(screen, "Box").click();
+  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+
+  await crumb(screen, "Lesson").click();
+  expect(onFocusLesson).toHaveBeenCalledOnce();
+});
+
+it("shows the note a finished side chat sent to the lesson", async () => {
+  setup();
+  const note = "They didn't know what an observation space is.";
+  const done = sideChatShell("side-1", LESSON_ID, "observation space", {
+    sideChat: { ...SIDE_1.sideChat!, state: "done", noteStatus: "ready" },
+  });
+  state.shells = [LESSON_SHELL, done];
+  state.projections = {
+    "side-1": sideChatProjection(done, {
+      done: {
+        at: "2026-10-22T00:00:00.000Z",
+        outcome: { status: "ready", note, requestId: "note-1" },
+      },
+    }),
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await expect.element(screen.getByRole("status")).toHaveTextContent(`Sent to lesson: ${note}`);
+  await expect.element(doneButton(screen)).not.toBeInTheDocument();
+});
+
+it("reveals a nested highlight in its parent side chat inside the panel", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.projections = { "nested-1": sideChatProjection(NESTED_1) };
+  showSideChat("side-1", "nested-1");
+  await using screen = await renderPanel();
+
+  await expect.element(revealButton(screen)).toHaveTextContent("Box");
+  await revealButton(screen).click();
+
+  expect(surfaces()).toMatchObject([{ id: "side-chat:side-1", threadId: "side-1" }]);
+});
+
+it("quotes a selection cited inside the panel into the side chat's draft, not the lesson's", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await selectReplyWord(screen, "history-assistant", "Done");
+  await page.getByRole("button", { name: "Cite selection in composer" }).click();
+
+  await vi.waitFor(() =>
+    expect(
+      collectAssistantCitations(draft("side-1")).map(({ citation }) => [
+        citation.threadId,
+        citation.messageId,
+        citation.text,
+      ]),
+    ).toEqual([["side-1", "history-assistant", "Done"]]),
+  );
+  expect(useComposerDraftStore.getState().getComposerDraft(LESSON_REF)).toBeNull();
+});
+
+it("types into the side chat when focus is elsewhere in the panel", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+  const panel = screen.getByRole("region", { name: "Side chat" });
+  await expect.element(panel).toBeInTheDocument();
+
+  (panel.element() as HTMLElement).focus();
+  await userEvent.keyboard("w");
+
+  expect(draft("side-1")).toBe("w");
+  await expect.element(composer(screen)).toHaveFocus();
+});
+
+it("answers an approval the side chat's AI is waiting on from the panel", async () => {
+  const dispatch = setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = {
+    "side-1": sideChatProjection(
+      SIDE_1,
+      {},
+      pendingRequest(
+        "approval-1",
+        { kind: "command" },
+        { type: "approval_request", requestKind: "command", prompt: "vp test" },
+      ),
+    ),
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await screen.getByRole("button", { name: "Approve" }).click();
+
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith({
+    environmentId: ENVIRONMENT_ID,
+    input: { threadId: "side-1", requestId: "approval-1", decision: "accept" },
+  });
+});
+
+it("answers a question the side chat's AI asked from the panel", async () => {
+  const dispatch = setup();
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "A follow-up");
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = {
+    "side-1": sideChatProjection(
+      SIDE_1,
+      {},
+      pendingRequest(
+        "question-1",
+        { kind: "user_input" },
+        {
+          type: "user_input_request",
+          questions: [
+            {
+              id: "q1",
+              header: "Space",
+              question: "Which space do you mean?",
+              options: [
+                { label: "Box", description: "A bounded space of numbers" },
+                { label: "Discrete", description: "A finite set of choices" },
+              ],
+            },
+          ],
+        },
+      ),
+    ),
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await expect.element(screen.getByText("Which space do you mean?")).toBeVisible();
+  await expect.element(composer(screen)).not.toHaveTextContent("A follow-up");
+  await composer(screen).click();
+  await userEvent.keyboard("The one with bounds");
+  await userEvent.keyboard("{Enter}");
+
+  await vi.waitFor(() =>
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith({
+      environmentId: ENVIRONMENT_ID,
+      input: {
+        threadId: "side-1",
+        requestId: "question-1",
+        answers: { q1: "The one with bounds" },
+      },
+    }),
+  );
+  expect(draft("side-1")).toBe("A follow-up");
+});

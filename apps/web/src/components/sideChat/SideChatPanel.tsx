@@ -1,0 +1,520 @@
+import type { LegendListRef } from "@legendapp/list/react";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import {
+  deriveThreadActivityRun,
+  deriveThreadStructureRuntime,
+} from "@t3tools/client-runtime/state/thread-execution";
+import {
+  deriveSideChatTree,
+  type SideChatTreeRow,
+} from "@t3tools/client-runtime/state/thread-relationships";
+import {
+  AuthOrchestrationOperateScope,
+  type MessageId,
+  type ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
+import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
+import { useNavigate } from "@tanstack/react-router";
+import { ChevronRightIcon, EllipsisIcon, ShieldIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { ComposerHandleContext } from "../../composerHandleContext";
+import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
+import { cn, randomUUID } from "../../lib/utils";
+import { deriveProviderInstanceEntries } from "../../providerInstances";
+import {
+  type SideChatSurface,
+  sideChatSurfaceTopThreadId,
+  useRightPanelStore,
+} from "../../rightPanelStore";
+import { isLatestRunSettled } from "../../session-logic";
+import {
+  useProject,
+  useQuietThreadProjection,
+  useQuietThreadShell,
+  useSideChatTreeShells,
+} from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
+import { useEnvironmentScope } from "../../state/session";
+import { threadEnvironment } from "../../state/threads";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
+import { buildThreadRouteParams } from "../../threadRoutes";
+import type { ChatMessage } from "../../types";
+import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
+import type { ChatComposerHandle } from "../chat/ChatComposer";
+import { ComposerBanner } from "../chat/ComposerBanner";
+import { pasteTextToFocusComposer, shouldTypeToFocusComposer } from "../chat/composerFocusRedirect";
+import { ComposerPendingApprovalActions } from "../chat/ComposerPendingApprovalActions";
+import { ComposerPendingApprovalPanel } from "../chat/ComposerPendingApprovalPanel";
+import { ComposerPendingUserInputPanel } from "../chat/ComposerPendingUserInputPanel";
+import { createPageScrollController } from "../chat/pageScrollController";
+import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
+import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { stackedThreadToast, toastManager } from "../ui/toast";
+import { askInSideChat } from "./openSideChat";
+import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
+import { SideChatComposer, type SideChatComposerHandle } from "./SideChatComposer";
+import { SideChatExcerpt } from "./SideChatExcerpt";
+import { leaveSideChat, revealSideChat } from "./sideChatNavigation";
+import {
+  type SideChatCrumb,
+  sideChatAnchorCitation,
+  sideChatBreadcrumb,
+  sideChatStatusLine,
+  sideChatSurfacePath,
+  topSideChatId,
+} from "./sideChatPanel.logic";
+import { SideChatTimeline } from "./SideChatTimeline";
+
+const NO_PROVIDERS: Parameters<typeof deriveProviderInstanceEntries>[0] = [];
+const NO_MESSAGES: ReadonlyArray<ChatMessage> = [];
+
+/** A side chat in the lesson's right panel, walked in place through its nested side chats. */
+export function SideChatPanel(props: {
+  readonly lessonRef: ScopedThreadRef;
+  readonly surface: SideChatSurface;
+  readonly visible: boolean;
+  readonly onFocusLesson: () => void;
+}) {
+  const { lessonRef, surface } = props;
+  const environmentId = lessonRef.environmentId;
+  const sideChatRef = scopeThreadRef(environmentId, ThreadId.make(surface.threadId));
+  const sideChatKey = scopedThreadKey(sideChatRef);
+  const navigate = useNavigate();
+
+  const shell = useQuietThreadShell(sideChatRef);
+  const detailRef = shell === null ? null : sideChatRef;
+  const projection = useQuietThreadProjection(detailRef)?.projection ?? null;
+  const detail = projection?.thread.sideChat;
+  const treeShells = useSideChatTreeShells(lessonRef);
+  const rows = deriveSideChatTree(treeShells, lessonRef.threadId);
+  const pending = usePendingSideChatStore((state) => state.byThreadKey[sideChatKey]);
+  const askPending = usePendingSideChatStore((state) =>
+    selectStartingSideChat(state, scopedThreadKey(lessonRef)),
+  );
+  const citation =
+    shell?.sideChat && detail
+      ? sideChatAnchorCitation(environmentId, shell.sideChat.anchor, detail.excerpt)
+      : (pending?.citation ?? null);
+  const crumbs =
+    shell === null && pending !== undefined
+      ? startingBreadcrumb(rows, pending.citation.threadId, {
+          threadId: pending.threadId,
+          label: assistantCitationLabel(pending.citation),
+          role: "current",
+        })
+      : sideChatBreadcrumb(rows, surface.threadId, surface.trail);
+
+  const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  const providers = useEnvironmentProviders().get(environmentId) ?? NO_PROVIDERS;
+  const providerEntry =
+    shell === null
+      ? undefined
+      : deriveProviderInstanceEntries(providers).find(
+          (entry) => entry.instanceId === shell.modelSelection.instanceId,
+        );
+  const project = useProject(
+    shell === null ? null : scopeProjectRef(environmentId, shell.projectId),
+  );
+  const workspaceRoot = shell?.worktreePath ?? project?.workspaceRoot ?? undefined;
+  const activityRun = projection === null ? null : deriveThreadActivityRun(projection);
+  const runtime = projection === null ? null : deriveThreadStructureRuntime(projection);
+  const runActive = activityRun !== null && !isLatestRunSettled(activityRun, runtime);
+
+  const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  // The hook writes the pending answer here; the side chat's draft stays apart from it.
+  const answerPromptRef = useRef("");
+  // No ChatComposer renders here; the hook only resets its cursor through this.
+  const chatComposerRef = useRef<ChatComposerHandle | null>(null);
+  const {
+    pendingApprovals,
+    pendingUserInputs,
+    activePendingApproval,
+    activePendingUserInput,
+    activePendingDraftAnswers,
+    activePendingQuestionIndex,
+    activePendingProgress,
+    activePendingIsResponding,
+    respondingRequestIds,
+    onRespondToApproval,
+    onDismissUserInput,
+    onSelectActivePendingUserInputOption,
+    onChangeActivePendingUserInputCustomAnswer,
+    onAdvanceActivePendingUserInputStable,
+  } = usePendingThreadRequests({
+    environmentId,
+    activeThreadId: shell?.id ?? null,
+    activeThread: shell ?? undefined,
+    serverProjection: projection,
+    supportsQuestionAttachments: false,
+    composerDraftTarget: sideChatRef,
+    setComposerDraftPrompt,
+    promptRef: answerPromptRef,
+    composerRef: chatComposerRef,
+    setThreadError: (_threadId, error) => {
+      if (error !== null) toastManager.add(stackedThreadToast({ type: "error", title: error }));
+    },
+  });
+
+  // Rows this panel sent, until the server's messages carry them. Walking to another
+  // side chat starts with none.
+  const [optimistic, setOptimistic] = useState<{
+    readonly key: string;
+    readonly messages: ReadonlyArray<ChatMessage>;
+  }>({ key: sideChatKey, messages: NO_MESSAGES });
+  if (optimistic.key !== sideChatKey) setOptimistic({ key: sideChatKey, messages: NO_MESSAGES });
+  const serverMessageIds = new Set<string>(projection?.messages.map((message) => message.id));
+  const optimisticMessages = optimistic.messages.some((message) => serverMessageIds.has(message.id))
+    ? optimistic.messages.filter((message) => !serverMessageIds.has(message.id))
+    : optimistic.messages;
+
+  const [citationRequest, setCitationRequest] = useState<AssistantCitationRequest | null>(null);
+  const listRef = useRef<LegendListRef | null>(null);
+  const composerHandleRef = useRef<SideChatComposerHandle | null>(null);
+  const pageScrollRef = useRef<ReturnType<typeof createPageScrollController> | null>(null);
+  useEffect(() => {
+    const controller = createPageScrollController({
+      getContainer: () => listRef.current?.getScrollableNode() ?? null,
+      getScrollPaddingBottomPx: () => 0,
+    });
+    pageScrollRef.current = controller;
+    return () => {
+      controller.dispose();
+      if (pageScrollRef.current === controller) pageScrollRef.current = null;
+    };
+  }, []);
+
+  const finish = useOrchestrationCommand(threadEnvironment.finishSideChat, {
+    reportFailure: false,
+  });
+  const openSideChat = useOrchestrationCommand(threadEnvironment.openSideChat, {
+    reportFailure: false,
+  });
+
+  const reportFinish = async (discard: boolean) => {
+    const threadId = sideChatRef.threadId;
+    const result = await finish({
+      environmentId,
+      input: discard ? { threadId, discard: true } : { threadId },
+    });
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: "Couldn't finish the side chat",
+        description: error instanceof Error ? error.message : undefined,
+      }),
+    );
+  };
+  // The note is written in the background, so the panel moves on without waiting for it.
+  const finishSideChat = (discard: boolean) => {
+    void reportFinish(discard);
+    leaveSideChat(lessonRef, surface, rows);
+  };
+
+  const walkTo = (threadId: string) =>
+    useRightPanelStore
+      .getState()
+      .navigateSideChat(
+        lessonRef,
+        surface.id,
+        sideChatSurfacePath(rows, threadId),
+        sideChatSurfacePath(rows, surface.threadId),
+      );
+
+  const onCrumb = (crumb: SideChatCrumb) => {
+    if (crumb.role === "lesson") {
+      props.onFocusLesson();
+      return;
+    }
+    if (crumb.role !== "current") walkTo(crumb.threadId);
+  };
+
+  const reveal = () => {
+    if (citation === null) return;
+    if (citation.threadId === lessonRef.threadId) {
+      // Only the hash changes, so the lesson stays mounted and scrolls to the highlight.
+      void navigate({ ...assistantCitationNavigation(citation), replace: true });
+      return;
+    }
+    walkTo(citation.threadId);
+    setCitationRequest({ citation, key: randomUUID() });
+  };
+
+  const onOpenThread = (threadId: ThreadId) => {
+    const top = topSideChatId(rows, threadId);
+    if (top === sideChatSurfaceTopThreadId(surface)) {
+      walkTo(threadId);
+      return;
+    }
+    // A side chat under another top-level one opens in that side chat's own tab.
+    if (top !== null) {
+      revealSideChat(lessonRef, threadId);
+      return;
+    }
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
+    });
+  };
+
+  const sideChatState = shell?.sideChat?.state;
+  const statusLine = sideChatStatusLine(
+    shell?.sideChat ?? undefined,
+    detail?.done?.outcome.note ?? null,
+  );
+  const answeringPendingUserInput = activePendingProgress !== null;
+
+  return (
+    <ComposerHandleContext value={null}>
+      <section
+        data-side-chat-panel
+        tabIndex={-1}
+        aria-label="Side chat"
+        className="flex h-full min-h-0 flex-col outline-none"
+        onKeyDown={(event) => {
+          // Portaled popups bubble their keys here through React; only the panel's own count.
+          if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) {
+            return;
+          }
+          if (
+            (event.key === "PageUp" || event.key === "PageDown") &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey
+          ) {
+            event.preventDefault();
+            pageScrollRef.current?.handleKeyDown(event.key);
+            return;
+          }
+          if (
+            shouldTypeToFocusComposer(event.nativeEvent, "side-chat") &&
+            composerHandleRef.current?.insertTextAtEnd(event.key) === true
+          ) {
+            event.preventDefault();
+          }
+        }}
+        onKeyUp={(event) => pageScrollRef.current?.handleKeyUp(event.key)}
+        onPaste={(event) => {
+          const text = pasteTextToFocusComposer(event.nativeEvent, "side-chat");
+          if (text !== null && composerHandleRef.current?.insertTextAtEnd(text) === true) {
+            event.preventDefault();
+          }
+        }}
+      >
+        <header className="flex min-h-9 shrink-0 items-center gap-1 border-b border-border px-2">
+          <nav aria-label="Side chat path" className="min-w-0 flex-1">
+            <ol className="flex min-w-0 items-center gap-0.5 text-xs">
+              {crumbs.map((crumb, index) => (
+                <li
+                  key={crumb.threadId}
+                  className={cn(
+                    "flex min-w-0 items-center gap-0.5",
+                    crumb.role !== "current" && "shrink-0",
+                  )}
+                >
+                  {index === 0 ? null : (
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      className="size-3 shrink-0 text-muted-foreground"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    aria-current={crumb.role === "current" ? "page" : undefined}
+                    className={cn(
+                      "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      crumb.role === "current"
+                        ? "font-medium text-foreground"
+                        : crumb.role === "forward"
+                          ? "text-muted-foreground/70"
+                          : "text-muted-foreground",
+                    )}
+                    onClick={() => onCrumb(crumb)}
+                  >
+                    {crumb.label}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </nav>
+          {sideChatState === "open" ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={!canOperate}
+              onClick={() => finishSideChat(false)}
+            >
+              Done
+            </Button>
+          ) : null}
+          {shell === null ? null : (
+            <Menu>
+              <MenuTrigger
+                disabled={!canOperate}
+                render={
+                  <Button size="icon-xs" variant="ghost" aria-label="More side chat actions" />
+                }
+              >
+                <EllipsisIcon />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuItem variant="destructive" onClick={() => finishSideChat(true)}>
+                  Discard
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          )}
+        </header>
+        {citation === null ? null : (
+          <div className="shrink-0 px-3 pt-2">
+            <SideChatExcerpt text={citation.text} onReveal={reveal} />
+          </div>
+        )}
+        <div className="min-h-0 flex-1">
+          <SideChatTimeline
+            lessonRef={lessonRef}
+            sideChatRef={sideChatRef}
+            detailRef={detailRef}
+            projection={projection}
+            detailLoading={detailRef !== null && projection === null}
+            optimisticMessages={optimisticMessages}
+            listRef={listRef}
+            citationRequest={
+              citationRequest?.citation.threadId === surface.threadId ? citationRequest : null
+            }
+            askInSideChatPending={askPending}
+            onCiteAssistantText={(cited, sourceAnchor) =>
+              composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false
+            }
+            onAskInSideChat={(asked) =>
+              askInSideChat({
+                lessonRef,
+                citation: asked,
+                sideChatShells: treeShells,
+                topThreadId: sideChatSurfaceTopThreadId(surface),
+                run: openSideChat,
+              })
+            }
+            onOpenThread={onOpenThread}
+            workspaceRoot={workspaceRoot}
+          />
+        </div>
+        <p role="status" className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:hidden">
+          {statusLine}
+        </p>
+        {activePendingApproval ? (
+          <ComposerBanner.Root
+            placement="floating"
+            variant="warning"
+            density="spacious"
+            className="mx-2 mt-2 shrink-0"
+          >
+            <ComposerBanner.Row layout="approval">
+              <ComposerBanner.Icon>
+                <ShieldIcon />
+              </ComposerBanner.Icon>
+              <ComposerBanner.Content>
+                <ComposerPendingApprovalPanel
+                  approval={activePendingApproval}
+                  pendingCount={pendingApprovals.length}
+                />
+              </ComposerBanner.Content>
+              <ComposerBanner.Actions>
+                <ComposerPendingApprovalActions
+                  requestId={activePendingApproval.requestId}
+                  disabled={!canOperate}
+                  isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+                  options={activePendingApproval.options}
+                  canRespond={activePendingApproval.responseCapability === "live"}
+                  onRespondToApproval={onRespondToApproval}
+                />
+              </ComposerBanner.Actions>
+            </ComposerBanner.Row>
+          </ComposerBanner.Root>
+        ) : pendingUserInputs.length > 0 ? (
+          <ComposerBanner.Root placement="floating" variant="info" className="mx-2 mt-2 shrink-0">
+            <ComposerPendingUserInputPanel
+              pendingUserInputs={pendingUserInputs}
+              cwd={workspaceRoot}
+              threadRef={sideChatRef}
+              disabled={!canOperate}
+              respondingRequestIds={
+                activePendingIsResponding && activePendingUserInput
+                  ? [...respondingRequestIds, activePendingUserInput.requestId]
+                  : respondingRequestIds
+              }
+              answers={activePendingDraftAnswers}
+              questionIndex={activePendingQuestionIndex}
+              onToggleOption={onSelectActivePendingUserInputOption}
+              onAdvance={onAdvanceActivePendingUserInputStable}
+              onDismiss={onDismissUserInput}
+            />
+          </ComposerBanner.Root>
+        ) : null}
+        <SideChatComposer
+          sideChatRef={sideChatRef}
+          shell={shell}
+          providerEntry={providerEntry}
+          openingStatus={detail?.opening.status ?? null}
+          runActive={runActive}
+          answeringPendingUserInput={answeringPendingUserInput}
+          autoFocus={props.visible && pending?.status === "starting"}
+          handleRef={composerHandleRef}
+          onAdvancePendingUserInput={onAdvanceActivePendingUserInputStable}
+          pendingUserInputCustomAnswer={activePendingProgress?.customAnswer}
+          onPendingUserInputCustomAnswerChange={(value) => {
+            const questionId = activePendingProgress?.activeQuestion?.id;
+            if (questionId !== undefined)
+              onChangeActivePendingUserInputCustomAnswer(questionId, value);
+          }}
+          onOptimisticMessage={(message) =>
+            setOptimistic((current) => ({
+              key: sideChatKey,
+              messages: [...(current.key === sideChatKey ? current.messages : []), message],
+            }))
+          }
+          onOptimisticMessageFailed={(messageId: MessageId) =>
+            setOptimistic((current) => ({
+              ...current,
+              messages: current.messages.filter((message) => message.id !== messageId),
+            }))
+          }
+          onPageScrollKeyDown={(key) => pageScrollRef.current?.handleKeyDown(key)}
+          onPageScrollKeyUp={(key) => pageScrollRef.current?.handleKeyUp(key)}
+          onPageScrollRelease={() => pageScrollRef.current?.releaseActiveKey()}
+        />
+      </section>
+    </ComposerHandleContext>
+  );
+}
+
+/**
+ * The crumbs of a side chat whose shell has not arrived: the path to the thread it
+ * was asked from, then the new side chat itself.
+ */
+function startingBreadcrumb(
+  rows: ReadonlyArray<SideChatTreeRow>,
+  anchorThreadId: string,
+  current: SideChatCrumb,
+): ReadonlyArray<SideChatCrumb> {
+  return [
+    ...sideChatBreadcrumb(rows, anchorThreadId, undefined).map((crumb) =>
+      crumb.role === "current" ? { ...crumb, role: "ancestor" as const } : crumb,
+    ),
+    current,
+  ];
+}
