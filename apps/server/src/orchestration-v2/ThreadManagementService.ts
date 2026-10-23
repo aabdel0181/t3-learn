@@ -73,6 +73,8 @@ export function withCreationProvenance(
     case "message.dispatch":
     case "thread.fork":
     case "thread.merge_back":
+    case "thread.side_chat.open":
+    case "thread.side_chat.done":
     case "delegated_task.request":
       return { ...command, ...provenance };
     default:
@@ -80,7 +82,7 @@ export function withCreationProvenance(
   }
 }
 
-function existingThreadIdsForCommand(
+export function existingThreadIdsForCommand(
   command: OrchestrationV2ServerCommand,
 ): ReadonlyArray<ThreadId> {
   switch (command.type) {
@@ -95,6 +97,9 @@ function existingThreadIdsForCommand(
       return [];
     case "thread.fork":
       return [command.sourceThreadId];
+    // The side chat does not exist yet; its opening reads the anchor's messages.
+    case "thread.side_chat.open":
+      return [command.anchorThreadId];
     case "thread.merge_back":
       return command.sourceThreadId === command.targetThreadId
         ? [command.sourceThreadId]

@@ -3935,6 +3935,51 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchSideChatOpeningComplete = Effect.fn(
+    "orchestrationV2.dispatch.sideChatOpeningComplete",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.side_chat.opening.complete" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore.getThread(command.threadId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestratorProjectionError({
+            threadId: command.threadId,
+            cause,
+          }),
+      ),
+    );
+    const sideChat = thread.sideChat;
+    // Only the pending request lands. A stale or late completion emits the row unchanged,
+    // because a command must emit an event. Background work keeps updatedAt either way.
+    const updatedThread =
+      sideChat !== undefined &&
+      sideChat.opening.requestId === command.requestId &&
+      sideChat.opening.status === "pending"
+        ? {
+            ...thread,
+            sideChat: {
+              ...sideChat,
+              opening: { status: command.status, text: command.text, requestId: command.requestId },
+            },
+          }
+        : thread;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      providerInstanceId: updatedThread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: updatedThread,
+    });
+  });
+
   const dispatchThreadMergeBack = Effect.fn("orchestrationV2.dispatch.threadMergeBack")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.merge_back" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -11548,6 +11593,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.merge_back":
         yield* dispatchThreadMergeBack(command, events);
+        break;
+      case "thread.side_chat.opening.complete":
+        yield* dispatchSideChatOpeningComplete(command, events);
         break;
       case "delegated_task.request":
         yield* dispatchDelegatedTaskRequest(command, events, effects);

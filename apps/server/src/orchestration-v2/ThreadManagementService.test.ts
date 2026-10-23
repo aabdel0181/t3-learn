@@ -24,6 +24,11 @@ import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import {
+  LESSON_THREAD_ID,
+  observationAnchor,
+  SIDE_CHAT_THREAD_ID,
+} from "./testkit/sideChatFixtures.ts";
 
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(
   Layer.provide(SqlitePersistence.layerMemory),
@@ -177,6 +182,42 @@ it.effect("uses thread-not-found only after a projection loads outside the proje
     expect(error).toMatchObject({ projectId, threadId });
     expect("cause" in error).toBe(false);
   }).pipe(Effect.provide(layerTest));
+});
+
+const sideChatOpenCommand = {
+  type: "thread.side_chat.open",
+  commandId: CommandId.make("command:thread-management:side-chat-open"),
+  threadId: SIDE_CHAT_THREAD_ID,
+  anchorThreadId: LESSON_THREAD_ID,
+  anchor: observationAnchor(),
+  excerpt: "observation space",
+  createdBy: "agent",
+  creationSource: "server",
+} as const;
+
+it("hydrates the anchor thread for a side chat open", () => {
+  expect(ThreadManagementService.existingThreadIdsForCommand(sideChatOpenCommand)).toEqual([
+    LESSON_THREAD_ID,
+  ]);
+});
+
+it("stamps creation provenance on side chat open and done", () => {
+  const provenance = { createdBy: "user", creationSource: "web" } as const;
+  expect(
+    ThreadManagementService.withCreationProvenance(sideChatOpenCommand, provenance),
+  ).toMatchObject(provenance);
+  expect(
+    ThreadManagementService.withCreationProvenance(
+      {
+        type: "thread.side_chat.done",
+        commandId: CommandId.make("command:thread-management:side-chat-done"),
+        threadId: SIDE_CHAT_THREAD_ID,
+        createdBy: "agent",
+        creationSource: "server",
+      },
+      provenance,
+    ),
+  ).toMatchObject(provenance);
 });
 
 it.effect("waitForThread follows a restart continuation instead of the cut run", () =>
