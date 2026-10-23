@@ -10,6 +10,7 @@ import type {
   OrchestrationV2ProviderFailureClass,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
+  OrchestrationV2ThreadShellSideChat,
   PlanId,
   ProjectId,
   ProviderInstanceId,
@@ -187,6 +188,8 @@ export interface EnvironmentThreadShell {
    */
   readonly lastVisitedAt?: string | null;
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
+  /** The shell's slim side chat as sent. `null` for ordinary threads. */
+  readonly sideChat?: OrchestrationV2ThreadShellSideChat | null;
   readonly deletedAt: string | null;
   readonly source: OrchestrationV2ThreadShell;
 }
@@ -339,6 +342,7 @@ export function presentThreadShell(
             requestId: thread.titleRegeneration.requestId,
             startedAt: iso(thread.titleRegeneration.startedAt),
           },
+    sideChat: thread.sideChat ?? null,
     deletedAt: nullableIso(thread.deletedAt),
     source: thread,
   };
