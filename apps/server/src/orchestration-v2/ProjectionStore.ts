@@ -458,6 +458,22 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly threadId: ThreadId; readonly worktreePath: string }>,
     ProjectionStoreV2Error
   >;
+  /**
+   * Every non-deleted side chat of a lesson, archived ones included, oldest
+   * first. The text stays on the thread, so callers read the whole payload.
+   */
+  readonly getSideChatThreads: (input: {
+    readonly projectId: ProjectId;
+    readonly lessonThreadId: ThreadId;
+  }) => Effect.Effect<ReadonlyArray<OrchestrationV2AppThread>, ProjectionStoreV2Error>;
+  /**
+   * Whether some non-deleted side chat is anchored in this thread. It decodes no
+   * payload, so a send on a thread without side chats never loads the project's.
+   */
+  readonly hasSideChatChildren: (input: {
+    readonly projectId: ProjectId;
+    readonly parentThreadId: ThreadId;
+  }) => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -6132,6 +6148,47 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
+    const getSideChatThreads: ProjectionStoreV2Shape["getSideChatThreads"] = Effect.fn(
+      "ProjectionStore.getSideChatThreads",
+    )(
+      function* (input) {
+        const rows = yield* sql<PayloadRow>`
+          SELECT payload_json FROM orchestration_v2_projection_threads
+          WHERE project_id = ${input.projectId} AND deleted_at IS NULL
+            AND json_extract(payload_json, '$.sideChat.lessonThreadId') = ${input.lessonThreadId}
+          ORDER BY created_at ASC, thread_id ASC
+        `;
+        return yield* Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json));
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) => new ProjectionStoreReadError({ threadId: input.lessonThreadId, cause }),
+          ),
+        ),
+    );
+
+    const hasSideChatChildren: ProjectionStoreV2Shape["hasSideChatChildren"] = Effect.fn(
+      "ProjectionStore.hasSideChatChildren",
+    )(
+      function* (input) {
+        const rows = yield* sql<{ readonly found: number }>`
+          SELECT EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_threads
+            WHERE project_id = ${input.projectId} AND deleted_at IS NULL
+              AND json_extract(payload_json, '$.sideChat.anchor.threadId') = ${input.parentThreadId}
+          ) AS found
+        `;
+        return rows[0]?.found === 1;
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) => new ProjectionStoreReadError({ threadId: input.parentThreadId, cause }),
+          ),
+        ),
+    );
+
     const shellThreadStateFromRow =
       /* Runs once per shell row; the enclosing snapshot or thread read owns the span. */
       Effect.fnUntraced(function* (input: {
@@ -6498,6 +6555,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getSettlementCandidates,
       getThreadsWithPullRequests,
       getThreadWorktreePaths,
+      getSideChatThreads,
+      hasSideChatChildren,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -6657,6 +6716,35 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               thread.worktreePath !== null
                 ? [{ threadId: thread.id, worktreePath: thread.worktreePath }]
                 : [],
+            ),
+          ),
+        ),
+      getSideChatThreads: (input) =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()]
+              .map(({ thread }) => thread)
+              .filter(
+                (thread) =>
+                  thread.projectId === input.projectId &&
+                  thread.deletedAt === null &&
+                  thread.sideChat?.lessonThreadId === input.lessonThreadId,
+              )
+              .toSorted(
+                (left, right) =>
+                  DateTime.toEpochMillis(left.createdAt) -
+                    DateTime.toEpochMillis(right.createdAt) || left.id.localeCompare(right.id),
+              ),
+          ),
+        ),
+      hasSideChatChildren: (input) =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()].some(
+              ({ thread }) =>
+                thread.projectId === input.projectId &&
+                thread.deletedAt === null &&
+                thread.sideChat?.anchor.threadId === input.parentThreadId,
             ),
           ),
         ),
