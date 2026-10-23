@@ -2622,6 +2622,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     { type: "provider-runtime.continue", sourceRunId: RunId.make("run:restart-replay") },
     { type: "side-chat.opening" },
     { type: "side-chat.outcome", requestId: "request:replay" },
+    { type: "side-chat.cascade", action: "delete" },
   ] as const)(
     "retires live provider effects and requeues $type after process loss",
     (replayRequest) =>

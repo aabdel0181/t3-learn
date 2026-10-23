@@ -121,6 +121,10 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     requestId: Schema.String,
   }),
   Schema.Struct({
+    type: Schema.Literal("side-chat.cascade"),
+    action: Schema.Literals(["archive", "unarchive", "delete"]),
+  }),
+  Schema.Struct({
     type: Schema.Literal("delegated-tasks.stop"),
     reason: Schema.optional(Schema.String),
   }),
@@ -139,6 +143,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "thread-title.generate",
   "side-chat.opening",
   "side-chat.outcome",
+  "side-chat.cascade",
   "delegated-tasks.stop",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 

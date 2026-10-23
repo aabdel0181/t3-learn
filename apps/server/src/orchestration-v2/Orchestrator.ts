@@ -553,6 +553,22 @@ function pendingThreadTitleGenerationEffect(
   };
 }
 
+/** Archives, unarchives or deletes the side chats directly below the command's thread. */
+function sideChatCascadeEffect(
+  command: Extract<
+    OrchestrationV2ServerCommand,
+    { readonly type: "thread.archive" | "thread.unarchive" | "thread.delete" }
+  >,
+  action: "archive" | "unarchive" | "delete",
+): PendingOrchestrationEffectV2 {
+  return {
+    id: `effect:${command.commandId}:side-chat.cascade`,
+    commandId: command.commandId,
+    threadId: command.threadId,
+    request: { type: "side-chat.cascade", action },
+  };
+}
+
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
 
 function withoutPreparationResult(
@@ -3777,6 +3793,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           request: { type: "terminal.cleanup" },
         } satisfies PendingOrchestrationEffectV2,
       ]);
+    }
+
+    if (
+      (command.type === "thread.archive" || command.type === "thread.unarchive") &&
+      (yield* projectionStore
+        .hasSideChatChildren({ projectId: thread.projectId, parentThreadId: thread.id })
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: thread.id, cause }),
+          ),
+        ))
+    ) {
+      const cascade = sideChatCascadeEffect(
+        command,
+        command.type === "thread.archive" ? "archive" : "unarchive",
+      );
+      yield* Ref.update(effects, (existing) => [...existing, cascade]);
     }
   });
 
@@ -12049,7 +12082,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
             ),
           );
-        return yield* mapDispatchError(command)(
+        const deletion = yield* mapDispatchError(command)(
           planThreadDeletion({
             command,
             projection,
@@ -12060,6 +12093,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             idAllocator,
           }),
         );
+        const hasSideChats = yield* projectionStore
+          .hasSideChatChildren({
+            projectId: projection.thread.projectId,
+            parentThreadId: command.threadId,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+        return hasSideChats
+          ? {
+              ...deletion,
+              effects: [...deletion.effects, sideChatCascadeEffect(command, "delete")],
+            }
+          : deletion;
       }
       case "thread.archive":
       case "thread.unarchive":

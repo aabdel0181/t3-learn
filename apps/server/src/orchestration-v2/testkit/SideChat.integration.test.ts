@@ -48,7 +48,9 @@ import {
   openSideChatCommand,
   OTHER_ASSISTANT_REPLY,
   OTHER_USER_MESSAGE,
+  pendingSideChat,
   type SeedMessage,
+  seedSideChatThread,
   seedThreadMessages,
   SIDE_CHAT_THREAD_ID,
   sideChatMessageCommand,
@@ -621,5 +623,87 @@ describe("side chat opening context", () => {
         assert.include(prompt, LESSON_SUMMARY);
       }),
     ),
+  );
+});
+
+describe("side chat cascade", () => {
+  it.effect("archiving, unarchiving and deleting a lesson does the same to its side chats", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const space = ThreadId.make("thread:side-chat:space");
+      const box = ThreadId.make("thread:side-chat:box");
+      const spaceReplyId = MessageId.make("message:space:a1");
+      yield* createLesson();
+      yield* seedSideChatThread({
+        threadId: space,
+        anchorThreadId: LESSON_THREAD_ID,
+        sideChat: pendingSideChat({
+          anchor: observationAnchor(),
+          excerpt: OBSERVATION_EXCERPT,
+          requestId: "command:side-chat:open-space",
+        }),
+      });
+      yield* seedThreadMessages(space, [
+        { id: spaceReplyId, role: "assistant", text: "A Box space is a bounded array of numbers." },
+      ]);
+      yield* seedSideChatThread({
+        threadId: box,
+        anchorThreadId: space,
+        sideChat: pendingSideChat({
+          anchor: {
+            threadId: space,
+            messageId: spaceReplyId,
+            start: 2,
+            end: 5,
+            prefix: "A ",
+            suffix: " space",
+          },
+          excerpt: "Box",
+          requestId: "command:side-chat:open-box",
+          lessonThreadId: LESSON_THREAD_ID,
+        }),
+      });
+      const archivedAt = (threadId: ThreadId) =>
+        orchestrator
+          .getThreadProjection(threadId)
+          .pipe(Effect.map((projection) => projection.thread.archivedAt));
+
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:side-chat:archive-lesson"),
+        threadId: LESSON_THREAD_ID,
+      });
+      yield* worker.drain();
+      assert.isNotNull(yield* archivedAt(space));
+      assert.isNotNull(yield* archivedAt(box));
+      // box has no side chat below it, so its own archive enqueues no cascade.
+      const boxArchiveEffects = (yield* outbox.listByCommandId(
+        CommandId.make(
+          `command:side-chat:archive-lesson:side-chat-cascade:${space}:side-chat-cascade:${box}`,
+        ),
+      )).map((effect) => effect.request.type);
+      assert.include(boxArchiveEffects, "terminal.cleanup");
+      assert.notInclude(boxArchiveEffects, "side-chat.cascade");
+
+      yield* orchestrator.dispatch({
+        type: "thread.unarchive",
+        commandId: CommandId.make("command:side-chat:unarchive-lesson"),
+        threadId: LESSON_THREAD_ID,
+      });
+      yield* worker.drain();
+      assert.isNull(yield* archivedAt(space));
+      assert.isNull(yield* archivedAt(box));
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:side-chat:delete-lesson"),
+        threadId: LESSON_THREAD_ID,
+      });
+      yield* worker.drain();
+      assert.isNull(yield* orchestrator.getThreadShell(space));
+      assert.isNull(yield* orchestrator.getThreadShell(box));
+    }).pipe(Effect.provide(openHarness())),
   );
 });

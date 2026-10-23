@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
   type RunId,
@@ -37,6 +38,8 @@ import {
 } from "./tree.ts";
 import { makeWriteSideChatText } from "./writeSideChatText.ts";
 
+type SideChatCascadeAction = "archive" | "unarchive" | "delete";
+
 export class SideChatLifecycleService extends Context.Service<
   SideChatLifecycleService,
   {
@@ -63,8 +66,39 @@ export class SideChatLifecycleService extends Context.Service<
       readonly threadId: ThreadId;
       readonly runId: RunId;
     }) => Effect.Effect<void>;
+    /**
+     * Archives, unarchives or deletes the side chats directly below the thread, as the thread's
+     * own `commandId` did to it. Each one's own command does the same to the side chats below it.
+     * Never fails: interrupts propagate, and anything else is logged, child by child.
+     */
+    readonly cascade: (input: {
+      readonly threadId: ThreadId;
+      readonly action: SideChatCascadeAction;
+      readonly commandId: CommandId;
+    }) => Effect.Effect<void>;
   }
 >()("t3/orchestration-v2/sideChat/SideChatLifecycleService") {}
+
+const SIDE_CHAT_CASCADE_COMMAND_TYPES = {
+  archive: "thread.archive",
+  unarchive: "thread.unarchive",
+  delete: "thread.delete",
+} as const;
+
+/** Whether `action` has nothing left to do to `thread`. */
+const isInCascadeTargetState = (
+  thread: OrchestrationV2AppThread,
+  action: SideChatCascadeAction,
+): boolean => {
+  switch (action) {
+    case "archive":
+      return thread.archivedAt !== null;
+    case "unarchive":
+      return thread.archivedAt === null;
+    case "delete":
+      return thread.deletedAt !== null;
+  }
+};
 
 /** The nested side chats whose notes a written note took up the chain, by the note's request. */
 interface ChildNoteDeliveries {
@@ -313,7 +347,59 @@ const make = Effect.gen(function* () {
       );
   });
 
-  return SideChatLifecycleService.of({ writeOutcome, awaitNotesForRunStart });
+  const cascade: SideChatLifecycleService["Service"]["cascade"] = Effect.fn(
+    "SideChatLifecycleService.cascade",
+  )(
+    function* (input) {
+      // A deleted thread still reads, so a delete reaches the side chats below it.
+      const thread = yield* projections.getThread(input.threadId);
+      const children = sideChatChildren(
+        yield* projections.getSideChatThreads({
+          projectId: thread.projectId,
+          lessonThreadId: sideChatLessonThreadId(thread),
+        }),
+        thread.id,
+      ).filter((child) => !isInCascadeTargetState(child, input.action));
+      yield* Effect.forEach(
+        children,
+        (child) =>
+          threads
+            .dispatch({
+              type: SIDE_CHAT_CASCADE_COMMAND_TYPES[input.action],
+              commandId: CommandId.make(`${input.commandId}:side-chat-cascade:${child.id}`),
+              threadId: child.id,
+            })
+            .pipe(
+              Effect.asVoid,
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.interrupt
+                  : Effect.logWarning("Side chat could not follow its parent", {
+                      parentThreadId: input.threadId,
+                      threadId: child.id,
+                      action: input.action,
+                      cause,
+                    }),
+              ),
+            ),
+        { discard: true },
+      );
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Side chats could not follow their parent", {
+                threadId: input.threadId,
+                action: input.action,
+                cause,
+              }),
+        ),
+      ),
+  );
+
+  return SideChatLifecycleService.of({ writeOutcome, awaitNotesForRunStart, cascade });
 });
 
 export const layer: Layer.Layer<

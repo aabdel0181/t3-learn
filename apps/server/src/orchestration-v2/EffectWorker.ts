@@ -546,6 +546,13 @@ export const layerExecutor: Layer.Layer<
               threadId: effect.threadId,
               requestId: effect.request.requestId,
             });
+          // Nor here: a side chat that cannot follow its parent is logged, child by child.
+          case "side-chat.cascade":
+            return sideChatLifecycle.cascade({
+              threadId: effect.threadId,
+              action: effect.request.action,
+              commandId: effect.commandId,
+            });
           case "delegated-tasks.stop":
             return threads
               .stopDelegatedTasks({
