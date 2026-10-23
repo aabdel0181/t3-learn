@@ -1188,10 +1188,11 @@ export default function ChatView(props: ChatViewProps) {
   const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
+  const supportsSideChats = serverConfig?.environment.capabilities.sideChats === true;
   const lessonSideChats = useLessonSideChats({
     lessonRef:
       activeThreadShell !== null && !isSideChatThread(activeThreadShell) ? activeThreadRef : null,
-    supported: serverConfig?.environment.capabilities.sideChats === true,
+    supported: supportsSideChats,
     // The capability comes with the server config, which can arrive after the shells.
     bootstrapComplete: activeEnvironmentBootstrapComplete && serverConfig !== null,
     activityRunStatus: activeActivityRun?.status ?? null,
@@ -2405,6 +2406,7 @@ export default function ChatView(props: ChatViewProps) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
+    addThreadMapSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -3891,6 +3893,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddThreadMap={supportsSideChats ? addThreadMapSurfaceStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -3898,6 +3901,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
+          threadMapAvailable={lessonSideChats.shells.length > 1}
         >
           {rightPanelContent}
         </ChatRightPanel>

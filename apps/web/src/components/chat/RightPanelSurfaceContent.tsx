@@ -22,6 +22,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { SideChatMapSurface } from "../sideChat/SideChatMap";
 import { SideChatPanel } from "../sideChat/SideChatPanel";
 
 const PreviewPanel = lazy(() =>
@@ -236,8 +237,7 @@ export function RightPanelSurfaceContent(props: {
           onFocusLesson={props.sideChat.onFocusLesson}
         />
       );
-    // A placeholder until the Map exists.
     case "thread-map":
-      return null;
+      return <SideChatMapSurface key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
   }
 }
