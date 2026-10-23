@@ -9,6 +9,7 @@ import type {
   OrchestrationV2StoredEvent,
 } from "@t3tools/contracts";
 import {
+  isSideChatThread,
   OrchestrationProjectShell as ProjectShellSchema,
   OrchestrationV2ThreadShell as ThreadShellSchema,
 } from "@t3tools/contracts";
@@ -106,16 +107,19 @@ export type ShellApplicationEvent =
       readonly event: Pick<OrchestrationV2StoredEvent["event"], "threadId">;
     };
 
-/** Focused subagents receive these updates through their thread subscription. */
+/** Focused subagents and side chats receive these updates through their thread subscription. */
 export function shouldPublishShellApplicationEvent(
   stored: ApplicationStoredEvent,
-  subagentThreadIds: Set<string>,
+  quietThreadIds: Set<string>,
 ): boolean {
   if ("aggregateKind" in stored) return true;
   const { event } = stored;
   if (event.type === "thread.created") {
-    if (event.payload.lineage.relationshipToParent === "subagent") {
-      subagentThreadIds.add(event.threadId);
+    if (
+      event.payload.lineage.relationshipToParent === "subagent" ||
+      isSideChatThread(event.payload)
+    ) {
+      quietThreadIds.add(event.threadId);
     }
     return true;
   }
@@ -124,7 +128,7 @@ export function shouldPublishShellApplicationEvent(
     return true;
   }
   return !(
-    subagentThreadIds.has(event.threadId) &&
+    quietThreadIds.has(event.threadId) &&
     (event.type === "node.updated" ||
       event.type === "turn-item.updated" ||
       event.type === "provider-turn.updated" ||

@@ -32,6 +32,7 @@ import { CodexProviderCapabilitiesV2 } from "./orchestration-v2/Adapters/CodexAd
 import { ServerActivation } from "./serverActivation.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   RunId,
@@ -53,6 +54,22 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 function at(offsetMs: number): DateTime.Utc {
   return DateTime.makeUnsafe(NOW_MS + offsetMs);
 }
+
+const SIDE_CHAT_SHELL = {
+  lessonThreadId: ThreadId.make("thread-1"),
+  anchor: {
+    threadId: ThreadId.make("thread-1"),
+    messageId: MessageId.make("message-1"),
+    start: 0,
+    end: 3,
+    prefix: "",
+    suffix: "",
+  },
+  label: "Box",
+  state: "done",
+  noteStatus: "ready",
+  excerptLength: 3,
+} satisfies NonNullable<OrchestrationV2ThreadShell["sideChat"]>;
 
 function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): OrchestrationV2ThreadShell {
   return {
@@ -659,6 +676,7 @@ describe("subagent worktree ownership", () => {
   it.effect.each([
     "idle",
     "grandchild",
+    "side-chat",
     "null-branch",
     "stale-branch",
     "isolated-owner",
@@ -724,8 +742,13 @@ describe("subagent worktree ownership", () => {
           rootThreadId:
             scenario === "wrong-root" ? ThreadId.make("other-root") : root.lineage.rootThreadId,
           relationshipToParent:
-            scenario === "fork" ? "fork" : scenario === "unrelated" ? null : "subagent",
+            scenario === "fork" || scenario === "side-chat"
+              ? "fork"
+              : scenario === "unrelated"
+                ? null
+                : "subagent",
         },
+        ...(scenario === "side-chat" ? { sideChat: SIDE_CHAT_SHELL } : {}),
         status: scenario === "running" ? "running" : "completed",
         pendingBackgroundTasks: scenario === "pending" ? [{ taskId: "task", kind: "command" }] : [],
         latestRunCompletedAt:
@@ -759,7 +782,9 @@ describe("subagent worktree ownership", () => {
           root,
         ]);
       const report = yield* fixture.service.runNow;
-      const removed = ["idle", "grandchild", "isolated-owner", "fork-owner"].includes(scenario);
+      const removed = ["idle", "grandchild", "side-chat", "isolated-owner", "fork-owner"].includes(
+        scenario,
+      );
       const shared = [
         "unrelated",
         "fork",

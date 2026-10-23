@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import type {
   EnvironmentId,
+  MessageId,
   OrchestrationV2ThreadShell,
   Project,
   ThreadId,
@@ -17,6 +18,22 @@ const project = {
   title: "t3code",
 } satisfies Pick<Project, "title">;
 
+const SIDE_CHAT_SHELL = {
+  lessonThreadId: "lesson" as ThreadId,
+  anchor: {
+    threadId: "lesson" as ThreadId,
+    messageId: "message-1" as MessageId,
+    start: 0,
+    end: 3,
+    prefix: "",
+    suffix: "",
+  },
+  label: "Box",
+  state: "done",
+  noteStatus: "ready",
+  excerptLength: 3,
+} satisfies NonNullable<OrchestrationV2ThreadShell["sideChat"]>;
+
 describe("projectThreadAwarenessV2", () => {
   const updatedAt = DateTime.makeUnsafe(NOW);
   const v2Thread = (
@@ -30,6 +47,7 @@ describe("projectThreadAwarenessV2", () => {
         | "pendingRuntimeRequest"
         | "lineage"
         | "settledOverride"
+        | "sideChat"
       >
     > = {},
   ) => ({
@@ -77,6 +95,27 @@ describe("projectThreadAwarenessV2", () => {
               parentThreadId: "parent" as ThreadId,
               relationshipToParent: "subagent",
             },
+          }),
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["running", "completed", "failed"] as const)(
+    "does not publish %s side-chat activity",
+    (status) => {
+      expect(
+        projectThreadAwarenessV2({
+          environmentId: "env-1" as EnvironmentId,
+          project,
+          thread: v2Thread({
+            status,
+            lineage: {
+              rootThreadId: "lesson" as ThreadId,
+              parentThreadId: "lesson" as ThreadId,
+              relationshipToParent: "fork",
+            },
+            sideChat: SIDE_CHAT_SHELL,
           }),
         }),
       ).toBeNull();

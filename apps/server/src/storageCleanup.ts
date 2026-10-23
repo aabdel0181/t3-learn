@@ -1,5 +1,6 @@
 import {
   GitCommandError,
+  isSideChatThread,
   OrchestrationV2AppThreadJson,
   OrchestrationV2ProviderSessionJson,
 } from "@t3tools/contracts";
@@ -145,7 +146,7 @@ export function storageCleanupActivityAt(thread: OrchestrationV2ThreadShell): nu
   );
 }
 
-/** Only a complete subagent chain within this worktree shares ownership. */
+/** Only a complete subagent or side-chat chain within this worktree shares ownership. */
 function worktreeOwner(threads: ReadonlyArray<OrchestrationV2ThreadShell>) {
   if (threads.length === 1) return threads[0];
   const byId = new Map(threads.map((thread) => [thread.id, thread]));
@@ -158,7 +159,7 @@ function worktreeOwner(threads: ReadonlyArray<OrchestrationV2ThreadShell>) {
     while (current.id !== owner.id) {
       if (
         seen.has(current.id) ||
-        current.lineage.relationshipToParent !== "subagent" ||
+        (current.lineage.relationshipToParent !== "subagent" && !isSideChatThread(current)) ||
         current.lineage.rootThreadId !== owner.lineage.rootThreadId
       )
         return undefined;

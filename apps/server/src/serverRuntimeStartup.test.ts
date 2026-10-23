@@ -7,6 +7,9 @@ import {
   ProviderDriverKind,
   CommandId,
   EnvironmentId,
+  MessageId,
+  type OrchestrationV2ThreadShell,
+  ThreadId,
   type ServerLifecycleStreamEvent,
 } from "@t3tools/contracts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
@@ -52,6 +55,7 @@ it.effect.each([
   "disabled-default",
   "launch-failure",
   "project-failure",
+  "side-chat-only",
 ] as const)("keeps bootstrap launch failures separate from project failures: %s", (scenario) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -178,7 +182,35 @@ it.effect.each([
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getShellSnapshot: () =>
             Effect.succeed({
-              threads: [],
+              threads:
+                scenario === "side-chat-only"
+                  ? [
+                      {
+                        id: ThreadId.make("side-chat"),
+                        projectId,
+                        lineage: {
+                          rootThreadId: ThreadId.make("lesson"),
+                          parentThreadId: ThreadId.make("lesson"),
+                          relationshipToParent: "fork",
+                        },
+                        sideChat: {
+                          lessonThreadId: ThreadId.make("lesson"),
+                          anchor: {
+                            threadId: ThreadId.make("lesson"),
+                            messageId: MessageId.make("message-1"),
+                            start: 0,
+                            end: 3,
+                            prefix: "",
+                            suffix: "",
+                          },
+                          label: "Box",
+                          state: "open",
+                          noteStatus: null,
+                          excerptLength: 3,
+                        },
+                      } as unknown as OrchestrationV2ThreadShell,
+                    ]
+                  : [],
               archivedThreads: [],
               schemaVersion: 1,
               snapshotSequence: 0,
