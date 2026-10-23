@@ -1,4 +1,4 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -37,6 +37,37 @@ it("clamps a long excerpt to three lines until expanded", async () => {
     .element(page.getByRole("button", { name: "Show less" }))
     .toHaveAttribute("aria-expanded", "true");
   expect(renderedLines(quote().element())).toBeGreaterThan(3);
+});
+
+it("starts a new excerpt collapsed and measured again after one was expanded", async () => {
+  await using screen = await render(excerpt(LONG_EXCERPT));
+  await userEvent.click(page.getByRole("button", { name: "Show more" }));
+  await expect.element(page.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+
+  await screen.rerender(excerpt(`${LONG_EXCERPT}And it is a different highlight.`));
+
+  await expect
+    .element(page.getByRole("button", { name: "Show more" }))
+    .toHaveAttribute("aria-expanded", "false");
+  await vi.waitFor(() => expect(renderedLines(quote().element())).toBe(3));
+
+  await screen.rerender(excerpt("observation space"));
+
+  await expect.element(quote()).toHaveTextContent("observation space");
+  await expect.element(page.getByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Show less" })).not.toBeInTheDocument();
+});
+
+it("drops the toggle when an expanded excerpt is replaced by a short one", async () => {
+  await using screen = await render(excerpt(LONG_EXCERPT));
+  await userEvent.click(page.getByRole("button", { name: "Show more" }));
+  await expect.element(page.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+
+  await screen.rerender(excerpt("observation space"));
+
+  await expect.element(quote()).toHaveTextContent("observation space");
+  await expect.element(page.getByRole("button", { name: "Show less" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Show more" })).not.toBeInTheDocument();
 });
 
 it("offers no toggle for a short excerpt", async () => {
