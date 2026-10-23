@@ -30,6 +30,7 @@ import {
   timelineEntryTurnFoldRunId,
   deriveMessagesTimelineRowsWithState,
   shouldCollapseUserMessage,
+  streamingAssistantMessageId,
   resolveAssistantMessageCopyState,
   type MessagesTimelineRow,
   workEntryDisplayLabel,
@@ -3924,5 +3925,43 @@ describe("shouldCollapseUserMessage", () => {
 
     expect(shouldCollapseUserMessage(`${citation} Can you expand on this?`)).toBe(false);
     expect(shouldCollapseUserMessage(`${citation} ${"More text. ".repeat(60)}`)).toBe(true);
+  });
+});
+
+describe("streamingAssistantMessageId", () => {
+  const at = "2026-10-22T09:00:00Z";
+  const message = (id: string, role: "user" | "assistant", streaming: boolean): TimelineEntry => ({
+    kind: "message",
+    id,
+    createdAt: at,
+    message: {
+      id: MessageId.make(id),
+      role,
+      text: id,
+      runId: null,
+      streaming,
+      createdAt: at,
+      updatedAt: at,
+    },
+  });
+
+  it("returns the assistant reply still streaming", () => {
+    expect(
+      streamingAssistantMessageId([
+        message("a", "assistant", false),
+        message("user", "user", false),
+        message("b", "assistant", true),
+      ]),
+    ).toBe("b");
+  });
+
+  it("returns null once nothing streams", () => {
+    expect(
+      streamingAssistantMessageId([
+        message("a", "assistant", false),
+        message("user", "user", false),
+        message("b", "assistant", false),
+      ]),
+    ).toBeNull();
   });
 });

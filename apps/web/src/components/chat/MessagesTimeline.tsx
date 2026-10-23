@@ -65,6 +65,7 @@ import {
   isTimelineMinimapRowVisible,
   resolveTimelineMinimapVisibleRange,
   resolveTimelineMinimapHitStripWidth,
+  streamingAssistantMessageId,
   timelineTurnFoldRunIdsByEntryId,
   worktreeSetupAgentStarted,
   type MessagesTimelineRow,
@@ -180,6 +181,11 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  /** Offers Ask in side chat next to Cite; omitted when the environment has no side chats. */
+  onAskInSideChat?:
+    | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
+    | undefined;
+  askInSideChatPending?: boolean;
   isWorking: boolean;
   runlessWorkActive?: boolean;
   activeTurnInProgress: boolean;
@@ -286,6 +292,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,
+  onAskInSideChat,
+  askInSideChatPending = false,
   isWorking,
   runlessWorkActive = false,
   activeTurnInProgress,
@@ -1071,6 +1079,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}
+              {...(onAskInSideChat
+                ? {
+                    onAskInSideChat,
+                    askPending: askInSideChatPending,
+                    streamingMessageId: streamingAssistantMessageId(timelineEntries),
+                  }
+                : {})}
             />
           ) : null}
           <LegendList<MessagesTimelineRow>

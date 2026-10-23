@@ -1,10 +1,11 @@
 import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   MessageId,
+  SIDE_CHAT_EXCERPT_MAX_CHARS,
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { QuoteIcon } from "lucide-react";
+import { MessageCircleQuestionIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -18,22 +19,35 @@ import {
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export function AssistantSelectionToolbar({
   viewport,
   threadRef,
   onCite,
+  onAskInSideChat,
+  askPending = false,
+  streamingMessageId = null,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  /** Renders the Ask action. Callers omit it when the environment has no side chats. */
+  onAskInSideChat?:
+    | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
+    | undefined;
+  /** Another side chat is still starting. */
+  askPending?: boolean;
+  /** The reply still being written; Ask waits until it finishes. */
+  streamingMessageId?: MessageId | null;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
-  const toolbarRef = useRef<HTMLButtonElement>(null);
+  const [focusedAction, setFocusedAction] = useState<"cite" | "ask">("cite");
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
   useLayoutEffect(() => {
@@ -156,10 +170,11 @@ export function AssistantSelectionToolbar({
       ) {
         return;
       }
-      if (toolbar.disabled) return;
+      const first = toolbar.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      if (!first) return;
       event.preventDefault();
       event.stopPropagation();
-      toolbar.focus({ preventScroll: true });
+      first.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
@@ -172,40 +187,107 @@ export function AssistantSelectionToolbar({
   }, [threadRef, viewport]);
 
   if (!selection) return null;
-  const tooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  const askTooLong = selection.citation.text.length > SIDE_CHAT_EXCERPT_MAX_CHARS;
+  const askBlockedReason = askTooLong
+    ? `Side chats take up to ${SIDE_CHAT_EXCERPT_MAX_CHARS.toLocaleString("en-US")} characters`
+    : streamingMessageId === selection.citation.messageId
+      ? "Available when this reply finishes"
+      : askPending
+        ? "Starting side chat…"
+        : null;
+  // One action is in the tab order; the arrow keys move between them.
+  const rovingAction = onAskInSideChat && (focusedAction === "ask" || citeTooLong) ? "ask" : "cite";
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
   };
   const cite = () => {
-    if (tooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
+    if (citeTooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
+    window.getSelection()?.removeAllRanges();
+    dismiss();
+    return true;
+  };
+  const ask = () => {
+    if (
+      askBlockedReason !== null ||
+      !onAskInSideChat?.(selection.citation, selection.sourceAnchor)
+    ) {
+      return false;
+    }
     window.getSelection()?.removeAllRanges();
     dismiss();
     return true;
   };
   return createPortal(
-    <Button
+    <div
       ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)]"
+      role="toolbar"
+      aria-label="Selection actions"
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
           event.preventDefault();
           dismiss();
+          return;
         }
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        const buttons = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+        );
+        const index = buttons.indexOf(event.target as HTMLButtonElement);
+        if (index === -1) return;
+        event.preventDefault();
+        const step = event.key === "ArrowRight" ? 1 : -1;
+        buttons[(index + step + buttons.length) % buttons.length]?.focus({ preventScroll: true });
       }}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={citeTooLong}
+        tabIndex={rovingAction === "cite" ? 0 : -1}
+        aria-label={citeTooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        onFocus={() => setFocusedAction("cite")}
+        onClick={cite}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {citeTooLong ? "Shorten selection" : "Cite"}
+      </Button>
+      {onAskInSideChat ? (
+        <Tooltip
+          onOpenChange={(_open, details) => {
+            // Focus opens the tooltip, which would otherwise swallow the Escape that dismisses.
+            if (details.reason === "escape-key") details.allowPropagation();
+          }}
+        >
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="xs"
+                variant="glass"
+                tabIndex={rovingAction === "ask" ? 0 : -1}
+                aria-disabled={askBlockedReason !== null || undefined}
+                aria-description={askBlockedReason ?? undefined}
+                aria-label={askTooLong ? "Selection is too long to ask about" : "Ask in side chat"}
+                onFocus={() => setFocusedAction("ask")}
+                onClick={ask}
+              />
+            }
+          >
+            <MessageCircleQuestionIcon aria-hidden="true" className="size-3.5" />
+            {askTooLong ? "Shorten selection" : "Ask in side chat"}
+          </TooltipTrigger>
+          {askBlockedReason ? <TooltipPopup side="top">{askBlockedReason}</TooltipPopup> : null}
+        </Tooltip>
+      ) : null}
+    </div>,
     document.body,
   );
 }
