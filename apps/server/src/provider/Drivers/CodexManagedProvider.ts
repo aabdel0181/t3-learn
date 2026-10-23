@@ -269,6 +269,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       protect("generateThreadTitle", nativeGeneration.generateThreadTitle(value)),
     generateReviewGuide: (value) =>
       protect("generateReviewGuide", nativeGeneration.generateReviewGuide(value)),
+    generateSideChatText: (value) =>
+      protect("generateSideChatText", nativeGeneration.generateSideChatText(value)),
   };
   return {
     instanceId,

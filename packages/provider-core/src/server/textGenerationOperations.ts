@@ -1,7 +1,13 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { type ChatAttachment, type ModelSelection, TextGenerationError } from "@t3tools/contracts";
+import {
+  type ChatAttachment,
+  type ModelSelection,
+  SIDE_CHAT_NOTE_MAX_CHARS,
+  SIDE_CHAT_SUMMARY_MAX_CHARS,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
@@ -11,11 +17,13 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildReviewGuidePrompt,
+  buildSideChatTextPrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizeSideChatText,
   sanitizeThreadTitle,
 } from "./textGenerationUtils.ts";
 
@@ -169,11 +177,29 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateSideChatText: ProviderTextGeneration["generateSideChatText"] = Effect.fn(
+    `${name}.generateSideChatText`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "generateSideChatText",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildSideChatTextPrompt(input),
+    });
+    return {
+      text: sanitizeSideChatText(
+        generated.text,
+        input.kind === "outcome_note" ? SIDE_CHAT_NOTE_MAX_CHARS : SIDE_CHAT_SUMMARY_MAX_CHARS,
+      ),
+    };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateSideChatText,
   } satisfies ProviderTextGeneration;
 }

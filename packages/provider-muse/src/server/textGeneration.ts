@@ -2,6 +2,8 @@ import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   MUSE_DEFAULT_MODEL,
   type ModelSelection,
+  SIDE_CHAT_NOTE_MAX_CHARS,
+  SIDE_CHAT_SUMMARY_MAX_CHARS,
   type ServerProviderModel,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -22,11 +24,13 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildSideChatTextPrompt,
   buildThreadTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizeSideChatText,
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "@t3tools/provider-core/server/textGenerationUtils";
@@ -342,11 +346,27 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateSideChatText: ProviderTextGeneration["generateSideChatText"] = Effect.fn(
+    "MuseTextGeneration.generateSideChatText",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "generateSideChatText",
+      ...buildSideChatTextPrompt(input),
+      modelSelection: input.modelSelection,
+    });
+    return {
+      text: sanitizeSideChatText(
+        generated.text,
+        input.kind === "outcome_note" ? SIDE_CHAT_NOTE_MAX_CHARS : SIDE_CHAT_SUMMARY_MAX_CHARS,
+      ),
+    };
+  });
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateSideChatText,
   } satisfies ProviderTextGeneration;
 });

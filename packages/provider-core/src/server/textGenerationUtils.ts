@@ -77,6 +77,27 @@ export function sanitizeThreadTitle(raw: string): string {
   return `${normalized.slice(0, MAX_THREAD_TITLE_CHARS - 3).trimEnd()}...`;
 }
 
+const NO_SIDE_CHAT_TEXT = /^(?:null|none|n\/a)\.?$/i;
+
+/** Trims side-chat text to `maxChars` UTF-16 units; empty text and "null"-like answers become `null`. */
+export function sanitizeSideChatText(raw: string | null, maxChars: number): string | null {
+  const text = raw?.trim() ?? "";
+  if (text.length === 0 || NO_SIDE_CHAT_TEXT.test(text)) {
+    return null;
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  let kept = "";
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
+    text,
+  )) {
+    if (kept.length + segment.length > maxChars - 1) break;
+    kept += segment;
+  }
+  return `${kept}…`;
+}
+
 function cliLabel(cliName: string): string {
   const capitalized = cliName.charAt(0).toUpperCase() + cliName.slice(1);
   return `${capitalized} CLI (\`${cliName}\`)`;
