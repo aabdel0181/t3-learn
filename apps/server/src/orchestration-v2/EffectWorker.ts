@@ -24,6 +24,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
 import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
+import * as SideChatOpeningService from "./sideChat/SideChatOpeningService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -78,6 +79,7 @@ export const layerExecutor: Layer.Layer<
   | ProviderTurnStartService.ProviderTurnStartServiceV2
   | RuntimeRequestService.RuntimeRequestServiceV2
   | ThreadTitleRegenerationService.ThreadTitleRegenerationService
+  | SideChatOpeningService.SideChatOpeningService
   | ThreadManagementService.ThreadManagementService
   | ServerSettings.ServerSettingsService
 > = Layer.effect(
@@ -92,6 +94,7 @@ export const layerExecutor: Layer.Layer<
     const runtimeRequests = yield* RuntimeRequestService.RuntimeRequestServiceV2;
     const threadTitleRegeneration =
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
+    const sideChatOpening = yield* SideChatOpeningService.SideChatOpeningService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const settings = yield* ServerSettings.ServerSettingsService;
     return OrchestrationEffectExecutorV2.of({
@@ -520,6 +523,12 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          // Nothing to map: a failed summary is recorded on the side chat, never on this outbox row.
+          case "side-chat.opening":
+            return sideChatOpening.execute({
+              threadId: effect.threadId,
+              requestId: effect.commandId,
+            });
           case "delegated-tasks.stop":
             return threads
               .stopDelegatedTasks({
