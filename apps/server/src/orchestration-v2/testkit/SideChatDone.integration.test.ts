@@ -229,6 +229,38 @@ describe("side chat Done", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("merge-back from a side chat is refused with a pointer to Done", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-done-merge-back");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        // A completed run, so only the refusal itself can stop the merge-back.
+        yield* harness.send(space, SPACE_QUESTION);
+
+        const error = yield* orchestrator
+          .dispatch({
+            type: "thread.merge_back",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make("merge-side-chat"),
+            sourceThreadId: space,
+            targetThreadId: lesson,
+            sourcePoint: { type: "latest_stable" },
+          })
+          .pipe(Effect.flip);
+
+        assert.equal(error._tag, "OrchestratorDispatchError");
+        assert.equal(String(error.cause), "Use Done for side chats.");
+        assert.deepEqual(
+          (yield* orchestrator.getThreadRecords(lesson, ["contextTransfers"])).contextTransfers,
+          [],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
   it.effect(
     "an open that reuses its lesson's id is refused rather than locking the lesson twice",
     () =>
