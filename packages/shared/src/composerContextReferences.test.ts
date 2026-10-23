@@ -1,11 +1,17 @@
 import {
+  type AssistantCitation,
   type ComposerContextId,
   type ComposerContextRecord,
   EnvironmentId,
+  MessageId,
   ThreadId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import {
+  expandAssistantCitationsForProvider,
+  serializeAssistantCitation,
+} from "./assistantCitations.ts";
 import {
   collectComposerContextReferences,
   formatComposerContextHref,
@@ -263,6 +269,94 @@ describe("provider projection", () => {
     expect(projected).toContain('<context kind="terminal" id="ctx_t" unavailable="true"/>');
     expect(projected).not.toContain("another payload");
     expect(projected).not.toContain("boom");
+  });
+});
+
+describe("assistant citations in the provider projection", () => {
+  const citation: AssistantCitation = {
+    version: 1,
+    environmentId: EnvironmentId.make("env-1"),
+    threadId: ThreadId.make("thread-1"),
+    messageId: MessageId.make("assistant-1"),
+    text: "Keep the parser shared.",
+    start: 0,
+    end: 23,
+    prefix: "",
+    suffix: "",
+  };
+  const terminal: ComposerContextRecord = {
+    version: 1,
+    contextId: ctx("ctx_t"),
+    kind: "terminal",
+    label: "Terminal 1 line 3",
+    terminalId: "term-1",
+    terminalLabel: "Terminal 1",
+    lineStart: 3,
+    lineEnd: 3,
+    text: "boom",
+  };
+  const citationJson = (projected: string): unknown =>
+    JSON.parse(
+      projected.slice(
+        projected.indexOf("[\n", projected.indexOf("<assistant_citations>")),
+        projected.lastIndexOf("\n</assistant_citations>"),
+      ),
+    );
+
+  it("expands citations from the prose and appends their block after the context envelope", () => {
+    const projected = projectComposerContextForProvider({
+      text: `Why ${serializeAssistantCitation(citation)} after [log](t3-context://v1/terminal/ctx_t)?`,
+      records: [terminal],
+    });
+    const [beforeCitations] = projected.split("\n\n<assistant_citations>\n");
+    expect(beforeCitations).toBe(
+      [
+        "Why [assistant-quote-1] after [Terminal: log; ref=ctx_t]?",
+        "",
+        '<t3_context version="1">',
+        '<context kind="terminal" id="ctx_t">',
+        "terminal: Terminal 1",
+        "3 | boom",
+        "</context>",
+        "</t3_context>",
+      ].join("\n"),
+    );
+    expect(citationJson(projected)).toEqual([{ id: "assistant-quote-1", citation }]);
+    expect(projected.endsWith("\n</assistant_citations>")).toBe(true);
+    expect(projected).not.toContain("t3-citation://");
+  });
+
+  it("keeps captured context payloads out of citation expansion", () => {
+    const copied = serializeAssistantCitation(citation);
+    const projected = projectComposerContextForProvider({
+      text: "Check [log](t3-context://v1/terminal/ctx_t)",
+      records: [{ ...terminal, text: copied }],
+    });
+    expect(projected).toContain(`3 | ${copied}\n</context>`);
+    expect(projected).not.toContain("assistant-quote-1");
+    expect(projected).not.toContain("<assistant_citations>");
+  });
+
+  it("keeps context links inside quoted text out of the context envelope", () => {
+    const quoted = { ...citation, text: "Run [log](t3-context://v1/terminal/ctx_t) first." };
+    const projected = projectComposerContextForProvider({
+      text: `See ${serializeAssistantCitation(quoted)}`,
+      records: [terminal],
+    });
+    expect(projected).toContain("<assistant_citations>");
+    expect(projected).not.toContain("<t3_context");
+    expect(projected).not.toContain("boom");
+    expect(citationJson(projected)).toEqual([{ id: "assistant-quote-1", citation: quoted }]);
+  });
+
+  it("reads exactly what the composer measures when no context is referenced", () => {
+    const plain = "Compare [docs](https://example.com/a) with the last reply.";
+    const quote = serializeAssistantCitation(citation);
+    const cited = `Explain ${quote}, then ${quote} again.`;
+    expect(projectComposerContextForProvider({ text: plain, records: [] })).toBe(plain);
+    expect(projectComposerContextForProvider({ text: cited, records: [terminal] })).toBe(
+      expandAssistantCitationsForProvider(cited),
+    );
   });
 });
 

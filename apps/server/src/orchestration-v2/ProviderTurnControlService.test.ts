@@ -1,5 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentId,
+  MessageId,
   type ModelSelection,
   NodeId,
   type OrchestrationV2ProviderThread,
@@ -14,6 +16,10 @@ import {
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import {
+  expandAssistantCitationsForProvider,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -328,4 +334,64 @@ it.effect(
       assert.equal(interrupted?.id, providerThreadId);
       assert.equal(interrupted?.nativeThreadRef?.nativeId, "native-thread:restart-session");
     }),
+);
+
+it.effect("steers the running turn with cited assistant quotes expanded", () =>
+  Effect.gen(function* () {
+    const threadId = ThreadId.make("thread:steer-citation");
+    const providerSessionId = ProviderSessionId.make("provider-session:steer-citation");
+    const providerThreadId = ProviderThreadId.make("provider-thread:steer-citation");
+    const providerTurnId = ProviderTurnId.make("provider-turn:steer-citation");
+    const messageId = MessageId.make("message:steer-citation");
+    const text = `And ${serializeAssistantCitation({
+      version: 1,
+      environmentId: EnvironmentId.make("environment:steer-citation"),
+      threadId,
+      messageId: MessageId.make("assistant:steer-citation"),
+      text: "Keep the parser shared.",
+      start: 0,
+      end: 23,
+      prefix: "",
+      suffix: "",
+    })}?`;
+    const steered: Array<string> = [];
+    const runtime = {
+      steerTurn: (input: ProviderAdapter.ProviderAdapterV2SteerInput) =>
+        Effect.sync(() => {
+          steered.push(input.message.text);
+        }),
+    } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime;
+    const context = {
+      providerThread: { id: providerThreadId, providerSessionId },
+      providerTurn: { id: providerTurnId, providerThreadId, status: "running" },
+      attempt: undefined,
+      message: { id: messageId, text, attachments: [], createdBy: "user", creationSource: "web" },
+      run: { id: RunId.make("run:steer-citation") },
+    } as unknown as ProjectionStore.ProjectionProviderControlContext;
+    const layerControl = ProviderTurnControlService.layer.pipe(
+      Layer.provide(
+        Layer.merge(
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getProviderControlContext: () => Effect.succeed(context),
+          }),
+          Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
+            get: () => Effect.succeed(Option.some(runtime)),
+          }),
+        ),
+      ),
+    );
+
+    yield* Effect.gen(function* () {
+      const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
+      yield* control.steer({
+        threadId,
+        providerSessionId,
+        providerThreadId,
+        providerTurnId,
+        messageId,
+      });
+    }).pipe(Effect.provide(layerControl));
+
+    assert.deepEqual(steered, [expandAssistantCitationsForProvider(text)]);
+  }),
 );
