@@ -32,7 +32,10 @@ import * as ProviderReplayHarness from "./ProviderReplayHarness.ts";
 export const SIDE_CHAT_HARNESS_REPLY =
   "Reply: an observation space is what the agent sees, a Box is a bounded vector, and reward shaping changes the reward.";
 
-/** One answer of the note writer: a note (or none), a failure, or a gate the test releases. */
+/**
+ * One answer of the note or opening summary writer: text (or none), a failure, or a gate the test
+ * releases.
+ */
 export type SideChatNoteScript =
   | { readonly text: string | null }
   | { readonly fail: string }
@@ -45,12 +48,18 @@ const LESSON_SELECTION: ModelSelection = {
   model: "side-chat-model",
 };
 
-/** The highlight a note writer's input is about: the line under its excerpt header. */
-function outcomeExcerpt(prompt: string): string | undefined {
+/** The line under `header` in a text writer's input, where it states the highlight. */
+function lineAfter(prompt: string, header: string): string | undefined {
   const lines = prompt.split("\n");
-  const header = lines.indexOf(SIDE_CHAT_OUTCOME_EXCERPT_HEADER);
-  return header === -1 ? undefined : lines[header + 1];
+  const index = lines.indexOf(header);
+  return index === -1 ? undefined : lines[index + 1];
 }
+
+/** The highlight a note writer's input is about. */
+const outcomeExcerpt = (prompt: string) => lineAfter(prompt, SIDE_CHAT_OUTCOME_EXCERPT_HEADER);
+
+/** The highlight an opening summary writer's input is about. */
+const openingExcerpt = (prompt: string) => lineAfter(prompt, "Highlighted passage:");
 
 const runNoteScript = (script: SideChatNoteScript) =>
   "fail" in script
@@ -63,8 +72,8 @@ const runNoteScript = (script: SideChatNoteScript) =>
 
 /**
  * A lesson and its side chats on a scripted Codex provider that answers `SIDE_CHAT_HARNESS_REPLY`,
- * with a scripted note writer and the effect daemon running. Tests await events instead of
- * draining the worker, because a note may still be generating.
+ * with scripted note and opening summary writers and the effect daemon running. Tests await events
+ * instead of draining the worker, because a note may still be generating.
  */
 export const makeSideChatHarness = Effect.fn("makeSideChatHarness")(function* (name: string) {
   const cwd = yield* checkpointWorkspace(name);
@@ -87,10 +96,15 @@ export const makeSideChatHarness = Effect.fn("makeSideChatHarness")(function* (n
     return created;
   };
 
+  const openingScripts = new Map<string, Array<SideChatNoteScript>>();
+
   const sideChatTextGeneration = Effect.fn("SideChatHarness.generateSideChatText")(function* (
     input: TextGeneration.SideChatTextGenerationInput,
   ) {
-    if (input.kind !== "outcome_note") return { text: null };
+    if (input.kind === "opening_summary") {
+      const script = openingScripts.get(openingExcerpt(input.prompt) ?? "")?.shift();
+      return yield* runNoteScript(script ?? { text: null });
+    }
     const excerpt = outcomeExcerpt(input.prompt) ?? "";
     noteInputs.push(input.prompt);
     const script = noteScripts.get(excerpt)?.shift() ?? { text: null };
@@ -266,6 +280,13 @@ export const makeSideChatHarness = Effect.fn("makeSideChatHarness")(function* (n
     /** Queues the answers of the next notes written for `excerpt`; after them, no note. */
     scriptNote: (excerpt: string, ...results: ReadonlyArray<SideChatNoteScript>): void => {
       noteScripts.set(excerpt, [...(noteScripts.get(excerpt) ?? []), ...results]);
+    },
+    /**
+     * Queues the answers of the next opening summaries written for `excerpt`; after them, none, so
+     * the side chat falls back.
+     */
+    scriptOpening: (excerpt: string, ...results: ReadonlyArray<SideChatNoteScript>): void => {
+      openingScripts.set(excerpt, [...(openingScripts.get(excerpt) ?? []), ...results]);
     },
     /** Resolves once the note writer has asked for a note on `excerpt`. */
     noteRequested: (excerpt: string) => Deferred.await(noteRequest(excerpt)),

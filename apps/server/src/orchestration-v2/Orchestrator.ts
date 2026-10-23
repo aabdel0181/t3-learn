@@ -10335,9 +10335,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>;
   }) {
     const { command, threadId } = input;
-    const { thread, messages } = yield* projectionStore
-      .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
-      .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    // A stop earlier in this command can have rewritten the thread's row (its limit recovery or
+    // pull-request watch), so the row is read with this command's events applied.
+    const { thread, messages } = yield* getProjectionWithPendingEvents(threadId, input.events);
     const sideChat = thread.sideChat;
     if (sideChat === undefined) {
       return yield* refuseNonSideChat(command, threadId);
@@ -10407,7 +10407,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ]);
   });
 
-  /** Done: writes the side chat's note, or deletes it when it is empty or discarded. */
+  /**
+   * Stops the turn a side chat is still answering, the way Stop does, so Done can end it. Returns
+   * the stop's cancel value, which applies only when `threadId` is the command's own thread.
+   */
+  const stopSideChatRun = Effect.fn("Orchestrator.stopSideChatRun")(function* (
+    command: OrchestrationV2ServerCommand,
+    threadId: ThreadId,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const { runs } = yield* projectionStore
+      .getThreadRecords(threadId, ["runs"])
+      .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    if (!runs.some(isBlockingRun)) return undefined;
+    return yield* dispatchThreadStop(
+      {
+        type: "thread.stop",
+        commandId: command.commandId,
+        threadId,
+        reason: "Side chat finished.",
+      },
+      events,
+      effects,
+    );
+  });
+
+  /**
+   * Done: writes the side chat's note, or deletes it when it is empty or discarded. Its open nested
+   * side chats are finished first, deepest first, and a turn still answering is stopped.
+   */
   const dispatchSideChatDone = Effect.fn("orchestrationV2.dispatch.sideChatDone")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.side_chat.done" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -10432,10 +10461,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
 
+    const descendants = sideChatDescendants(yield* readSideChatTree(thread), thread.id);
     if (command.discard === true) {
       // The whole branch goes, deepest first, so no nested side chat outlives its parent.
-      const tree = yield* readSideChatTree(thread);
-      for (const descendant of sideChatDescendants(tree, thread.id)) {
+      for (const descendant of descendants) {
         yield* finishSideChat({
           command,
           threadId: descendant.thread.id,
@@ -10453,16 +10482,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         events,
         effects,
       });
-    } else if (sideChat.done === null) {
+      return undefined;
+    }
+
+    // Open nested side chats end first, deepest first, so each parent's note can carry theirs.
+    for (const descendant of descendants) {
+      if (descendant.thread.sideChat?.done !== null) continue;
+      yield* stopSideChatRun(command, descendant.thread.id, events, effects);
       yield* finishSideChat({
         command,
-        threadId: thread.id,
-        depth: 0,
+        threadId: descendant.thread.id,
+        depth: descendant.depth,
         discard: false,
         events,
         effects,
       });
-    } else {
+    }
+    if (sideChat.done !== null) {
       // Already done: an accepted no-op keeps the first outcome.
       yield* emit(
         events,
@@ -10474,8 +10510,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         occurredAt: yield* DateTime.now,
         payload: thread,
       });
+      return undefined;
     }
-    return undefined;
+    // The command's cancel value applies to its own thread only, so a nested side chat's stop
+    // never cancels this thread's effects.
+    const cancelUnsettledEffects = yield* stopSideChatRun(command, thread.id, events, effects);
+    yield* finishSideChat({
+      command,
+      threadId: thread.id,
+      depth: 0,
+      discard: false,
+      events,
+      effects,
+    });
+    return cancelUnsettledEffects;
   });
 
   const dispatchSideChatOutcomeComplete = Effect.fn(
@@ -10498,7 +10546,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const done = sideChat?.done ?? null;
     // Only the generating request of a side chat that still exists lands. A stale or late
     // completion emits the row unchanged, because a command must emit an event. Background work
-    // keeps updatedAt either way.
+    // keeps updatedAt either way. A note written, or found unneeded, with its nested side chats'
+    // notes in view has taken them up the chain, so they count as delivered; a failed one has not.
+    const childNoteDeliveries =
+      command.status === "failed" ? undefined : command.childNoteDeliveries;
     const updatedThread =
       sideChat !== undefined &&
       done !== null &&
@@ -10519,6 +10570,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 },
               },
             },
+            ...(childNoteDeliveries === undefined
+              ? {}
+              : {
+                  sideChatNoteDeliveries: {
+                    ...thread.sideChatNoteDeliveries,
+                    ...childNoteDeliveries,
+                  },
+                }),
           }
         : thread;
     yield* emit(
@@ -10530,6 +10589,60 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       providerInstanceId: updatedThread.providerInstanceId,
       occurredAt: yield* DateTime.now,
       payload: updatedThread,
+    });
+  });
+
+  /**
+   * A message the user sends in a done side chat reopens it, so a later Done writes a fresh note.
+   * A note its parent received is kept as `deliveredNote`, and that later note says only what is
+   * new. A note the parent never received is dropped and replaced. A note still being written
+   * lands on nothing, because its request is no longer the side chat's.
+   */
+  const applySideChatUserMessage = Effect.fn("Orchestrator.applySideChatUserMessage")(function* (
+    command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
+    thread: OrchestrationV2AppThread,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    _effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const sideChat = thread.sideChat;
+    const done = sideChat?.done ?? null;
+    if (sideChat === undefined || done === null || !isUserAuthoredSideChatTrigger(command)) {
+      return;
+    }
+    const { outcome } = done;
+    const parentThreadId = thread.lineage.parentThreadId;
+    const parent =
+      parentThreadId === null
+        ? undefined
+        : yield* projectionStore
+            .getThread(parentThreadId)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestratorProjectionError({ threadId: parentThreadId, cause }),
+              ),
+            );
+    const deliveredNote =
+      outcome.status === "ready" &&
+      outcome.note !== null &&
+      parent?.sideChatNoteDeliveries?.[thread.id] === outcome.requestId
+        ? outcome.note
+        : undefined;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: {
+        ...thread,
+        sideChat: {
+          ...sideChat,
+          done: null,
+          ...(deliveredNote === undefined ? {} : { deliveredNote }),
+        },
+      },
     });
   });
 
@@ -11955,6 +12068,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId: command.threadId,
           });
         }
+        // dispatchMessage reads the thread with these events applied.
+        yield* applySideChatUserMessage(command, thread, events, effects);
         yield* dispatchMessage(command, events, effects);
         yield* recordSubagentFollowup(command, events).pipe(mapDispatchError(command));
         break;

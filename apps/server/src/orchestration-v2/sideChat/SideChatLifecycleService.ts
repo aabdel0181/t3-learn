@@ -42,8 +42,11 @@ export class SideChatLifecycleService extends Context.Service<
   {
     /**
      * Writes the note for the side chat's `generating` outcome `requestId` and lands it with
-     * `thread.side_chat.outcome.complete`. Never fails: interrupts propagate, and anything else is
-     * logged and recorded as `failed`, because a failed outbox row pins the lesson's worktree.
+     * `thread.side_chat.outcome.complete`. The note takes up the ready notes of its nested side
+     * chats, after waiting for ones still being written until `SIDE_CHAT_WAIT_CAP_MS` after Done,
+     * and says only what is new next to the note its parent already received. Never fails:
+     * interrupts propagate, and anything else is logged and recorded as `failed`, because a failed
+     * outbox row pins the lesson's worktree.
      */
     readonly writeOutcome: (input: {
       readonly threadId: ThreadId;
@@ -63,9 +66,14 @@ export class SideChatLifecycleService extends Context.Service<
   }
 >()("t3/orchestration-v2/sideChat/SideChatLifecycleService") {}
 
+/** The nested side chats whose notes a written note took up the chain, by the note's request. */
+interface ChildNoteDeliveries {
+  readonly childNoteDeliveries?: Readonly<Record<ThreadId, string>>;
+}
+
 type OutcomeResult =
-  | { readonly status: "ready"; readonly note: string }
-  | { readonly status: "none"; readonly note: null }
+  | ({ readonly status: "ready"; readonly note: string } & ChildNoteDeliveries)
+  | ({ readonly status: "none"; readonly note: null } & ChildNoteDeliveries)
   | { readonly status: "failed"; readonly note: null; readonly error: string };
 
 type TranscriptMessage = OrchestrationV2ConversationMessage & {
@@ -193,20 +201,43 @@ const make = Effect.gen(function* () {
     "SideChatLifecycleService.writeOutcome",
   )(function* (input) {
     const result: OutcomeResult | "stale" = yield* Effect.gen(function* () {
+      // Read before the nested side chats, so a note of theirs that settles after the read is
+      // still seen.
+      const afterSequence = yield* eventSink.latestSequence();
       const records = yield* threads.getThreadRecords(input.threadId, ["messages"], {
         messageRoles: ["user", "assistant"],
       });
       const { thread } = records;
       const sideChat = thread.sideChat;
-      const outcome = sideChat?.done?.outcome;
+      const done = sideChat?.done;
       if (
         sideChat === undefined ||
+        done == null ||
         thread.deletedAt !== null ||
-        outcome?.status !== "generating" ||
-        outcome.requestId !== input.requestId
+        done.outcome.status !== "generating" ||
+        done.outcome.requestId !== input.requestId
       ) {
         return "stale" as const;
       }
+
+      const readChildren = projections
+        .getSideChatThreads({
+          projectId: thread.projectId,
+          lessonThreadId: sideChat.lessonThreadId,
+        })
+        .pipe(Effect.map((sideChats) => sideChatChildren(sideChats, thread.id)));
+      let children = yield* readChildren;
+      const generating = undeliveredGeneratingSideChats(thread, children);
+      if (generating.length > 0) {
+        // The cap counts from Done, which started the nested side chats' notes too.
+        yield* awaitSideChatNotes(
+          generating,
+          afterSequence,
+          DateTime.add(DateTime.makeUnsafe(done.at), { milliseconds: SIDE_CHAT_WAIT_CAP_MS }),
+        );
+        children = yield* readChildren;
+      }
+      const childNotes = undeliveredReadySideChatNotes(thread, children);
 
       const lesson = yield* threads.getThreadRecords(sideChat.lessonThreadId, []);
       const { text } = yield* writeSideChatText({
@@ -220,13 +251,23 @@ const make = Effect.gen(function* () {
               (left, right) =>
                 DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
             ),
-          childNotes: [],
-          previousNote: null,
+          childNotes,
+          previousNote: sideChat.deliveredNote ?? null,
         }),
       });
       const note = normalizeSideChatNote(text);
+      const deliveries =
+        childNotes.length === 0
+          ? {}
+          : {
+              childNoteDeliveries: Object.fromEntries(
+                childNotes.map((childNote) => [childNote.threadId, childNote.requestId]),
+              ),
+            };
       return (
-        note === null ? { status: "none", note: null } : { status: "ready", note }
+        note === null
+          ? { status: "none", note: null, ...deliveries }
+          : { status: "ready", note, ...deliveries }
       ) satisfies OutcomeResult;
     }).pipe(
       Effect.catchCause((cause) =>
