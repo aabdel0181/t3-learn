@@ -514,6 +514,38 @@ describe("side chat opening context", () => {
     ),
   );
 
+  it.effect("gives the opening context again when the native thread is replaced", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-opening-replaced", {
+          failResume: true,
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* openAndAsk(cwd);
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID);
+          // A live session answers resume itself; detaching it makes the next turn really try.
+          const { providerSessions } = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.lengthOf(providerSessions, 1);
+          yield* orchestrator.dispatch({
+            type: "provider-session.detach",
+            commandId: CommandId.make("command:side-chat:detach"),
+            threadId: SIDE_CHAT_THREAD_ID,
+            providerSessionId: providerSessions[0]!.id,
+          });
+          yield* worker.drain();
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-again", "Is it always a Box?");
+        }).pipe(Effect.provide(layer));
+
+        const sideChatPrompts = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.lengthOf(sideChatPrompts, 2);
+        assert.include(sideChatPrompts[1], LESSON_SUMMARY);
+        assert.include(sideChatPrompts[1], "What is an observation space?");
+      }),
+    ),
+  );
+
   it.effect("gives the opening context again after a provider switch inside the side chat", () =>
     Effect.scoped(
       Effect.gen(function* () {

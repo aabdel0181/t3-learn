@@ -880,12 +880,13 @@ export const layer: Layer.Layer<
       const sameNativeThread =
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
       // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
-      // along with its first prompt there. A retried start finds this handoff among `handoffs`.
+      // along with the first prompt there: either the first turn, or the first turn after a failed
+      // resume bound a replacement. A retried start finds this handoff among `handoffs`.
       const sideChat = projection.thread.sideChat;
       const openingHandoffId = sideChatOpeningHandoffId(run.id);
       if (
         sideChat !== undefined &&
-        providerThread.nativeThreadRef === null &&
+        (providerThread.nativeThreadRef === null || !sameNativeThread) &&
         !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId)
       ) {
         const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
