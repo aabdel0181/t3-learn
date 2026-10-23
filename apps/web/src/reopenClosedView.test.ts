@@ -87,6 +87,21 @@ describe("reopenClosedView", () => {
     ).toEqual([]);
   });
 
+  it("reopens a closed side chat where it was, even without a workspace", async () => {
+    const reopened = await reopenClosedView(
+      {
+        kind: "panel-tab",
+        threadRef,
+        surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" },
+      },
+      { openPreview: vi.fn(), workspaceAvailable: false },
+    );
+    expect(reopened).toBe(true);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).surfaces,
+    ).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+  });
+
   it("recreates a browser tab with saved URL, viewport and profile, then selects its new ID", async () => {
     const openPreview = vi.fn(async () => AsyncResult.success({ ...snapshot, tabId: "new-tab" }));
     const result = await reopenClosedView(

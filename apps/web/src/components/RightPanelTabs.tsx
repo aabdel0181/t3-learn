@@ -33,6 +33,8 @@ import {
   FileDiff,
   Files,
   Globe2,
+  MapIcon,
+  MessageCircleQuestion,
   Plus,
   TerminalSquare,
 } from "lucide-react";
@@ -116,6 +118,8 @@ export interface RightPanelTabsProps {
    */
   previewRuntimeTabId?: ((tabId: string) => string) | undefined;
   terminalLabelsById: ReadonlyMap<string, string>;
+  /** Side-chat labels by thread id, for the titles of side-chat tabs. */
+  sideChatLabelsById?: ReadonlyMap<string, string>;
   onActivate: (surface: RightPanelSurface) => void;
   onRenameDevice?: (surfaceId: string, title: string) => void;
   onCloseSurface: (surface: RightPanelSurface) => void;
@@ -546,6 +550,7 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  sideChatLabelsById: ReadonlyMap<string, string> | undefined,
 ): string {
   switch (surface.kind) {
     case "diff":
@@ -567,6 +572,10 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "side-chat":
+      return sideChatLabelsById?.get(surface.threadId) ?? "Side chat";
+    case "thread-map":
+      return "Map";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -663,6 +672,10 @@ function SurfaceIcon({
       ) : (
         <Smartphone className="size-3 shrink-0" />
       );
+    case "side-chat":
+      return <MessageCircleQuestion className="size-3 shrink-0" />;
+    case "thread-map":
+      return <MapIcon className="size-3 shrink-0" />;
   }
 }
 
@@ -1289,7 +1302,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
                     active={surface.id === props.activeSurfaceId}
                     pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                    title={surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      props.sideChatLabelsById,
+                    )}
                     audio={tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
                     )}

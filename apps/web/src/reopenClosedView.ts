@@ -6,6 +6,7 @@ import type { PullRequestListPreferences } from "./components/pullRequest/pullRe
 import { openPreviewSession } from "./components/preview/openPreviewSession";
 import {
   type RightPanelSurface,
+  sideChatSurfaceTopThreadId,
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
@@ -133,6 +134,12 @@ export async function reopenClosedView(
       break;
     case "pull-request":
       panels.openPullRequest(ref, surface);
+      break;
+    case "side-chat":
+      panels.openSideChat(ref, {
+        topThreadId: sideChatSurfaceTopThreadId(surface),
+        threadId: surface.threadId,
+      });
       break;
     default:
       panels.open(ref, surface.kind);

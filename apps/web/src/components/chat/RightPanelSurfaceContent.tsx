@@ -220,5 +220,9 @@ export function RightPanelSurfaceContent(props: {
         </Suspense>
       );
     }
+    // Placeholders until the side-chat panel and the Map exist.
+    case "side-chat":
+    case "thread-map":
+      return null;
   }
 }

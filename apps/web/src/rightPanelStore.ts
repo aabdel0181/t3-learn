@@ -21,6 +21,8 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
+  "side-chat",
+  "thread-map",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -80,10 +82,23 @@ export type RightPanelSurface =
       url?: string;
       detailTab?: PullRequestDetailTab;
     }
-  | { id: "pull-requests"; kind: "pull-requests" };
+  | { id: "pull-requests"; kind: "pull-requests" }
+  | {
+      /** One tab per top-level side chat: `side-chat:<top-level side chat id>`. */
+      id: `side-chat:${string}`;
+      kind: "side-chat";
+      /** The side chat shown, which may be nested under the tab's top-level one. */
+      threadId: string;
+      /**
+       * Set when breadcrumbs moved up from a deeper side chat: the side-chat ids from
+       * the top down to the deepest one visited, kept for the way back down.
+       */
+      trail?: string[];
+    }
+  | { id: "thread-map"; kind: "thread-map" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
   EnvironmentId.make("pull-requests-panel"),
@@ -129,7 +144,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
   ) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
@@ -147,6 +162,36 @@ interface RightPanelStoreState {
     relativePath: string,
     folderTrail: string,
     keepSource?: boolean,
+  ) => void;
+  /**
+   * Shows `target.threadId` in the tab of its top-level side chat, replacing what the
+   * tab showed or adding the tab, and selects it.
+   */
+  openSideChat: (
+    ref: ScopedThreadRef,
+    target: { readonly topThreadId: string; readonly threadId: string },
+    automatic?: boolean,
+  ) => void;
+  /**
+   * Moves the side-chat tab `surfaceId` to the end of `targetPath` in place. Paths are
+   * side-chat ids from the top down, without the lesson. Walking up keeps the deeper
+   * path as the tab's `trail` for the way back down.
+   */
+  navigateSideChat: (
+    ref: ScopedThreadRef,
+    surfaceId: string,
+    targetPath: readonly string[],
+    fromPath: readonly string[],
+  ) => void;
+  /**
+   * Undoes an optimistic open that failed: a top-level side chat's tab goes without
+   * being remembered as closed, and a tab showing a nested one goes back to
+   * `fallbackThreadId`.
+   */
+  closeFailedSideChat: (
+    ref: ScopedThreadRef,
+    threadId: string,
+    fallbackThreadId: string | null,
   ) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
@@ -187,13 +232,19 @@ interface RightPanelStoreState {
     hiddenTabIds?: ReadonlySet<string>,
   ) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
+  /** Drops tabs of side chats that are gone, and the Map when it is not available. */
+  reconcileSideChatSurfaces: (
+    ref: ScopedThreadRef,
+    liveThreadIds: ReadonlySet<string>,
+    mapAvailable: boolean,
+  ) => void;
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -216,7 +267,7 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "side-chat">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -227,6 +278,8 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "thread-map":
+      return { id: "thread-map", kind };
   }
 };
 
@@ -300,6 +353,51 @@ export function pullRequestSurface(target: {
     ...(target.detailTab === undefined ? {} : { detailTab: target.detailTab }),
   };
 }
+
+export type SideChatSurface = Extract<RightPanelSurface, { kind: "side-chat" }>;
+
+export function sideChatSurfaceId(topThreadId: string): SideChatSurface["id"] {
+  return `side-chat:${topThreadId}`;
+}
+
+export function sideChatSurfaceTopThreadId(surface: Pick<SideChatSurface, "id">): string {
+  return surface.id.slice("side-chat:".length);
+}
+
+/**
+ * Validates a saved side-chat surface. `closedViewStore` calls this while it hydrates,
+ * possibly before this module has run (the two import each other), so it must not read
+ * any module-level `const`.
+ */
+export function normalizeSideChatSurface(value: unknown): SideChatSurface | null {
+  if (!value || typeof value !== "object") return null;
+  const { id, kind, threadId, trail } = value as Partial<Record<keyof SideChatSurface, unknown>>;
+  if (
+    kind !== "side-chat" ||
+    typeof id !== "string" ||
+    !id.startsWith("side-chat:") ||
+    id.length === "side-chat:".length ||
+    typeof threadId !== "string" ||
+    threadId.length === 0 ||
+    (trail !== undefined &&
+      (!Array.isArray(trail) || !trail.every((entry) => typeof entry === "string")))
+  ) {
+    return null;
+  }
+  return {
+    id: id as SideChatSurface["id"],
+    kind,
+    threadId,
+    ...(trail === undefined ? {} : { trail: [...(trail as string[])] }),
+  };
+}
+
+export function hasSideChatSurfaces(surfaces: readonly RightPanelSurface[]): boolean {
+  return surfaces.some((surface) => surface.kind === "side-chat" || surface.kind === "thread-map");
+}
+
+const strictlyExtends = (path: readonly string[], prefix: readonly string[]): boolean =>
+  path.length > prefix.length && prefix.every((id, index) => path[index] === id);
 
 const upsertSurface = (
   current: ThreadRightPanelState,
@@ -465,6 +563,13 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
+                    if (kind === "side-chat") {
+                      const sideChat = normalizeSideChatSurface(surface);
+                      return sideChat ? [sideChat] : [];
+                    }
+                    if (kind === "thread-map") {
+                      return surface.id === "thread-map" ? [{ id: "thread-map", kind }] : [];
+                    }
                     if (
                       (surface.kind === "file" || surface.kind === "files") &&
                       "folderTrail" in surface &&
@@ -803,6 +908,82 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return { ...current, isOpen: true, activeSurfaceId: target.id, surfaces };
           }),
         ),
+      openSideChat: (ref, target, automatic = false) =>
+        set((state) =>
+          (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), (current) => {
+            const surface: SideChatSurface = {
+              id: sideChatSurfaceId(target.topThreadId),
+              kind: "side-chat",
+              threadId: target.threadId,
+            };
+            const existing = current.surfaces.some((entry) => entry.id === surface.id);
+            return {
+              ...current,
+              isOpen: true,
+              activeSurfaceId: surface.id,
+              surfaces: existing
+                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                : [...current.surfaces, surface],
+            };
+          }),
+        ),
+      navigateSideChat: (ref, surfaceId, targetPath, fromPath) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const surface = current.surfaces.find((entry) => entry.id === surfaceId);
+            const threadId = targetPath.at(-1);
+            if (surface?.kind !== "side-chat" || threadId === undefined) return current;
+            const base = surface.trail ?? fromPath;
+            const next: SideChatSurface = {
+              id: surface.id,
+              kind: "side-chat",
+              threadId,
+              ...(strictlyExtends(base, targetPath) ? { trail: [...base] } : {}),
+            };
+            return {
+              ...current,
+              isOpen: true,
+              activeSurfaceId: surface.id,
+              surfaces: current.surfaces.map((entry) => (entry.id === surfaceId ? next : entry)),
+            };
+          }),
+        ),
+      closeFailedSideChat: (ref, threadId, fallbackThreadId) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            const topId = sideChatSurfaceId(threadId);
+            const index = current.surfaces.findIndex((surface) => surface.id === topId);
+            if (index >= 0) {
+              const surfaces = current.surfaces.filter((surface) => surface.id !== topId);
+              const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
+              return {
+                ...current,
+                isOpen: surfaces.length > 0 && current.isOpen,
+                surfaces,
+                activeSurfaceId:
+                  current.activeSurfaceId === topId
+                    ? (fallback?.id ?? null)
+                    : current.activeSurfaceId,
+              };
+            }
+            if (
+              fallbackThreadId === null ||
+              !current.surfaces.some(
+                (surface) => surface.kind === "side-chat" && surface.threadId === threadId,
+              )
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              surfaces: current.surfaces.map((surface) =>
+                surface.kind === "side-chat" && surface.threadId === threadId
+                  ? { id: surface.id, kind: "side-chat", threadId: fallbackThreadId }
+                  : surface,
+              ),
+            };
+          }),
+        ),
       openAttachment: (ref, attachment) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
@@ -1007,6 +1188,50 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 (surface.kind !== "file" || surface.attachment !== undefined),
             );
             if (surfaces.length === current.surfaces.length) return current;
+            const activeStillExists = surfaces.some(
+              (surface) => surface.id === current.activeSurfaceId,
+            );
+            return {
+              ...current,
+              isOpen: surfaces.length > 0 ? current.isOpen : false,
+              surfaces,
+              activeSurfaceId: activeStillExists
+                ? current.activeSurfaceId
+                : (surfaces.at(-1)?.id ?? null),
+            };
+          }),
+        ),
+      reconcileSideChatSurfaces: (ref, liveThreadIds, mapAvailable) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            let changed = false;
+            const surfaces = current.surfaces.flatMap<RightPanelSurface>((surface) => {
+              if (surface.kind === "thread-map") {
+                if (mapAvailable) return [surface];
+                changed = true;
+                return [];
+              }
+              if (surface.kind !== "side-chat") return [surface];
+              const topThreadId = sideChatSurfaceTopThreadId(surface);
+              if (!liveThreadIds.has(topThreadId)) {
+                changed = true;
+                return [];
+              }
+              const threadId = liveThreadIds.has(surface.threadId) ? surface.threadId : topThreadId;
+              const firstDead = surface.trail?.findIndex((id) => !liveThreadIds.has(id)) ?? -1;
+              const cut = firstDead < 0 ? surface.trail : surface.trail?.slice(0, firstDead);
+              const position = cut?.indexOf(threadId) ?? -1;
+              // A trail is only worth keeping while it still leads deeper than threadId.
+              const trail =
+                cut !== undefined && position >= 0 && position < cut.length - 1 ? cut : undefined;
+              // The kept trail is a prefix of the old one, so equal lengths mean no change.
+              if (threadId === surface.threadId && trail?.length === surface.trail?.length) {
+                return [surface];
+              }
+              changed = true;
+              return [{ id: surface.id, kind: "side-chat", threadId, ...(trail ? { trail } : {}) }];
+            });
+            if (!changed) return current;
             const activeStillExists = surfaces.some(
               (surface) => surface.id === current.activeSurfaceId,
             );

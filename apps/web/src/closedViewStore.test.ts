@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { type ClosedViewEntry, useClosedViewStore } from "./closedViewStore";
+import { type ClosedView, type ClosedViewEntry, useClosedViewStore } from "./closedViewStore";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const refB = scopeThreadRef("env-2" as EnvironmentId, ThreadId.make("thread-A"));
@@ -54,6 +54,13 @@ describe("closedViewStore", () => {
       threadRef: refA,
       surface: { kind: "pull-request", id: "pull-request:x", repository: "owner/repo", number: 1 },
     },
+    {
+      id: "bad",
+      kind: "panel-tab",
+      threadRef: refA,
+      surface: { kind: "side-chat", id: "side-chat:x" },
+    },
+    { id: "bad", kind: "panel-tab", threadRef: refA, surface: { kind: "thread-map", id: "map" } },
   ])("discards incomplete saved views %j while retaining valid history", async (entry) => {
     const id = useClosedViewStore.getState().remember(diff(refA));
     const { storage, name } = useClosedViewStore.persist.getOptions();
@@ -65,6 +72,38 @@ describe("closedViewStore", () => {
     expect(useClosedViewStore.persist.hasHydrated()).toBe(true);
     expect(useClosedViewStore.getState().entries).toEqual([{ ...diff(refA), id }]);
     expect(() => useClosedViewStore.getState().remember(diff(refB))).not.toThrow();
+  });
+
+  it("restores closed side-chat and Map tabs from storage", async () => {
+    const store = useClosedViewStore.getState();
+    const sideChat: ClosedView = {
+      kind: "panel-tab",
+      threadRef: refA,
+      surface: {
+        id: "side-chat:side-1",
+        kind: "side-chat",
+        threadId: "nested-1",
+        trail: ["side-1", "nested-1"],
+      },
+    };
+    const map: ClosedView = {
+      kind: "panel-tab",
+      threadRef: refA,
+      surface: { id: "thread-map", kind: "thread-map" },
+    };
+    const sideChatId = store.remember(sideChat);
+    const mapId = store.remember(map);
+    const { storage, name } = useClosedViewStore.persist.getOptions();
+    await storage!.setItem(name!, {
+      state: { entries: useClosedViewStore.getState().entries },
+      version: 1,
+    });
+    await useClosedViewStore.persist.rehydrate();
+    expect(useClosedViewStore.persist.hasHydrated()).toBe(true);
+    expect(useClosedViewStore.getState().entries).toEqual([
+      { ...map, id: mapId },
+      { ...sideChat, id: sideChatId },
+    ]);
   });
 
   it("keeps private tabs available in memory without saving their metadata", async () => {
