@@ -137,6 +137,56 @@ export function makeThreadFixture(overrides: ThreadFixtureOverrides = {}): Threa
   return { ...shell, ...overrides };
 }
 
+/**
+ * A side chat of `lessonId`, forked under `parentId` (the lesson by default).
+ * It highlights `start`-`end` of `messageId` in that parent; the defaults mark
+ * "observation space" in "An observation space is what the agent can see.".
+ */
+export function makeSideChatThreadFixture(input: {
+  readonly id: ThreadId;
+  readonly lessonId: ThreadId;
+  readonly parentId?: ThreadId;
+  readonly messageId?: MessageId;
+  readonly start?: number;
+  readonly end?: number;
+  readonly label?: string;
+  readonly state?: "open" | "done";
+  readonly noteStatus?: "generating" | "ready" | "none" | "failed" | null;
+  readonly environmentId?: EnvironmentId;
+  readonly createdAt?: string;
+  readonly archivedAt?: string;
+}): Thread {
+  const parentId = input.parentId ?? input.lessonId;
+  const label = input.label ?? "observation space";
+  return makeThreadFixture({
+    id: input.id,
+    title: label,
+    lineage: {
+      rootThreadId: input.lessonId,
+      parentThreadId: parentId,
+      relationshipToParent: "fork",
+    },
+    sideChat: {
+      lessonThreadId: input.lessonId,
+      anchor: {
+        threadId: parentId,
+        messageId: input.messageId ?? MessageId.make("assistant-1"),
+        start: input.start ?? 3,
+        end: input.end ?? 20,
+        prefix: "An ",
+        suffix: " is what the agent can see.",
+      },
+      label,
+      state: input.state ?? "open",
+      noteStatus: input.noteStatus ?? null,
+      excerptLength: 17,
+    },
+    ...(input.environmentId === undefined ? {} : { environmentId: input.environmentId }),
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    ...(input.archivedAt === undefined ? {} : { archivedAt: input.archivedAt }),
+  });
+}
+
 export function makeStreamingTimelineFixture(text = "") {
   const threadId = ThreadId.make("streaming-thread");
   const runId = RunId.make("live-run");

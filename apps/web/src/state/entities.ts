@@ -447,3 +447,52 @@ export function useThreadRelationshipShells(
 ): ReadonlyArray<OrchestrationV2ThreadShell> {
   return useAtomValue(relationshipShellsAtomFamily(threadKey(ref)));
 }
+
+/**
+ * The lesson and its live side chats from its environment, in input order. The
+ * lesson comes along so the side-chat tree can label its root; archived and
+ * deleted shells, other lessons' side chats and other environments are left out.
+ */
+export function selectSideChatTreeShells(
+  lessonRef: ScopedThreadRef,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return shells.filter(
+    (shell) =>
+      shell.environmentId === lessonRef.environmentId &&
+      shell.archivedAt === null &&
+      shell.deletedAt === null &&
+      (shell.id === lessonRef.threadId || shell.sideChat?.lessonThreadId === lessonRef.threadId),
+  );
+}
+
+/**
+ * Built from the quiet shells and held while the lesson's own shells are
+ * unchanged, so another thread streaming does not re-render its readers.
+ */
+const sideChatTreeShellsAtomFamily = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  let previous: ReadonlyArray<EnvironmentThreadShell> = [];
+  return Atom.make((get) => {
+    const next = selectSideChatTreeShells(ref, get(environmentThreadShells.quietThreadShellsAtom));
+    if (arrayElementsEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-tree-shells:${key}`));
+});
+
+export function useSideChatTreeShells(
+  lessonRef: ScopedThreadRef | null,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return useAtomValue(
+    lessonRef === null
+      ? EMPTY_THREAD_SHELLS_ATOM
+      : sideChatTreeShellsAtomFamily(threadKey(lessonRef)),
+  );
+}
+
+export function readSideChatTreeShells(
+  lessonRef: ScopedThreadRef,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return appAtomRegistry.get(sideChatTreeShellsAtomFamily(threadKey(lessonRef)));
+}
