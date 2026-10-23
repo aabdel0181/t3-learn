@@ -1993,6 +1993,91 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
+  it.effect("runs a side-chat opening beside its thread's provider turn start", () =>
+    Effect.gen(function* () {
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const commandId = CommandId.make("command:foundation-opening-lane");
+      const threadId = ThreadId.make("thread:foundation-opening-lane");
+      const openingEffectId = "effect:foundation-opening-lane:a-opening";
+      const startEffectId = "effect:foundation-opening-lane:b-start";
+      yield* outbox.enqueue([
+        { id: openingEffectId, commandId, threadId, request: { type: "side-chat.opening" } },
+        {
+          id: startEffectId,
+          commandId,
+          threadId,
+          request: {
+            type: "provider-turn.start",
+            runId: RunId.make("run:foundation-opening-lane"),
+          },
+        },
+      ]);
+
+      const opening = yield* outbox.claimNext({
+        workerId: "opening-lane-worker",
+        leaseDurationMs: 30_000,
+      });
+      assert.equal(Option.getOrUndefined(opening)?.id, openingEffectId);
+      const start = yield* outbox.claimNext({
+        workerId: "critical-lane-worker",
+        leaseDurationMs: 30_000,
+      });
+      assert.equal(Option.getOrUndefined(start)?.id, startEffectId);
+
+      yield* outbox.succeed({ effectId: openingEffectId, workerId: "opening-lane-worker" });
+      yield* outbox.succeed({ effectId: startEffectId, workerId: "critical-lane-worker" });
+    }).pipe(Effect.provide(Layer.fresh(layerEffectOutboxProvided))),
+  );
+
+  it.effect("caps running text generation and still starts provider turns", () =>
+    Effect.gen(function* () {
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const commandId = CommandId.make("command:foundation-text-generation-cap");
+      const threadFor = (name: string) =>
+        ThreadId.make(`thread:foundation-text-generation-cap:${name}`);
+      const effectIdFor = (name: string) => `effect:foundation-text-generation-cap:${name}`;
+      yield* outbox.enqueue([
+        {
+          id: effectIdFor("a-opening"),
+          commandId,
+          threadId: threadFor("a"),
+          request: { type: "side-chat.opening" },
+        },
+        {
+          id: effectIdFor("b-title"),
+          commandId,
+          threadId: threadFor("b"),
+          request: { type: "thread-title.generate", kind: { type: "regenerate" } },
+        },
+        {
+          id: effectIdFor("c-opening"),
+          commandId,
+          threadId: threadFor("c"),
+          request: { type: "side-chat.opening" },
+        },
+        {
+          id: effectIdFor("d-start"),
+          commandId,
+          threadId: threadFor("d"),
+          request: {
+            type: "provider-turn.start",
+            runId: RunId.make("run:foundation-text-generation-cap"),
+          },
+        },
+      ]);
+
+      const workerId = "text-generation-cap-worker";
+      const claimNext = outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("a-opening"));
+      assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("b-title"));
+      assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("d-start"));
+      assert.isTrue(Option.isNone(yield* claimNext));
+
+      yield* outbox.succeed({ effectId: effectIdFor("a-opening"), workerId });
+      assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("c-opening"));
+    }).pipe(Effect.provide(Layer.fresh(layerEffectOutboxProvided))),
+  );
+
   it.effect("ignores deadlines blocked by a running effect on the same thread", () =>
     Effect.gen(function* () {
       const outbox = yield* EffectOutbox.EffectOutboxV2;
@@ -2535,6 +2620,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
   it.effect.each([
     { type: "terminal.cleanup" },
     { type: "provider-runtime.continue", sourceRunId: RunId.make("run:restart-replay") },
+    { type: "side-chat.opening" },
   ] as const)(
     "retires live provider effects and requeues $type after process loss",
     (replayRequest) =>
