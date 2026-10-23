@@ -3,6 +3,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  EnvironmentId,
   MessageId,
   NodeId,
   ProviderSessionId,
@@ -18,6 +19,10 @@ import {
   type OrchestrationV2ThreadProjection,
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
+import {
+  expandAssistantCitationsForProvider,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -810,6 +815,33 @@ effectIt.effect.each([
 
     expect(harness.interruptTurn).not.toHaveBeenCalled();
     expect(harness.projection().runs.at(-1)?.status).toBe("running");
+  }),
+);
+
+effectIt.effect("starts the provider turn with cited assistant quotes expanded", () =>
+  Effect.gen(function* () {
+    const text = `Why ${serializeAssistantCitation({
+      version: 1,
+      environmentId: EnvironmentId.make("environment-citation"),
+      threadId: ThreadId.make("thread-citation-source"),
+      messageId: MessageId.make("message-citation-source"),
+      text: "Keep the parser shared.",
+      start: 0,
+      end: 23,
+      prefix: "",
+      suffix: "",
+    })}?`;
+    const harness = makeLocalCommandHarness({
+      text,
+      previousTurn: { runStatus: "completed", turnStatus: "completed" },
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+    expect(harness.startRootRun.mock.calls[0]?.[0].message.text).toBe(
+      expandAssistantCitationsForProvider(text),
+    );
   }),
 );
 

@@ -21,9 +21,14 @@ highlight. The [navigation hash](../../apps/web/src/lib/assistantCitationNavigat
 uses base64url because router normalization otherwise decodes whitespace and
 source IDs inside the citation URI.
 
-Expand citations with the [shared formatter](../../packages/shared/src/assistantCitations.ts)
-before dispatch to a provider adapter. Send the saved excerpt without looking up
-the source, distinguish quoted reference material from the user's comment, and
-leave persisted messages in their original form. Input limits apply after
-expansion as well as before it. A draft that fits as encoded links can exceed the
-provider limit once expanded.
+The server expands citations when it builds provider text from a user message, at turn start
+and when steering, inside `projectComposerContextForProvider`
+([composer context references](./composer-context-references.md#provider-projection)). Each link
+becomes an `[assistant-quote-N]` marker, and one `<assistant_citations>` block after the context
+envelope carries the saved excerpts as JSON. The source is never looked up, and the user's
+comment stays apart from the quoted text. Citations leave the user's prose before context
+references are projected: captured context is data and must not turn into a citation, and quoted
+text must not resolve a context reference. Persisted messages keep the link form, which is also
+what handoff history replays ([context handoffs](./context-handoffs.md)). Input limits apply after
+expansion as well as before it: a draft that fits as encoded links can exceed the provider limit
+once expanded, so the composer measures both.
