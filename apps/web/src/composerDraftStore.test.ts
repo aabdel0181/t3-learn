@@ -1181,6 +1181,7 @@ function modelReconciliationHarness(
   const selectedThreadId = ThreadId.make("another-selected-thread");
   const thread: OrchestrationV2ThreadShell = {
     ...makeThreadProjectionFixture().thread,
+    sideChat: undefined,
     latestRunId: null,
     activeRunId: null,
     status: "idle",

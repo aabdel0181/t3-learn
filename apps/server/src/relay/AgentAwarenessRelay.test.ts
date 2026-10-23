@@ -405,7 +405,7 @@ describe("AgentAwarenessRelay", () => {
           type: "thread.settled",
           threadId: THREAD_ID,
           occurredAt: now,
-          payload: settled,
+          payload: { ...settled, sideChat: undefined },
         });
         yield* Queue.take(pulls);
         yield* relay.drain;

@@ -1,19 +1,26 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 
 import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
 import {
+  isSideChatThread,
   latestProviderTurnForAttempt,
+  OrchestrationV2AppThreadJson,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
   OrchestrationV2RpcSchemas,
+  OrchestrationV2SideChat,
   OrchestrationV2Subagent,
   OrchestrationV2SubagentJson,
   OrchestrationV2ThreadHistoryPage,
+  OrchestrationV2ThreadShellJson,
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
+  SIDE_CHAT_EXCERPT_MAX_CHARS,
+  threadShellSideChatOf,
 } from "./orchestrationV2.ts";
 
 const now = DateTime.makeUnsafe("2026-04-20T00:00:00.000Z");
@@ -569,5 +576,147 @@ describe("latestProviderTurnForAttempt", () => {
     ];
     expect(latestProviderTurnForAttempt(turns, RunAttemptId.make("goal-attempt"))?.id).toBe("last");
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
+  });
+});
+
+describe("side chats", () => {
+  const anchor = {
+    threadId: "thread-lesson",
+    messageId: "message-lesson-reply",
+    start: 120,
+    end: 137,
+    prefix: "the agent reads the ",
+    suffix: " and picks an action",
+  };
+  const storedSideChat = {
+    lessonThreadId: "thread-lesson",
+    anchor,
+    excerpt: "observation space",
+    excerptContext: "Each step, the agent reads the observation space and picks an action.",
+    label: "observation space",
+    opening: { status: "ready", text: "Lesson: RL environments with Gym.", requestId: "opening-1" },
+    done: {
+      at: "2026-10-22T10:00:00.000Z",
+      outcome: { status: "ready", note: "Define terms before using them.", requestId: "outcome-1" },
+    },
+  };
+  const slim = {
+    lessonThreadId: "thread-lesson",
+    anchor,
+    label: "observation space",
+    state: "done",
+    noteStatus: "ready",
+    excerptLength: 17,
+  };
+  const storedThread = {
+    createdBy: "user",
+    creationSource: "web",
+    id: "thread-side-chat",
+    projectId: "project-1",
+    title: "observation space",
+    providerInstanceId: "codex",
+    modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: {
+      parentThreadId: "thread-lesson",
+      relationshipToParent: "fork",
+      rootThreadId: "thread-lesson",
+    },
+    forkedFrom: null,
+    createdAt: DateTime.formatIso(now),
+    updatedAt: DateTime.formatIso(now),
+    archivedAt: null,
+    deletedAt: null,
+  };
+  const storedShell = {
+    ...storedThread,
+    latestRunId: null,
+    activeRunId: null,
+    status: "idle",
+    pendingRuntimeRequest: null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: null,
+    hasActionableProposedPlan: false,
+    itemCount: 0,
+    visibleItemCount: 0,
+    settledOverride: null,
+    settledAt: null,
+  };
+  const decodeThread = Schema.decodeUnknownSync(OrchestrationV2AppThreadJson);
+  const encodeThread = Schema.encodeSync(OrchestrationV2AppThreadJson);
+  const decodeShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShellJson);
+  const decodeSideChat = Schema.decodeUnknownSync(OrchestrationV2SideChat);
+
+  it("round-trips a stored side chat and its parent's note deliveries", () => {
+    const thread = decodeThread({
+      ...storedThread,
+      sideChat: storedSideChat,
+      sideChatNoteDeliveries: { "thread-nested": "outcome-1" },
+    });
+    expect(thread.sideChat).toEqual(storedSideChat);
+    expect(thread.sideChatNoteDeliveries).toEqual({ "thread-nested": "outcome-1" });
+    expect(isSideChatThread(thread)).toBe(true);
+    expect(decodeThread(encodeThread(thread))).toEqual(thread);
+  });
+
+  it("decodes threads and shells stored before side chats existed", () => {
+    expect(decodeThread(storedThread).sideChat).toBeUndefined();
+    expect(decodeShell(storedShell).sideChat).toBeUndefined();
+    expect(isSideChatThread(decodeShell(storedShell))).toBe(false);
+  });
+
+  it("holds excerpts, context, labels, notes and anchors to their limits", () => {
+    expect(
+      decodeSideChat({ ...storedSideChat, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS) })
+        .excerpt,
+    ).toHaveLength(4000);
+    expect(
+      decodeSideChat({ ...storedSideChat, deliveredNote: "They had not met Box." }).deliveredNote,
+    ).toBe("They had not met Box.");
+    for (const invalid of [
+      { excerpt: "" },
+      { excerpt: "x".repeat(4001) },
+      { excerptContext: "x".repeat(1501) },
+      { label: "x".repeat(121) },
+      { label: "   " },
+      { deliveredNote: "x".repeat(301) },
+      { anchor: { ...anchor, prefix: "x".repeat(33) } },
+      { anchor: { ...anchor, start: -1 } },
+      { opening: { ...storedSideChat.opening, status: "summarizing" } },
+      {
+        done: {
+          ...storedSideChat.done,
+          outcome: { ...storedSideChat.done.outcome, note: "x".repeat(301) },
+        },
+      },
+    ]) {
+      expect(() => decodeSideChat({ ...storedSideChat, ...invalid })).toThrow();
+    }
+  });
+
+  it("keeps the excerpt, context, summary and note off the shell", () => {
+    const sideChat = decodeSideChat(storedSideChat);
+    expect(threadShellSideChatOf(sideChat)).toEqual(slim);
+    expect(threadShellSideChatOf({ ...sideChat, done: null })).toEqual({
+      ...slim,
+      state: "open",
+      noteStatus: null,
+    });
+    const shell = decodeShell({
+      ...storedShell,
+      sideChat: { ...slim, excerpt: "x", excerptContext: "y", opening: storedSideChat.opening },
+    });
+    expect(shell.sideChat).toEqual(slim);
+  });
+
+  it("lets clients from before side chats decode a shell that carries one", () => {
+    const decodeOld = Schema.decodeUnknownSync(
+      OrchestrationV2ThreadShellJson.mapFields(Struct.omit(["sideChat"])),
+    );
+    expect(decodeOld({ ...storedShell, sideChat: slim })).not.toHaveProperty("sideChat");
   });
 });
