@@ -31,6 +31,7 @@ import { compressImageForStash } from "../../lib/imageCompression";
 import { formatInlineContextReference } from "~/lib/composerContextReferences";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { eventPathContainsSelector, SIDE_CHAT_PANEL_SELECTOR } from "./composerFocusRedirect";
 import { pendingDraftWork } from "./pendingDraftWork";
 import {
   previewAnnotationContextRecord,
@@ -708,6 +709,8 @@ export function useComposerStash(input: {
       // even when the composer is in a state that can't stash.
       event.preventDefault();
       event.stopPropagation();
+      // A stash chord pressed in the side-chat panel is not about the lesson's prompt.
+      if (eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR)) return;
       if (isCommandPaletteOpen() || isRevertingCheckpoint) {
         return;
       }

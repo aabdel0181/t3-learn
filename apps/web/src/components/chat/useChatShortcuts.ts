@@ -10,7 +10,11 @@ import {
 import { getTerminalFocusOwner, type TerminalFocusOwner } from "../../lib/terminalFocus";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
-import { shouldTypeToFocusComposer } from "./composerFocusRedirect";
+import {
+  eventPathContainsSelector,
+  SIDE_CHAT_PANEL_SELECTOR,
+  shouldTypeToFocusComposer,
+} from "./composerFocusRedirect";
 import { composerShortcutCommands } from "./composerShortcuts";
 
 /** Runs a command. Returning false lets the key event through untouched. */
@@ -75,6 +79,13 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       context: shortcutContext,
     });
     if (!command) return;
+    // The side chat has its own composer, so the lesson's composer chords stay out of its panel.
+    if (
+      (command === "modelPicker.toggle" || command.startsWith("composer.")) &&
+      eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR)
+    ) {
+      return;
+    }
     const run =
       input.commands[command] ??
       composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??

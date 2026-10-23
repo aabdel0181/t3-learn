@@ -59,30 +59,65 @@ function isSurfaceLauncherKey(key: string): boolean {
   return launcherKeys?.toLowerCase().includes(key.toLowerCase()) ?? false;
 }
 
-export function shouldRedirectInputToComposer(event: Event): boolean {
+/** The side chat in the right panel, which has its own composer. */
+export const SIDE_CHAT_PANEL_SELECTOR = "[data-side-chat-panel]";
+
+/**
+ * Which composer asks for the input: the lesson's takes only input from outside
+ * the side-chat panel, and the side chat's only input from inside it.
+ */
+export type ComposerInputScope = "lesson" | "side-chat";
+
+export function shouldRedirectInputToComposer(
+  event: Event,
+  scope: ComposerInputScope = "lesson",
+): boolean {
   if (event.defaultPrevented) return false;
+  if ((scope === "side-chat") !== eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR)) {
+    return false;
+  }
   // Near a pending secret request, input is meant for its private field: it
   // must never land in the composer draft, which is persisted and sent.
   if (eventPathContainsSelector(event, SECRET_REQUEST_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_EDITABLE_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_INTERACTIVE_SELECTOR)) return false;
-  if (document.querySelector(TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR)) return false;
+  for (const layer of document.querySelectorAll(TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR)) {
+    // On narrow screens the right panel, and so the side chat, sits in a sheet.
+    if (scope === "side-chat" && event.target instanceof Node && layer.contains(event.target)) {
+      continue;
+    }
+    return false;
+  }
   return true;
 }
 
-export function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
+export function shouldTypeToFocusComposer(
+  event: KeyboardEvent,
+  scope: ComposerInputScope = "lesson",
+): boolean {
   if (event.isComposing) return false;
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key.length !== 1) return false;
-  if (!shouldRedirectInputToComposer(event)) return false;
+  if (!shouldRedirectInputToComposer(event, scope)) return false;
   if (isSurfaceLauncherKey(event.key)) return false;
 
   return true;
 }
 
-export function pasteTextToFocusComposer(event: ClipboardEvent): string | null {
+export function pasteTextToFocusComposer(
+  event: ClipboardEvent,
+  scope: ComposerInputScope = "lesson",
+): string | null {
   if (!event.clipboardData || event.clipboardData.files.length > 0) return null;
-  if (!shouldRedirectInputToComposer(event)) return null;
+  if (!shouldRedirectInputToComposer(event, scope)) return null;
   const text = event.clipboardData.getData("text/plain");
   return text.length > 0 ? text : null;
+}
+
+/** Whether `element` is the lesson's composer editor, not the side chat's. */
+export function isLessonComposerFocused(element: Element | null): boolean {
+  return (
+    element?.getAttribute("data-testid") === "composer-editor" &&
+    element.closest(SIDE_CHAT_PANEL_SELECTOR) === null
+  );
 }
