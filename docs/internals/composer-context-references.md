@@ -57,7 +57,7 @@ links, so a context link is never mistaken for a mention.
 
 ## Provider projection
 
-`projectComposerContextForProvider({ text, records })` builds what the provider reads:
+`projectComposerContextForProvider({ text, records })` builds what the provider reads. It first replaces [assistant citations](./assistant-citations.md) with markers and appends their block after everything below, then projects context references from the remaining prose:
 
 1. Every reference becomes an in-place marker: `[Image: shot.png; ref=ctx_1]`.
 2. A trailing `<t3_context version="1">` envelope holds one `<context kind id>` entry per unique
@@ -68,7 +68,7 @@ links, so a context link is never mistaken for a mention.
    so a terminal line or PR comment cannot forge a record.
 
 Attachment bytes travel on the existing attachment channel; the envelope only carries metadata.
-Text without references is returned unchanged.
+Text without context references or citations is returned unchanged.
 
 ## Legacy messages
 
@@ -123,7 +123,7 @@ trailing `<terminal_context>` form is parsed only when reading messages sent by 
 The composer sends `message.text` as canonical prose with reference links and
 `message.context.records` built from the draft (`buildMessageContext` in
 `apps/web/src/lib/composerContextRecords.ts`). Expired terminal excerpts are dropped from both.
-The server projects provider text at turn start (`projectComposerContextForProvider`), so the persisted
+The server projects provider text at turn start and when steering (`projectComposerContextForProvider`), so the persisted
 message stays readable and the provider receives markers plus one envelope.
 
 Review comments and preview annotations enter the draft through store mutators. A mounted composer
