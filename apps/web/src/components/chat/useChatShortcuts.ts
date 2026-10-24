@@ -20,6 +20,7 @@ import { composerShortcutCommands } from "./composerShortcuts";
 const LESSON_ONLY_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
   "modelPicker.toggle",
   "thread.steerQueuedMessage",
+  "thread.stop",
   "chat.find",
 ]);
 

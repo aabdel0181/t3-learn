@@ -22,6 +22,7 @@ const keybindings = compileResolvedKeybindingsConfig([
   { key: "ctrl+shift+m", command: "modelPicker.toggle" },
   { key: "ctrl+shift+enter", command: "thread.steerQueuedMessage" },
   { key: "ctrl+f", command: "chat.find" },
+  { key: "ctrl+shift+x", command: "thread.stop" },
 ]);
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus();
@@ -86,6 +87,9 @@ function Chat(props: {
       "chat.find": () => {
         props.ran?.push("find");
       },
+      "thread.stop": () => {
+        props.ran?.push("stop");
+      },
     },
     fallback: () => undefined,
   });
@@ -137,7 +141,7 @@ it("keeps keys and composer chords pressed in the side-chat panel off the lesson
   window.addEventListener("keydown", onKeyDown);
   using _listener = { [Symbol.dispose]: () => window.removeEventListener("keydown", onKeyDown) };
 
-  await userEvent.keyboard("a{Control>}{Shift>}m{Enter}{/Shift}f{/Control}");
+  await userEvent.keyboard("a{Control>}{Shift>}m{Enter}x{/Shift}f{/Control}");
 
   expect({ composerKeys, ran, findPrevented }).toEqual({
     composerKeys: [],
