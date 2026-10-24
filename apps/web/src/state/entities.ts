@@ -18,12 +18,14 @@ import {
   threadKey,
 } from "@t3tools/client-runtime/state/entities";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
-import type {
-  EnvironmentId,
-  OrchestrationV2ProjectedTurnItem,
-  OrchestrationV2ThreadProjection,
-  OrchestrationV2ThreadShell,
-  ThreadId,
+import {
+  MessageId,
+  type EnvironmentId,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2SideChatAnchor,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
+  type ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
@@ -495,4 +497,130 @@ export function readSideChatTreeShells(
   lessonRef: ScopedThreadRef,
 ): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(sideChatTreeShellsAtomFamily(threadKey(lessonRef)));
+}
+
+export interface SideChatMark {
+  readonly threadId: ThreadId;
+  readonly label: string;
+  readonly state: "open" | "done";
+  readonly anchor: OrchestrationV2SideChatAnchor;
+}
+
+const EMPTY_SIDE_CHAT_MARKS: ReadonlyArray<SideChatMark> = Object.freeze([]);
+const EMPTY_SIDE_CHAT_MARKS_ATOM = Atom.make(EMPTY_SIDE_CHAT_MARKS).pipe(
+  Atom.withLabel("web-side-chat-marks:empty"),
+);
+
+function isLiveSideChatAnchoredIn(
+  shell: EnvironmentThreadShell,
+  anchorRef: ScopedThreadRef,
+): boolean {
+  return (
+    shell.environmentId === anchorRef.environmentId &&
+    shell.archivedAt === null &&
+    shell.deletedAt === null &&
+    shell.sideChat?.anchor.threadId === anchorRef.threadId
+  );
+}
+
+/** The live side chats that highlight text in `messageId` of the anchor thread, oldest first. */
+export function selectSideChatMarks(
+  anchorRef: ScopedThreadRef,
+  messageId: MessageId,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<SideChatMark> {
+  const marks: { readonly createdAt: string; readonly mark: SideChatMark }[] = [];
+  for (const shell of shells) {
+    const sideChat = shell.sideChat;
+    if (!sideChat || sideChat.anchor.messageId !== messageId) continue;
+    if (!isLiveSideChatAnchoredIn(shell, anchorRef)) continue;
+    marks.push({
+      createdAt: shell.createdAt,
+      mark: {
+        threadId: shell.id,
+        label: sideChat.label,
+        state: sideChat.state,
+        anchor: sideChat.anchor,
+      },
+    });
+  }
+  marks.sort((left, right) =>
+    left.createdAt === right.createdAt ? 0 : left.createdAt < right.createdAt ? -1 : 1,
+  );
+  return marks.map((entry) => entry.mark);
+}
+
+export function sideChatMarksEqual(
+  left: ReadonlyArray<SideChatMark>,
+  right: ReadonlyArray<SideChatMark>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((mark, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        mark.threadId === other.threadId &&
+        mark.label === other.label &&
+        mark.state === other.state &&
+        mark.anchor.threadId === other.anchor.threadId &&
+        mark.anchor.messageId === other.anchor.messageId &&
+        mark.anchor.start === other.anchor.start &&
+        mark.anchor.end === other.anchor.end &&
+        mark.anchor.prefix === other.anchor.prefix &&
+        mark.anchor.suffix === other.anchor.suffix
+      );
+    })
+  );
+}
+
+/**
+ * The side chats anchored anywhere in one thread, filtered from the quiet shells
+ * once so each of its rows only slices this short list.
+ */
+const sideChatAnchorShellsAtomFamily = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  let previous: ReadonlyArray<EnvironmentThreadShell> = [];
+  return Atom.make((get) => {
+    const next = get(environmentThreadShells.quietThreadShellsAtom).filter((shell) =>
+      isLiveSideChatAnchoredIn(shell, ref),
+    );
+    if (arrayElementsEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-anchor-shells:${key}`));
+});
+
+const SIDE_CHAT_MARKS_KEY_SEPARATOR = "\u001f";
+
+/** Held while the message's marks draw the same, so a side chat's own updates do not repaint its row. */
+const sideChatMarksAtomFamily = Atom.family((key: string) => {
+  const separator = key.lastIndexOf(SIDE_CHAT_MARKS_KEY_SEPARATOR);
+  const anchorKey = key.slice(0, separator);
+  const ref = parseThreadKey(anchorKey);
+  const messageId = MessageId.make(key.slice(separator + 1));
+  let previous = EMPTY_SIDE_CHAT_MARKS;
+  return Atom.make((get) => {
+    const next = selectSideChatMarks(
+      ref,
+      messageId,
+      get(sideChatAnchorShellsAtomFamily(anchorKey)),
+    );
+    if (sideChatMarksEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-marks:${key}`));
+});
+
+export function useSideChatMarks(
+  anchorRef: ScopedThreadRef | null,
+  messageId: MessageId,
+): ReadonlyArray<SideChatMark> {
+  return useAtomValue(
+    anchorRef === null
+      ? EMPTY_SIDE_CHAT_MARKS_ATOM
+      : sideChatMarksAtomFamily(
+          `${threadKey(anchorRef)}${SIDE_CHAT_MARKS_KEY_SEPARATOR}${messageId}`,
+        ),
+  );
 }

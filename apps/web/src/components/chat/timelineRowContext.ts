@@ -42,6 +42,8 @@ export interface TimelineRowSharedState {
   displayThreadKey?: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
+  /** Marks side chats in assistant replies; unset where none are shown, as in held timelines. */
+  onOpenSideChat: ((threadId: ThreadId) => void) | undefined;
   workflowOpening: WorkflowOpening | null;
   onForkFromRun: (input: {
     readonly sourceThreadId: ThreadId;

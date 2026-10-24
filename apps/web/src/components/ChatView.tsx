@@ -2415,6 +2415,7 @@ export default function ChatView(props: ChatViewProps) {
     onOpenTurnDiffStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
+    openSideChatSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
@@ -3282,6 +3283,7 @@ export default function ChatView(props: ChatViewProps) {
                       onCiteAssistantText: citeAssistantTextStable,
                       onAskInSideChat: lessonSideChats.onAskInSideChat,
                       askInSideChatPending: lessonSideChats.askPending,
+                      ...(supportsSideChats ? { onOpenSideChat: openSideChatSurfaceStable } : {}),
                       ...(activeProject ? { onRunShellCommand: runShellCommandStable } : {}),
                     }
                   : {})}

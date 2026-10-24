@@ -420,6 +420,7 @@ export function SideChatPanel(props: {
               })
             }
             onOpenThread={onOpenThread}
+            onOpenSideChat={walkTo}
             workspaceRoot={workspaceRoot}
           />
         </div>

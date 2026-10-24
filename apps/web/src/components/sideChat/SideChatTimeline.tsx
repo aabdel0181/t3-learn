@@ -46,6 +46,8 @@ export function SideChatTimeline(props: {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   readonly onOpenThread: (threadId: ThreadId) => void;
+  /** Opens a side chat nested in this one from its mark. */
+  readonly onOpenSideChat?: (threadId: ThreadId) => void;
   readonly workspaceRoot: string | undefined;
 }) {
   const { projection, workspaceRoot } = props;
@@ -99,6 +101,7 @@ export function SideChatTimeline(props: {
         routeThreadKey={sideChatKey}
         onOpenTurnDiff={noop}
         onOpenThread={props.onOpenThread}
+        {...(props.onOpenSideChat === undefined ? {} : { onOpenSideChat: props.onOpenSideChat })}
         onForkFromRun={noopAsync}
         onRollbackCheckpoint={noop}
         supportsConversationRollback={false}

@@ -213,6 +213,8 @@ interface MessagesTimelineProps {
   paintOnly?: boolean;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
+  /** Marks the side chats anchored in assistant replies and opens them; omitted, none are marked. */
+  onOpenSideChat?: (threadId: ThreadId) => void;
   parentThreadLink?: {
     readonly threadId: ThreadId;
     readonly title: string;
@@ -326,6 +328,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   paintOnly = false,
   onOpenTurnDiff,
   onOpenThread,
+  onOpenSideChat,
   parentThreadLink = null,
   workflowOpening = null,
   onForkFromRun,
@@ -929,6 +932,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     openPullRequest,
     onOpenTurnDiff,
     onOpenThread,
+    onOpenSideChat,
     workflowOpening,
     onForkFromRun,
     onRollbackCheckpoint,

@@ -6,6 +6,7 @@ import {
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
 import { toastManager } from "../ui/toast";
+import { acquireNamedHighlight } from "~/lib/namedHighlight";
 import { observeResize } from "~/lib/observeResize";
 
 const CITATION_PULSE_DURATION_MS = 650;
@@ -27,8 +28,7 @@ export function observeAssistantCitationCommentSource({
   onUnavailable: () => void;
 }): () => void {
   const { source, range, viewport } = anchor;
-  const registry = typeof CSS !== "undefined" ? CSS.highlights : undefined;
-  let highlight: Highlight | null = null;
+  const highlight = acquireNamedHighlight(COMMENT_HIGHLIGHT_NAME);
   let stopped = false;
   const observer = new MutationObserver((records) => {
     if (stopped) return;
@@ -39,11 +39,7 @@ export function observeAssistantCitationCommentSource({
     if (stopped) return;
     stopped = true;
     observer.disconnect();
-    if (!highlight) return;
-    highlight.delete(range);
-    if (highlight.size === 0 && registry?.get(COMMENT_HIGHLIGHT_NAME) === highlight) {
-      registry.delete(COMMENT_HIGHLIGHT_NAME);
-    }
+    highlight.remove(range);
   };
   const unavailable = () => {
     if (stopped) return;
@@ -73,12 +69,7 @@ export function observeAssistantCitationCommentSource({
   };
 
   if (!validate(false)) return dispose;
-  if (typeof Highlight !== "undefined" && registry) {
-    const existing = registry.get(COMMENT_HIGHLIGHT_NAME);
-    highlight = existing ?? new Highlight();
-    highlight.add(range);
-    if (!existing) registry.set(COMMENT_HIGHLIGHT_NAME, highlight);
-  }
+  highlight.add(range);
   observer.observe(viewport, { childList: true, subtree: true, characterData: true });
   return dispose;
 }
