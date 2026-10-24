@@ -10,6 +10,7 @@ import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.
 import { closePreviewSession } from "../components/preview/closePreviewSession";
 import { shouldFinishSideChatOnClose } from "../components/sideChat/sideChatPanel.logic";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { readLocalApi } from "../localApi";
 import { setActivePreviewTab, useThreadPreviewState } from "../previewStateStore";
@@ -76,12 +77,19 @@ export function useRightPanelSurfaceClose(input: {
       }
     }
     if (surface.kind === "side-chat") {
-      const shell = readThreadShell(
-        scopeThreadRef(ref.environmentId, ThreadId.make(surface.threadId)),
-      );
-      // The server throws the empty side chat away, so it leaves no mark in the lesson.
+      const sideChatRef = scopeThreadRef(ref.environmentId, ThreadId.make(surface.threadId));
+      const shell = readThreadShell(sideChatRef);
+      // The server throws the empty side chat away, so it leaves no mark in the lesson,
+      // and nothing can reach its draft again.
       if (shell !== null && shouldFinishSideChatOnClose(shell)) {
-        void finishSideChat({ environmentId: ref.environmentId, input: { threadId: shell.id } });
+        void finishSideChat({
+          environmentId: ref.environmentId,
+          input: { threadId: shell.id },
+        }).then((result) => {
+          if (result._tag === "Success") {
+            useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+          }
+        });
       }
     }
   };

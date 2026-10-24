@@ -247,7 +247,7 @@ describe("openSideChatFromSelection", () => {
     ]);
   });
 
-  it("throws away a side chat whose tab was closed while it was starting", async () => {
+  it("throws away a side chat whose tab was closed while it was starting, draft and all", async () => {
     const { run, startedThreadId, settle } = deferredRunner();
 
     const outcome = openSideChatFromSelection({
@@ -258,6 +258,7 @@ describe("openSideChatFromSelection", () => {
       run,
     });
     const threadId = startedThreadId();
+    useComposerDraftStore.getState().setPrompt(scopeThreadRef(environmentId, threadId), "What");
     useRightPanelStore.getState().closeSurface(lessonRef, `side-chat:${threadId}`);
 
     settle(AsyncResult.success({ sequence: 1 }));
@@ -268,6 +269,28 @@ describe("openSideChatFromSelection", () => {
       input: { threadId },
     });
     expect(usePendingSideChatStore.getState().byThreadKey).toEqual({});
+    expect(useComposerDraftStore.getState().draftsByThreadKey).toEqual({});
+  });
+
+  it("keeps the draft of a closed side chat the server refused to throw away", async () => {
+    vi.mocked(threadEnvironment.finishSideChat.run).mockImplementation(async () => refusal);
+    const { run, startedThreadId, settle } = deferredRunner();
+
+    const outcome = openSideChatFromSelection({
+      lessonRef,
+      citation,
+      sideChatShells: [],
+      topThreadId: null,
+      run,
+    });
+    const sideChatRef = scopeThreadRef(environmentId, startedThreadId());
+    useComposerDraftStore.getState().setPrompt(sideChatRef, "What");
+    useRightPanelStore.getState().closeSurface(lessonRef, `side-chat:${sideChatRef.threadId}`);
+
+    settle(AsyncResult.success({ sequence: 1 }));
+
+    await expect(outcome).resolves.toMatchObject({ _tag: "Opened" });
+    expect(useComposerDraftStore.getState().getComposerDraft(sideChatRef)?.prompt).toBe("What");
   });
 });
 

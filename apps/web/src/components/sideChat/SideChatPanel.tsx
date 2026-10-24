@@ -83,6 +83,7 @@ import {
   type SideChatCrumb,
   sideChatAnchorCitation,
   sideChatBreadcrumb,
+  shouldFinishSideChatOnClose,
   sideChatStatusLine,
   sideChatSurfacePath,
   topSideChatId,
@@ -251,11 +252,17 @@ export function SideChatPanel(props: {
 
   const reportFinish = async (discard: boolean) => {
     const threadId = sideChatRef.threadId;
+    const deletes = discard || shouldFinishSideChatOnClose(shell);
     const result = await finish({
       environmentId,
       input: discard ? { threadId, discard: true } : { threadId },
     });
-    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    if (result._tag === "Success") {
+      // The server deleted the side chat, so nothing can reach its draft again.
+      if (deletes) useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+      return;
+    }
+    if (isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
     toastManager.add(
       stackedThreadToast({

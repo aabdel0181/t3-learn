@@ -18,6 +18,7 @@ import {
   collectAssistantCitations,
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
+import * as DateTime from "effect/DateTime";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -544,9 +545,13 @@ it("Done on a top-level side chat closes its tab and remembers it for reopening"
   ]);
 });
 
-it("Discard finishes the side chat without a note", async () => {
+it("Discard finishes the side chat without a note and forgets its draft", async () => {
   const dispatch = setup();
-  state.shells = [LESSON_SHELL, SIDE_1];
+  state.shells = [
+    LESSON_SHELL,
+    { ...SIDE_1, latestUserMessageAt: DateTime.makeUnsafe("2026-10-22T00:00:00.000Z") },
+  ];
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
@@ -558,6 +563,19 @@ it("Discard finishes the side chat without a note", async () => {
     input: { threadId: "side-1", discard: true },
   });
   expect(surfaces()).toEqual([]);
+  await vi.waitFor(() => expect(draft("side-1")).toBe(""));
+});
+
+it("Done on an empty side chat forgets its draft, which nothing can reach once it is deleted", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await doneButton(screen).click();
+
+  await vi.waitFor(() => expect(draft("side-1")).toBe(""));
 });
 
 const lessonMessage = () => page.getByRole("textbox", { name: "Lesson message" });
