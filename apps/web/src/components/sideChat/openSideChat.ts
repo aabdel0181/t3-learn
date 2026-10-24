@@ -58,6 +58,9 @@ export async function openSideChatFromSelection(
   const existingId = findOverlappingSideChat(input.sideChatShells, citation);
   if (existingId !== null) {
     revealSideChat(lessonRef, existingId);
+    usePendingSideChatStore
+      .getState()
+      .requestFocus(scopedThreadKey(scopeThreadRef(lessonRef.environmentId, existingId)));
     return { _tag: "Reused", threadId: existingId };
   }
 
@@ -70,6 +73,7 @@ export async function openSideChatFromSelection(
     citation,
     status: "starting",
   });
+  usePendingSideChatStore.getState().requestFocus(pendingKey);
   const panels = useRightPanelStore.getState();
   panels.openSideChat(lessonRef, { topThreadId: topThreadId ?? threadId, threadId });
   panels.setMaximized(lessonRef, false);

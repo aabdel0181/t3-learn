@@ -110,6 +110,7 @@ export function SideChatPanel(props: {
   const askPending = usePendingSideChatStore((state) =>
     selectStartingSideChat(state, scopedThreadKey(lessonRef)),
   );
+  const focusRequested = usePendingSideChatStore((state) => state.focusThreadKey === sideChatKey);
   // The lesson forgets a pending side chat once its shell lands, before the detail with its
   // excerpt loads. Holding the asked citation for that gap keeps the excerpt from blinking out.
   const [held, setHeld] = useState<{
@@ -220,6 +221,12 @@ export function SideChatPanel(props: {
       if (pageScrollRef.current === controller) pageScrollRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!props.visible || !focusRequested) return;
+    composerHandleRef.current?.focusAtEnd();
+    usePendingSideChatStore.getState().clearFocus(sideChatKey);
+  }, [props.visible, focusRequested, sideChatKey]);
 
   const finish = useOrchestrationCommand(threadEnvironment.finishSideChat, {
     reportFailure: false,
@@ -515,7 +522,6 @@ export function SideChatPanel(props: {
           openingStatus={detail?.opening.status ?? null}
           runActive={runActive}
           answeringPendingUserInput={answeringPendingUserInput}
-          autoFocus={props.visible && pending?.status === "starting"}
           handleRef={composerHandleRef}
           onAdvancePendingUserInput={onAdvanceActivePendingUserInputStable}
           pendingUserInputCustomAnswer={activePendingProgress?.customAnswer}

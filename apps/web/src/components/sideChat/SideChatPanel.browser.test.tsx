@@ -229,7 +229,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
     closeRevisionByThreadKey: {},
   });
   useClosedViewStore.setState({ entries: [] });
-  usePendingSideChatStore.setState({ byThreadKey: {} });
+  usePendingSideChatStore.setState({ byThreadKey: {}, focusThreadKey: null });
   useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   return dispatch;
 }
@@ -344,6 +344,40 @@ it("shows a starting side chat with its excerpt and puts the cursor in its compo
   await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
   await expect.element(composer(screen)).toHaveFocus();
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+});
+
+it("puts the cursor in the composer when Ask lands on a highlight that already has a side chat", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  const run = vi.fn(() => new Promise<never>(() => {}));
+  await using screen = await renderPanel();
+  await expect.element(composer(screen)).toBeInTheDocument();
+  // Selecting the lesson's text takes focus out of the panel.
+  (document.activeElement as HTMLElement).blur();
+
+  await act(() =>
+    askInSideChat({
+      lessonRef: LESSON_REF,
+      citation: {
+        version: 1,
+        environmentId: ENVIRONMENT_ID,
+        threadId: LESSON_ID,
+        messageId: MessageId.make("lesson-1-reply"),
+        text: "space",
+        start: 15,
+        end: 20,
+        prefix: "An observation ",
+        suffix: " is what the agent can see.",
+      },
+      sideChatShells: state.shells as ReadonlyArray<Thread>,
+      topThreadId: null,
+      run,
+    }),
+  );
+
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(run).not.toHaveBeenCalled();
 });
 
 it("keeps the excerpt and the empty conversation between the shell arriving and the detail loading", async () => {
