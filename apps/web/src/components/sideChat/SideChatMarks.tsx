@@ -221,7 +221,7 @@ function SideChatMenu(props: {
   readonly children: React.ReactNode;
   readonly onOpen: (threadId: ThreadId) => void;
 }) {
-  const triggerRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   return (
     <Menu
