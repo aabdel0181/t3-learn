@@ -2089,6 +2089,8 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
+      // A side chat opened together with the lesson, by its URL, has taken the cursor.
+      if (document.activeElement?.closest("[data-side-chat-panel]")) return;
       focusComposerStable();
     });
     return () => {
@@ -3287,7 +3289,9 @@ export default function ChatView(props: ChatViewProps) {
                 {...(!paintOnlyDisplayedTimeline
                   ? {
                       onCiteAssistantText: citeAssistantTextStable,
-                      onAskInSideChat: lessonSideChats.onAskInSideChat,
+                      onAskInSideChat: canOperateThread
+                        ? lessonSideChats.onAskInSideChat
+                        : undefined,
                       askInSideChatPending: lessonSideChats.askPending,
                       ...(supportsSideChats ? { onOpenSideChat: openSideChatSurfaceStable } : {}),
                       ...(activeProject ? { onRunShellCommand: runShellCommandStable } : {}),

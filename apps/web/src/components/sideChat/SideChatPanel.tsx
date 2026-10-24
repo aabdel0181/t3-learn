@@ -34,8 +34,10 @@ import {
   AssistantCitationRevealContext,
   assistantCitationNavigation,
 } from "../../lib/assistantCitationNavigation";
+import { observeResize } from "../../lib/observeResize";
 import { cn, randomUUID } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
 import {
   type SideChatSurface,
   sideChatSurfaceTopThreadId,
@@ -77,11 +79,12 @@ import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
 import { SideChatComposer, type SideChatComposerHandle } from "./SideChatComposer";
 import { SideChatExcerpt } from "./SideChatExcerpt";
-import { leaveSideChat, revealSideChat } from "./sideChatNavigation";
+import { leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
 import {
   type SideChatCrumb,
   sideChatAnchorCitation,
   sideChatBreadcrumb,
+  shouldFinishSideChatOnClose,
   sideChatStatusLine,
   sideChatSurfacePath,
   topSideChatId,
@@ -145,9 +148,18 @@ export function SideChatPanel(props: {
   const crumbsRef = useRef<HTMLDivElement>(null);
   const crumbsKey = crumbs.map((crumb) => `${crumb.role}:${crumb.threadId}`).join(" ");
   useEffect(() => {
-    crumbsRef.current
-      ?.querySelector<HTMLElement>("[aria-current='page']")
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const trail = crumbsRef.current;
+    if (trail === null) return;
+    // The trail narrows when Done and the menu arrive after an Ask, and with the panel or
+    // window, which leaves the crumb it had scrolled to under the fade. A crumb with focus
+    // stays in view rather than the current one.
+    const scrollIntoView = () => {
+      const crumb =
+        trail.querySelector("button:focus") ?? trail.querySelector("[aria-current='page']");
+      crumb?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    scrollIntoView();
+    return observeResize(trail, scrollIntoView);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new path or current crumb re-renders the crumbs, so the current one scrolls back into view.
   }, [crumbsKey]);
 
@@ -250,11 +262,17 @@ export function SideChatPanel(props: {
 
   const reportFinish = async (discard: boolean) => {
     const threadId = sideChatRef.threadId;
+    const deletes = discard || shouldFinishSideChatOnClose(shell);
     const result = await finish({
       environmentId,
       input: discard ? { threadId, discard: true } : { threadId },
     });
-    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    if (result._tag === "Success") {
+      // The server deleted the side chat, so nothing can reach its draft again.
+      if (deletes) useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+      return;
+    }
+    if (isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
     toastManager.add(
       stackedThreadToast({
@@ -283,6 +301,15 @@ export function SideChatPanel(props: {
         sideChatSurfacePath(rows, surface.threadId),
       );
 
+  // The tag or link that opened a nested side chat goes away with the walk and leaves
+  // focus nowhere, so the side chat's composer takes it. A crumb stays and keeps it.
+  const walkInto = (threadId: ThreadId) => {
+    walkTo(threadId);
+    usePendingSideChatStore
+      .getState()
+      .requestFocus(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
+  };
+
   const onCrumb = (crumb: SideChatCrumb) => {
     if (crumb.role === "lesson") {
       props.onFocusLesson();
@@ -308,6 +335,8 @@ export function SideChatPanel(props: {
 
   const reveal = () => {
     if (citation === null || revealCitation(citation)) return;
+    // A maximized panel or a sheet would hide the highlight the lesson scrolls to.
+    showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
     // Only the hash changes, so the lesson stays mounted and scrolls to the highlight.
     void navigate({ ...assistantCitationNavigation(citation), replace: true });
   };
@@ -315,7 +344,7 @@ export function SideChatPanel(props: {
   const onOpenThread = (threadId: ThreadId) => {
     const top = topSideChatId(rows, threadId);
     if (top === sideChatSurfaceTopThreadId(surface)) {
-      walkTo(threadId);
+      walkInto(threadId);
       return;
     }
     // A side chat under another top-level one opens in that side chat's own tab.
@@ -412,6 +441,13 @@ export function SideChatPanel(props: {
                           : "text-muted-foreground",
                       )}
                       onClick={() => onCrumb(crumb)}
+                      // Chrome leaves a partly visible element where it is on focus, so a
+                      // crumb under the fade would take the cursor out of sight. A click
+                      // focuses on mousedown, and moving the crumb then would drop the click.
+                      onFocus={(event) => {
+                        if (!event.currentTarget.matches(":focus-visible")) return;
+                        event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+                      }}
                     >
                       {crumb.label}
                     </button>
@@ -483,17 +519,20 @@ export function SideChatPanel(props: {
             onCiteAssistantText={(cited, sourceAnchor) =>
               composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false
             }
-            onAskInSideChat={(asked) =>
-              askInSideChat({
-                lessonRef,
-                citation: asked,
-                sideChatShells: treeShells,
-                topThreadId: sideChatSurfaceTopThreadId(surface),
-                run: openSideChat,
-              })
+            onAskInSideChat={
+              canOperate
+                ? (asked) =>
+                    askInSideChat({
+                      lessonRef,
+                      citation: asked,
+                      sideChatShells: treeShells,
+                      topThreadId: sideChatSurfaceTopThreadId(surface),
+                      run: openSideChat,
+                    })
+                : undefined
             }
             onOpenThread={onOpenThread}
-            onOpenSideChat={walkTo}
+            onOpenSideChat={walkInto}
             workspaceRoot={workspaceRoot}
           />
         </div>

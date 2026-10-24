@@ -242,14 +242,21 @@ export function SideChatComposer(props: {
     openingStatus: props.openingStatus,
     runActive,
     providerUnavailable:
-      props.providerCatalogKnown &&
-      plan._tag === "Blocked" &&
-      plan.reason === "provider-unavailable",
+      !props.providerCatalogKnown ||
+      plan._tag !== "Blocked" ||
+      plan.reason !== "provider-unavailable"
+        ? null
+        : providerEntry === undefined
+          ? "missing"
+          : "unavailable",
   });
 
   return (
     <div className="border-t border-border">
-      {status === null ? null : <p className="px-3 pt-2 text-muted-foreground text-xs">{status}</p>}
+      {/* Always rendered, so screen readers announce a line that appears in it. */}
+      <p role="status" className="px-3 pt-2 text-muted-foreground text-xs empty:hidden">
+        {status}
+      </p>
       <div className="flex items-end gap-2 px-3 py-2">
         <ComposerPromptEditor
           draftKey={sideChatKey}

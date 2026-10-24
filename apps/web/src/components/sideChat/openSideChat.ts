@@ -103,12 +103,16 @@ export async function openSideChatFromSelection(
     // Closing its tab while it started could not finish it yet, so finish it now
     // and the server throws the empty side chat away.
     usePendingSideChatStore.getState().remove(pendingKey);
-    void runAtomCommand(
+    const finished = await runAtomCommand(
       appAtomRegistry,
       threadEnvironment.finishSideChat,
       { environmentId: lessonRef.environmentId, input: { threadId } },
       { reportFailure: false },
     );
+    // Nothing can reach the deleted side chat's draft again.
+    if (finished._tag === "Success") {
+      useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+    }
   } else {
     usePendingSideChatStore.getState().markStarted(pendingKey);
   }

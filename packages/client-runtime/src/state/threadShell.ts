@@ -324,8 +324,9 @@ export function createEnvironmentThreadShellAtoms(input: {
           }
         }
       }
-      // Indicators read only ids, titles and the request kind, so other shell
-      // updates keep the old array.
+      // Indicators read only ids, titles, the request kind and whether each is a side
+      // chat, which a thread never stops or starts being, so other shell updates keep
+      // the old array.
       if (
         previous.length === next.length &&
         previous.every(

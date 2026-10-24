@@ -20,6 +20,8 @@ const shortcutContext = {
 // Spelled with ctrl rather than mod so the chord is the same on every platform.
 const keybindings = compileResolvedKeybindingsConfig([
   { key: "ctrl+shift+m", command: "modelPicker.toggle" },
+  { key: "ctrl+shift+enter", command: "thread.steerQueuedMessage" },
+  { key: "ctrl+f", command: "chat.find" },
 ]);
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus();
@@ -52,7 +54,7 @@ function Launcher(props: { keys: string; received: string[] }) {
 // later registers after it. Tests mount the chat first and add the launcher by rerendering.
 function Chat(props: {
   composerKeys: string[];
-  toggles?: string[];
+  ran?: string[];
   launcher?: { keys: string; received: string[] };
   sideChatPanel?: boolean;
 }) {
@@ -71,13 +73,20 @@ function Chat(props: {
           return true;
         },
         toggleModelPicker: () => {
-          props.toggles?.push("modelPicker");
+          props.ran?.push("modelPicker");
         },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
     branchToolbarRef: { current: null },
     closeThreadFind: () => {},
-    commands: {},
+    commands: {
+      "thread.steerQueuedMessage": () => {
+        props.ran?.push("steerQueuedMessage");
+      },
+      "chat.find": () => {
+        props.ran?.push("find");
+      },
+    },
     fallback: () => undefined,
   });
   if (props.sideChatPanel) {
@@ -115,14 +124,25 @@ it("still types other letters into the composer while the launcher is open", asy
 
 it("keeps keys and composer chords pressed in the side-chat panel off the lesson composer", async () => {
   const composerKeys: string[] = [];
-  const toggles: string[] = [];
+  const ran: string[] = [];
   await using screen = await render(
-    <Chat composerKeys={composerKeys} toggles={toggles} sideChatPanel />,
+    <Chat composerKeys={composerKeys} ran={ran} sideChatPanel />,
     options,
   );
   await expect.element(screen.getByRole("region", { name: "Side chat" })).toHaveFocus();
+  const findPrevented: boolean[] = [];
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "f") findPrevented.push(event.defaultPrevented);
+  };
+  window.addEventListener("keydown", onKeyDown);
+  using _listener = { [Symbol.dispose]: () => window.removeEventListener("keydown", onKeyDown) };
 
-  await userEvent.keyboard("a{Control>}{Shift>}m{/Shift}{/Control}");
+  await userEvent.keyboard("a{Control>}{Shift>}m{Enter}{/Shift}f{/Control}");
 
-  expect({ composerKeys, toggles }).toEqual({ composerKeys: [], toggles: [] });
+  expect({ composerKeys, ran, findPrevented }).toEqual({
+    composerKeys: [],
+    ran: [],
+    // The browser's own find searches the side chat.
+    findPrevented: [false],
+  });
 });

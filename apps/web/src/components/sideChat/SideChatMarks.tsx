@@ -3,7 +3,7 @@ import type { MessageId, ThreadId } from "@t3tools/contracts";
 import { MessageCircleIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { resolveAssistantAnchorRange } from "../../lib/assistantTextSelection";
+import { resolveAssistantAnchorRanges } from "../../lib/assistantTextSelection";
 import { acquireNamedHighlight } from "../../lib/namedHighlight";
 import { observeResize } from "../../lib/observeResize";
 import { cn } from "../../lib/utils";
@@ -32,8 +32,9 @@ const NO_MARKS: ReadonlyArray<SideChatMark> = [];
 
 /**
  * Paints `marks` in `source` and reports where each tag goes, relative to `layer`.
- * Shiki, math and mermaid rewrite the reply after it mounts, and opening a panel
- * reflows it, so either repaints, at most once a frame.
+ * Shiki, math and mermaid rewrite the reply after it mounts, which paints the marks
+ * again. Opening a panel only reflows it: the painted ranges still hold, so only the
+ * tags move. Either happens at most once a frame.
  */
 function observeSideChatMarks(input: {
   readonly layer: HTMLElement;
@@ -43,27 +44,47 @@ function observeSideChatMarks(input: {
 }): () => void {
   const { layer, source, marks, onLayout } = input;
   const highlight = acquireNamedHighlight(SIDE_CHAT_MARK_HIGHLIGHT_NAME);
-  let painted: Range[] = [];
+  // Static, because the timeline's list reorders rows by moving their DOM, which collapses
+  // a live range without any mutation inside `source` to repaint on.
+  let painted: Array<{ readonly mark: SideChatMark; readonly range: StaticRange }> = [];
+  let unresolved: SideChatMark[] = [];
+  let stale = true;
   let frame: number | null = null;
   const clear = () => {
-    for (const range of painted) highlight.remove(range);
+    for (const { range } of painted) highlight.remove(range);
     painted = [];
   };
   const paint = () => {
-    frame = null;
     clear();
-    const origin = layer.getBoundingClientRect();
-    const tags: SideChatMarkTag[] = [];
-    const unresolved: SideChatMark[] = [];
-    for (const mark of marks) {
-      const range = resolveAssistantAnchorRange(source, mark.anchor);
+    unresolved = [];
+    const ranges = resolveAssistantAnchorRanges(
+      source,
+      marks.map((mark) => mark.anchor),
+    );
+    marks.forEach((mark, index) => {
+      const range = ranges[index] ?? null;
       if (range === null) {
         unresolved.push(mark);
-        continue;
+        return;
       }
-      highlight.add(range);
-      painted.push(range);
-      const rects = range.getClientRects();
+      const fixed = new StaticRange(range);
+      highlight.add(fixed);
+      painted.push({ mark, range: fixed });
+    });
+  };
+  const measured = source.ownerDocument.createRange();
+  const layout = () => {
+    frame = null;
+    if (stale) {
+      stale = false;
+      paint();
+    }
+    const origin = layer.getBoundingClientRect();
+    const tags: SideChatMarkTag[] = [];
+    for (const { mark, range } of painted) {
+      measured.setStart(range.startContainer, range.startOffset);
+      measured.setEnd(range.endContainer, range.endOffset);
+      const rects = measured.getClientRects();
       const end = rects.item(rects.length - 1);
       if (end === null) continue;
       tags.push({
@@ -76,12 +97,21 @@ function observeSideChatMarks(input: {
     onLayout({ tags, unresolved });
   };
   const schedule = () => {
-    frame ??= requestAnimationFrame(paint);
+    frame ??= requestAnimationFrame(layout);
   };
-  const mutations = new MutationObserver(schedule);
-  mutations.observe(source, { childList: true, subtree: true, characterData: true });
+  const mutations = new MutationObserver(() => {
+    stale = true;
+    schedule();
+  });
+  // Hidden text is left out of the reply's text, so hiding or showing some resolves again.
+  mutations.observe(source, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributeFilter: ["hidden", "aria-hidden"],
+  });
   const stopObservingResize = observeResize(layer, schedule);
-  paint();
+  layout();
   return () => {
     if (frame !== null) cancelAnimationFrame(frame);
     mutations.disconnect();
@@ -162,23 +192,57 @@ function SideChatTagSlot(props: {
     );
   }
   return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`Open one of ${slot.tags.length} side chats`}
-            className={className}
-            style={{ top: slot.top }}
-          />
+    <SideChatMenu
+      marks={slot.tags}
+      align="end"
+      trigger={
+        <button
+          type="button"
+          aria-label={`Open one of ${slot.tags.length} side chats`}
+          className={className}
+          style={{ top: slot.top }}
+        />
+      }
+      onOpen={onOpen}
+    >
+      <MessageCircleIcon className="size-2.5" />
+    </SideChatMenu>
+  );
+}
+
+/**
+ * Lists side chats to open, and hands focus back to its trigger itself: Base UI leaves
+ * it on <body> once an item is clicked, and on every later close of that menu.
+ */
+function SideChatMenu(props: {
+  readonly marks: ReadonlyArray<Pick<SideChatMark, "threadId" | "label">>;
+  readonly align: "start" | "end";
+  readonly trigger: React.ReactElement;
+  readonly children: React.ReactNode;
+  readonly onOpen: (threadId: ThreadId) => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  return (
+    <Menu
+      onOpenChangeComplete={(open) => {
+        const focused = document.activeElement;
+        // Focus that a choice moved elsewhere on purpose stays there.
+        if (
+          !open &&
+          (focused === null || focused === document.body || popupRef.current?.contains(focused))
+        ) {
+          triggerRef.current?.focus({ preventScroll: true });
         }
-      >
-        <MessageCircleIcon className="size-2.5" />
+      }}
+    >
+      <MenuTrigger ref={triggerRef} render={props.trigger}>
+        {props.children}
       </MenuTrigger>
-      <MenuPopup align="end">
-        {slot.tags.map((tag) => (
-          <MenuItem key={tag.threadId} onClick={() => onOpen(tag.threadId)}>
-            {tag.label}
+      <MenuPopup ref={popupRef} align={props.align} finalFocus={false}>
+        {props.marks.map((mark) => (
+          <MenuItem key={mark.threadId} onClick={() => props.onOpen(mark.threadId)}>
+            {mark.label}
           </MenuItem>
         ))}
       </MenuPopup>
@@ -253,15 +317,13 @@ export function SideChatMarksChip(props: {
     );
   }
   return (
-    <Menu>
-      <MenuTrigger render={<Button size="micro" variant="ghost-muted" />}>{label}</MenuTrigger>
-      <MenuPopup align="start">
-        {marks.map((mark) => (
-          <MenuItem key={mark.threadId} onClick={() => onOpen(mark.threadId)}>
-            {mark.label}
-          </MenuItem>
-        ))}
-      </MenuPopup>
-    </Menu>
+    <SideChatMenu
+      marks={marks}
+      align="start"
+      trigger={<Button size="micro" variant="ghost-muted" />}
+      onOpen={onOpen}
+    >
+      {label}
+    </SideChatMenu>
   );
 }

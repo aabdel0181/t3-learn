@@ -28,6 +28,10 @@ const state = vi.hoisted(() => ({
   shells: [] as ReadonlyArray<{ readonly id: string }>,
   projections: {} as Record<string, unknown>,
   visibleTurnItems: [] as ReadonlyArray<unknown>,
+  /** Keyed by `${threadId}:${messageId}`. */
+  marks: {} as Record<string, ReadonlyArray<unknown>>,
+  noMarks: [] as ReadonlyArray<unknown>,
+  canOperate: true,
   dispatch: (async () => undefined) as (...args: never) => Promise<unknown>,
 }));
 
@@ -54,6 +58,10 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
   }) as never,
   useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
+  useSideChatMarks: ((ref: { threadId: string } | null, messageId: string) =>
+    ref === null
+      ? state.noMarks
+      : (state.marks[`${ref.threadId}:${messageId}`] ?? state.noMarks)) as never,
 }));
 
 vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) => ({
@@ -68,8 +76,8 @@ vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
 
 vi.mock(import("../../state/session"), async (importOriginal) => ({
   ...(await importOriginal()),
-  readEnvironmentScope: () => true,
-  useEnvironmentScope: () => true,
+  readEnvironmentScope: () => state.canOperate,
+  useEnvironmentScope: () => state.canOperate,
 }));
 
 // The real settings and keybindings watch environment connections the test does not serve.
@@ -226,6 +234,8 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
   state.shells = [LESSON_SHELL];
   state.projections = {};
   state.visibleTurnItems = [];
+  state.marks = {};
+  state.canOperate = true;
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -421,6 +431,39 @@ it("puts the cursor in the composer of a side chat opened from the Map", async (
   await expect.element(composer(screen)).toHaveFocus();
 });
 
+it("puts the cursor in the composer of a nested side chat opened from its mark in the panel", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  // The whole reply "Done" is the highlight Box was asked about.
+  state.marks = {
+    "side-1:history-assistant": [
+      {
+        threadId: NESTED_1.id,
+        label: "Box",
+        state: "open",
+        anchor: {
+          threadId: SIDE_1.id,
+          messageId: MessageId.make("history-assistant"),
+          start: 0,
+          end: 4,
+          prefix: "",
+          suffix: "",
+        },
+      },
+    ],
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await screen.getByRole("button", { name: "Open side chat “Box”" }).click();
+
+  await expect.element(crumb(screen, "Box")).toHaveAttribute("aria-current", "page");
+  await expect.element(composer(screen)).toHaveFocus();
+});
+
 it("keeps the excerpt and the empty conversation between the shell arriving and the detail loading", async () => {
   setup();
   const citation: AssistantCitation = {
@@ -503,9 +546,14 @@ it("Done on a top-level side chat closes its tab and remembers it for reopening"
   ]);
 });
 
-it("Discard finishes the side chat without a note", async () => {
+it("Discard finishes the side chat without a note and forgets its draft", async () => {
   const dispatch = setup();
-  state.shells = [LESSON_SHELL, SIDE_1];
+  const written: Thread = {
+    ...SIDE_1,
+    latestUserMessageAt: "2026-10-22T00:00:00.000Z",
+  };
+  state.shells = [LESSON_SHELL, written];
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
@@ -517,6 +565,19 @@ it("Discard finishes the side chat without a note", async () => {
     input: { threadId: "side-1", discard: true },
   });
   expect(surfaces()).toEqual([]);
+  await vi.waitFor(() => expect(draft("side-1")).toBe(""));
+});
+
+it("Done on an empty side chat forgets its draft, which nothing can reach once it is deleted", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await doneButton(screen).click();
+
+  await vi.waitFor(() => expect(draft("side-1")).toBe(""));
 });
 
 const lessonMessage = () => page.getByRole("textbox", { name: "Lesson message" });
@@ -654,6 +715,23 @@ it("says a nested side chat's note waits for the parent side chat it goes to", a
     .toHaveTextContent(`Goes with your next message in “observation space”: ${note}`);
 });
 
+it("brings the lesson into view to reveal a top-level side chat's highlight there", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  showSideChat("side-1", "side-1");
+  useRightPanelStore.getState().setMaximized(LESSON_REF, true);
+  await using screen = await renderPanel({ router: LESSON_PATH });
+
+  await revealButton(screen).click();
+
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).maximized,
+  ).toBeUndefined();
+  await vi.waitFor(() => expect(screen.router?.state.location.hash).not.toBe(""));
+  expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+});
+
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
@@ -706,6 +784,26 @@ it("quotes a selection cited inside the panel into the side chat's draft, not th
     ).toEqual([["side-1", "history-assistant", "Done"]]),
   );
   expect(useComposerDraftStore.getState().getComposerDraft(LESSON_REF)).toBeNull();
+});
+
+it("offers a read-only connection no nested side chat to ask", async () => {
+  setup();
+  state.canOperate = false;
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await selectReplyWord(screen, "history-assistant", "Done");
+
+  await expect
+    .element(page.getByRole("button", { name: "Cite selection in composer" }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Ask in side chat" }))
+    .not.toBeInTheDocument();
 });
 
 /** A citation of side-1's own reply, which side-1's loaded history lacks. */

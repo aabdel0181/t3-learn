@@ -96,6 +96,7 @@ import {
 import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useTheme } from "../hooks/useTheme";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
@@ -234,6 +235,7 @@ import {
   resolveFinishableSideChat,
   sideChatLessonRef,
 } from "./sideChat/sideChatNavigation";
+import { shouldFinishSideChatOnClose } from "./sideChat/sideChatPanel.logic";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -567,6 +569,10 @@ function OpenCommandPaletteDialog(props: {
     selectThreadRightPanelState(state.byThreadKey, sideChatLesson),
   );
   const sideChatLessonShells = useSideChatTreeShells(sideChatLesson);
+  const canOperateSideChatLesson = useEnvironmentScope(
+    sideChatLesson?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
@@ -1391,7 +1397,7 @@ function OpenCommandPaletteDialog(props: {
       shells: sideChatLessonShells,
       environmentId: lessonRef.environmentId,
     });
-    if (finishable !== null) {
+    if (finishable !== null && canOperateSideChatLesson) {
       actionItems.push({
         kind: "action",
         value: "action:finish-side-chat",
@@ -1400,7 +1406,11 @@ function OpenCommandPaletteDialog(props: {
         description: finishable.label,
         icon: <CheckIcon className={ITEM_ICON_CLASS} />,
         run: async () => {
-          const rows = deriveSideChatTree(readSideChatTreeShells(lessonRef), lessonRef.threadId);
+          const shells = readSideChatTreeShells(lessonRef);
+          const rows = deriveSideChatTree(shells, lessonRef.threadId);
+          const deletes = shouldFinishSideChatOnClose(
+            shells.find((shell) => shell.id === finishable.threadId) ?? null,
+          );
           if (leaveSideChat(lessonRef, finishable.surface, rows) === "closed") {
             // The palette hands focus back to the lesson composer, which a sheet would cover.
             showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
@@ -1409,7 +1419,14 @@ function OpenCommandPaletteDialog(props: {
             environmentId: lessonRef.environmentId,
             input: { threadId: finishable.threadId },
           });
-          if (finished._tag === "Failure" && !isAtomCommandInterrupted(finished)) {
+          if (finished._tag === "Success") {
+            // The server deleted the empty side chat, so nothing can reach its draft again.
+            if (deletes) {
+              useComposerDraftStore
+                .getState()
+                .clearComposerContent(scopeThreadRef(lessonRef.environmentId, finishable.threadId));
+            }
+          } else if (!isAtomCommandInterrupted(finished)) {
             throw squashAtomCommandFailure(finished);
           }
         },

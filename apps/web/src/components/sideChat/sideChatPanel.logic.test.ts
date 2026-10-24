@@ -205,7 +205,7 @@ describe("sideChatComposerStatus", () => {
         shellExists: false,
         openingStatus: null,
         runActive: false,
-        providerUnavailable: false,
+        providerUnavailable: null,
       }),
     ).toBe("Starting side chat…");
   });
@@ -216,7 +216,7 @@ describe("sideChatComposerStatus", () => {
         shellExists: true,
         openingStatus: "pending",
         runActive: true,
-        providerUnavailable: false,
+        providerUnavailable: null,
       }),
     ).toBe("Preparing context…");
   });
@@ -227,7 +227,7 @@ describe("sideChatComposerStatus", () => {
         shellExists: true,
         openingStatus: "pending",
         runActive: false,
-        providerUnavailable: false,
+        providerUnavailable: null,
       }),
     ).toBeNull();
   });
@@ -240,7 +240,7 @@ describe("sideChatComposerStatus", () => {
           shellExists: true,
           openingStatus,
           runActive: true,
-          providerUnavailable: false,
+          providerUnavailable: null,
         }),
       ).toBeNull();
     },
@@ -252,9 +252,20 @@ describe("sideChatComposerStatus", () => {
         shellExists: true,
         openingStatus: "ready",
         runActive: false,
-        providerUnavailable: true,
+        providerUnavailable: "unavailable",
       }),
     ).toBe("This side chat's provider is unavailable. Enable it in Settings → Providers.");
+  });
+
+  it("says the side chat's provider instance is gone rather than offering to enable it", () => {
+    expect(
+      sideChatComposerStatus({
+        shellExists: true,
+        openingStatus: "ready",
+        runActive: false,
+        providerUnavailable: "missing",
+      }),
+    ).toBe("This side chat's provider instance is no longer available on this device.");
   });
 });
 

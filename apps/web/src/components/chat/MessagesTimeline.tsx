@@ -182,7 +182,10 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
-  /** Offers Ask in side chat next to Cite; omitted when the environment has no side chats. */
+  /**
+   * Offers Ask in side chat next to Cite; omitted when the environment has no side chats
+   * or the connection cannot operate the thread.
+   */
   onAskInSideChat?:
     | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
     | undefined;
