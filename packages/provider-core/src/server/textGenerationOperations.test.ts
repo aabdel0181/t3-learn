@@ -58,6 +58,7 @@ describe("fromRunner generateSideChatText", () => {
       for (const phrase of [
         "one or two sentences",
         "Null is the default.",
+        "carry each of their points",
         "gap",
         "misconception",
         "preference",

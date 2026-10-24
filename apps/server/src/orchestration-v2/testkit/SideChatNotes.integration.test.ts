@@ -498,6 +498,68 @@ describe("side-chat notes", () => {
   );
 
   it.effect(
+    "a side chat whose note writer answers null still carries its nested side chats' notes to the lesson, once",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-null-chain-up");
+        yield* Effect.gen(function* () {
+          const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
+          const boxRequestId = yield* finishWithNote(
+            harness,
+            box,
+            BOX,
+            { text: BOX_BOUNDS_NOTE },
+            "ready",
+          );
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          // Reopens `observation space` and drops the note that carried `Box`'s.
+          yield* harness.send(space, "One more question.");
+
+          harness.scriptNote(SPACE, { text: null });
+          yield* harness.send(lesson, "Continue the lesson.");
+
+          const fallback = `re "Box": ${BOX_BOUNDS_NOTE}`;
+          const finished = yield* harness.thread(space);
+          assert.equal(finished.sideChat?.done?.outcome.status, "ready");
+          assert.equal(finished.sideChat?.done?.outcome.note, fallback);
+          assert.equal(finished.sideChatNoteDeliveries?.[box], boxRequestId);
+          assert.include(harness.prompts(lesson).at(-1), `• re "observation space": ${fallback}`);
+
+          // The lesson has it now, so a null answer after another reopen sends nothing again.
+          yield* harness.send(space, "And another.");
+          harness.scriptNote(SPACE, { text: null });
+          yield* harness.send(lesson, "Next step.");
+
+          assert.equal((yield* harness.thread(space)).sideChat?.done?.outcome.status, "none");
+          assert.equal(headerCount(harness.prompts(lesson).at(-1) ?? ""), 0);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "a nested side chat reopened before the lesson received its parent's note writes its whole note again",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-reopen-nested");
+        yield* Effect.gen(function* () {
+          const { space, box } = yield* lessonWithNestedSideChats(harness);
+          harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+
+          // Reopens `observation space` too, which drops the only note that carried `Box`'s.
+          yield* harness.send(box, "Follow-up.");
+          assert.isUndefined((yield* harness.thread(box)).sideChat?.deliveredNote);
+
+          harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.notInclude(harness.outcomeInputFor(BOX), "Note already sent to the lesson");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
     "a lesson message leaves side chats nobody wrote in open, without holding their parent open",
     () =>
       Effect.gen(function* () {

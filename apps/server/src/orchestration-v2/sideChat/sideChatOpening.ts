@@ -145,23 +145,25 @@ export function buildSideChatOpeningContext(input: {
 }
 
 /**
- * What the opening context needs beyond the side chat itself: the lesson's first request, and the
- * opening summary of the side chat this one was opened from, if any.
+ * What the opening context needs beyond the side chat itself: the lesson's first request, which
+ * stands in for a missing summary, and the opening summary of the side chat this one was opened
+ * from, if any.
  */
 export const loadSideChatOpeningSources = Effect.fn("loadSideChatOpeningSources")(function* (
   projectionStore: Pick<ProjectionStore.ProjectionStoreV2Shape, "getThreadRecords">,
   sideChat: OrchestrationV2SideChat,
 ) {
-  const lesson = yield* projectionStore.getThreadRecords(sideChat.lessonThreadId, ["messages"], {
-    messageRoles: ["user"],
-  });
+  // Finding the first request reads every user message of the lesson, so only without a summary.
+  const lessonTopic =
+    sideChat.opening.status === "ready" && sideChat.opening.text !== null
+      ? null
+      : ((yield* projectionStore.getThreadRecords(sideChat.lessonThreadId, ["messages"], {
+          messageRoles: ["user"],
+        })).messages[0]?.text ?? null);
   const parentOpeningText =
     sideChat.anchor.threadId === sideChat.lessonThreadId
       ? null
       : ((yield* projectionStore.getThreadRecords(sideChat.anchor.threadId, [])).thread.sideChat
           ?.opening.text ?? null);
-  return {
-    lessonTopic: lesson.messages[0]?.text ?? null,
-    parentOpeningText,
-  };
+  return { lessonTopic, parentOpeningText };
 });

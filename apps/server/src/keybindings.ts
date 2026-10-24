@@ -678,9 +678,20 @@ const make = Effect.gen(function* () {
     upsertKeybindingRule: (input) =>
       upsertSemaphore.withPermits(1)(
         Effect.gen(function* () {
-          const customConfig = yield* loadWritableCustomKeybindingsConfig();
+          const diskConfig = yield* loadWritableCustomKeybindingsConfig();
           const rule = keybindingRuleFromUpsertInput(input);
           const replaceTarget = replaceTargetFromUpsertInput(input);
+          // A fork-only default is never on disk, so an added rule would override it unless the
+          // write takes it along. It goes first, where mergeWithDefaultKeybindings puts defaults.
+          const customConfig =
+            replaceTarget === null && !diskConfig.some((entry) => entry.command === rule.command)
+              ? [
+                  ...MEMORY_ONLY_DEFAULT_KEYBINDINGS.filter(
+                    (defaultRule) => defaultRule.command === rule.command,
+                  ),
+                  ...diskConfig,
+                ]
+              : diskConfig;
           const nextConfig = [
             ...customConfig.filter((entry) => {
               if (replaceTarget) {

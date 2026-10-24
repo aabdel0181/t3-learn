@@ -58,13 +58,14 @@ always lesson, then thread.
 
 A side chat's note writer reads every ready note of its direct children, received or not (an earlier
 note carrying one may never have reached the lesson), and counts them delivered when its own note
-lands, so a gap three levels down reaches the lesson. `sideChatOutcomeRequestId` encodes depth so
-deeper writers are claimed first, or a parent could hold a lane slot waiting on a child that cannot
-start. A side chat is never open under a done one: a message in a done side chat, or a side chat opened
-under it, reopens it and every done ancestor. A note the parent received is kept as `deliveredNote`, so
-the next says only what is new. A user message also finishes the idle open side chats below it that
-have messages; busy ones stay open with their ancestors, and empty ones stay open because their
-composer may hold an unsent draft.
+lands. Until the lesson holds one of its notes, a null answer becomes those notes verbatim, so a gap
+three levels down reaches the lesson. `sideChatOutcomeRequestId` encodes depth so deeper writers are
+claimed first, or a parent could hold a lane slot waiting on a child that cannot start. A side chat is
+never open under a done one: a message in a done side chat, or a side chat opened under it, reopens it
+and every done ancestor. A note the lesson received is kept as `deliveredNote`, so the next says only
+what is new; a nested one is not, since the parent note carrying it may be dropped. A user message also
+finishes the idle open side chats below it that have messages; busy ones stay open with their
+ancestors, and empty ones stay open because their composer may hold an unsent draft.
 
 ## Downgrade safety and the capability gate
 
@@ -72,12 +73,18 @@ An official build must still read this database after a switch back, so:
 
 - Side chats create no `fork` or `merge_back` transfer, which an official server would replay in full.
   A fork of a side chat drops `sideChat`, and merge-back from one is refused.
-- No `side-chat.*` outbox row may be pending or running. An official server claims it, cannot decode it
-  and leaves it `running`, which blocks its thread's lane. `scripts/fork-service-switch.sh
-  --to-official` refuses until none are left.
-- No write path puts a lone `sideChat.*` default on disk (`writeConfigAtomically` in
-  [keybindings](../../apps/server/src/keybindings.ts)). An official server rejects the unknown command
-  and stops syncing default keybindings. A user's rebinding is written, and the same script strips it.
+- A switch back needs no pending or running `side-chat.*` outbox row. An official server claims it,
+  cannot decode it and leaves it `running`, which blocks its thread's lane.
+- A switch back needs no `sideChat.*` entry in `keybindings.json`: an official server rejects the
+  unknown command, then stops syncing defaults. [Keybindings](../../apps/server/src/keybindings.ts)
+  never writes a lone default, but a user's own binding is written.
+
+The fork's service-switch script, not the server, is where both are checked. Round-trip limits:
+
+- An official server that touches a lesson or side chat rewrites its payload without `sideChat` and
+  `sideChatNoteDeliveries`. After a later switch forward, those side chats show as ordinary forks, and
+  ready notes may be sent to the lesson once more.
+- Persisted side-chat and Map panel tabs show as blank tabs on an official client; close them.
 
 Older servers reject the commands and strip the optional fields, so clients hide every entry point
 unless the server advertises `sideChats`

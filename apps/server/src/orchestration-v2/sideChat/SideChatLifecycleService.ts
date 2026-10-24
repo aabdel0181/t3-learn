@@ -28,6 +28,7 @@ import * as ThreadManagementService from "../ThreadManagementService.ts";
 import {
   buildSideChatOutcomeInput,
   isUserAuthoredSideChatTrigger,
+  nestedSideChatNotesFallback,
   normalizeSideChatNote,
 } from "./notes.ts";
 import {
@@ -48,9 +49,10 @@ export class SideChatLifecycleService extends Context.Service<
      * Writes the note for the side chat's `generating` outcome `requestId` and lands it with
      * `thread.side_chat.outcome.complete`. The note takes up the notes of its nested side chats:
      * the ones its own turns took, and every ready one, after waiting for ones still being written
-     * until `SIDE_CHAT_WAIT_CAP_MS` after Done. It says only what is new next to the note its
-     * parent already received. Never fails: interrupts propagate, and anything else is logged and
-     * recorded as `failed`, because a failed outbox row pins the lesson's worktree.
+     * until `SIDE_CHAT_WAIT_CAP_MS` after Done. Until the lesson has received one of this side
+     * chat's notes, a null answer makes those notes the note; after that it says only what is new.
+     * Never fails: interrupts propagate, and anything else is logged and recorded as `failed`,
+     * because a failed outbox row pins the lesson's worktree.
      */
     readonly writeOutcome: (input: {
       readonly threadId: ThreadId;
@@ -276,14 +278,17 @@ const make = Effect.gen(function* () {
       }
       // Every ready note, not only undelivered ones: one an earlier Done took up went no further
       // if this side chat reopened before its parent received that note. The previous note below
-      // keeps the writer from repeating what the parent already has.
+      // keeps the writer from repeating what the lesson already has.
       const childNotes = readySideChatNotes(children);
+      const nestedNotes = { childNotes, contextHandoffs: records.contextHandoffs };
+      const previousNote = sideChat.deliveredNote ?? null;
 
       const lesson = yield* threads.getThreadRecords(sideChat.lessonThreadId, []);
       const { text } = yield* writeSideChatText({
         thread: lesson.thread,
         kind: "outcome_note",
         prompt: buildSideChatOutcomeInput({
+          ...nestedNotes,
           excerpt: sideChat.excerpt,
           messages: records.messages
             .filter((message): message is TranscriptMessage => message.role !== "system")
@@ -291,12 +296,14 @@ const make = Effect.gen(function* () {
               (left, right) =>
                 DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
             ),
-          childNotes,
-          contextHandoffs: records.contextHandoffs,
-          previousNote: sideChat.deliveredNote ?? null,
+          previousNote,
         }),
       });
-      const note = normalizeSideChatNote(text);
+      // Once the lesson holds a note of this side chat, null means nothing new, and a fallback
+      // would send again what that note already carried.
+      const note =
+        normalizeSideChatNote(text) ??
+        (previousNote === null ? nestedSideChatNotesFallback(nestedNotes) : null);
       const deliveries =
         childNotes.length === 0
           ? {}

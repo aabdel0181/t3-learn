@@ -421,7 +421,7 @@ export const OrchestrationV2SideChat = Schema.Struct({
   label: TrimmedNonEmptyString.check(Schema.isMaxLength(SIDE_CHAT_LABEL_MAX_CHARS)),
   opening: OrchestrationV2SideChatOpening,
   done: Schema.NullOr(Schema.Struct({ at: IsoDateTime, outcome: OrchestrationV2SideChatOutcome })),
-  /** The last note of this side chat that its parent received, kept across a reopen. */
+  /** The last note of this side chat that the lesson received, kept across a reopen. */
   deliveredNote: Schema.optional(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
 });
 export type OrchestrationV2SideChat = typeof OrchestrationV2SideChat.Type;
