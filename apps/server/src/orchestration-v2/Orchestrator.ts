@@ -10749,7 +10749,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
    *
    * Any message the user sends also finishes the idle open side chats below its thread, deepest
    * first, as Done does but without stopping a turn. A side chat stays open while it or any side
-   * chat below it is still answering. Their notes ride the run this message starts when they are
+   * chat below it is still answering, and so does one nobody has written in. Their notes ride the run this message starts when they are
    * written within the wait cap, and the user's next message otherwise.
    */
   const applySideChatUserMessage = Effect.fn("Orchestrator.applySideChatUserMessage")(function* (
@@ -10811,15 +10811,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     for (const descendant of sideChatDescendants(yield* readSideChatTree(thread), thread.id)) {
       if (descendant.thread.sideChat?.done !== null) continue;
       const threadId = descendant.thread.id;
+      let staysOpen = keptOpen.has(threadId);
+      if (!staysOpen) {
+        const { runs, messages } = yield* projectionStore
+          .getThreadRecords(threadId, ["runs", "messages"], { messageRoles: ["user"] })
+          .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+        // One nobody has written in has no note to give, and its first question may be a draft
+        // the user is still typing. Done, Discard and closing its tab still delete it.
+        if (messages.length === 0) continue;
+        staysOpen = runs.some((run) => run.status === "queued" || isBlockingRun(run));
+      }
       // A side chat whose AI is still answering stays open, and so does every side chat above it,
       // so its note still has an open parent to carry it up when it is finished later.
-      const staysOpen =
-        keptOpen.has(threadId) ||
-        (yield* projectionStore
-          .getThreadRecords(threadId, ["runs"])
-          .pipe(
-            Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
-          )).runs.some((run) => run.status === "queued" || isBlockingRun(run));
       if (staysOpen) {
         const parentThreadId = descendant.thread.lineage.parentThreadId;
         if (parentThreadId !== null) keptOpen.add(parentThreadId);

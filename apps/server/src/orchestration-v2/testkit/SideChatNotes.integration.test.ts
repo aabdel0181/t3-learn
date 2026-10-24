@@ -414,19 +414,33 @@ describe("side-chat notes", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("a lesson message deletes side chats nobody wrote in", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-empty");
-      yield* Effect.gen(function* () {
-        const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const lesson = yield* harness.createLesson("Teach me RL environments.");
-        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+  it.effect(
+    "a lesson message leaves side chats nobody wrote in open, without holding their parent open",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-empty");
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const lesson = yield* harness.createLesson("Teach me RL environments.");
+          const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+          yield* harness.send(space, SPACE_QUESTION);
+          const box = yield* harness.openSideChat({ parentThreadId: space, label: BOX });
+          const shaping = yield* harness.openSideChat({
+            parentThreadId: lesson,
+            label: "reward shaping",
+          });
 
-        yield* harness.send(lesson, "Continue the lesson.");
+          yield* harness.send(lesson, "Continue the lesson.");
 
-        assert.isNull(yield* orchestrator.getThreadShell(space));
-      }).pipe(Effect.provide(harness.layer));
-    }).pipe(Effect.scoped),
+          const state = (threadId: ThreadId) =>
+            orchestrator
+              .getThreadShell(threadId)
+              .pipe(Effect.map((shell) => shell?.sideChat?.state));
+          assert.equal(yield* state(shaping), "open");
+          assert.equal(yield* state(box), "open");
+          assert.equal(yield* state(space), "done");
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
   );
 
   it.effect(
