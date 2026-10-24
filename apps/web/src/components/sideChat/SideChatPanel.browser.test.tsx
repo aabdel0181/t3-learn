@@ -514,6 +514,54 @@ it("Discard finishes the side chat without a note", async () => {
   expect(surfaces()).toEqual([]);
 });
 
+const lessonMessage = () => page.getByRole("textbox", { name: "Lesson message" });
+
+/** The panel beside a stand-in for the lesson's composer, which the panel hands the cursor to. */
+function renderPanelBesideLesson() {
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  return render(
+    <>
+      <textarea aria-label="Lesson message" />
+      <Panel onFocusLesson={() => (lessonMessage().element() as HTMLElement).focus()} />
+    </>,
+    { container },
+  );
+}
+
+it("hands the cursor to the lesson when Discard closes the side chat's tab", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanelBesideLesson();
+  const actions = screen.getByRole("button", { name: "More side chat actions" });
+  await expect.element(actions).toBeInTheDocument();
+
+  (actions.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitem", { name: "Discard" })).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+
+  expect(surfaces()).toEqual([]);
+  await expect.element(lessonMessage()).toHaveFocus();
+});
+
+it("hands the cursor to the lesson when Done closes a side chat's tab beside another", async () => {
+  setup();
+  const side2 = sideChatShell("side-2", LESSON_ID, "reward signal");
+  state.shells = [LESSON_SHELL, SIDE_1, side2];
+  showSideChat("side-1", "side-1");
+  showSideChat("side-2", "side-2");
+  await using screen = await renderPanelBesideLesson();
+  await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
+
+  (doneButton(screen).element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(crumb(screen, "reward signal")).toHaveAttribute("aria-current", "page");
+  await expect.element(lessonMessage()).toHaveFocus();
+});
+
 it("walks the breadcrumb Lesson › observation space › Box in place", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];

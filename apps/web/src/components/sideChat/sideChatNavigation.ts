@@ -56,14 +56,15 @@ export function leaveSideChat(
   lessonRef: ScopedThreadRef,
   surface: SideChatSurface,
   rows: ReadonlyArray<SideChatTreeRow>,
-): void {
+): "walked" | "closed" {
   const path = sideChatSurfacePath(rows, surface.threadId);
   const panels = useRightPanelStore.getState();
   if (path.length > 1) {
     panels.navigateSideChat(lessonRef, surface.id, path.slice(0, -1), path);
-    return;
+    return "walked";
   }
   panels.closeSurface(lessonRef, surface.id);
+  return "closed";
 }
 
 /** Where a thread opens: a side chat opens on its lesson's route, in the lesson's panel. */

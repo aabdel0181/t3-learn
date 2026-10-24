@@ -254,8 +254,11 @@ export function SideChatPanel(props: {
   // The note is written in the background, so the panel moves on without waiting for it.
   const finishSideChat = (discard: boolean) => {
     void reportFinish(discard);
-    leaveSideChat(lessonRef, surface, rows);
+    return leaveSideChat(lessonRef, surface, rows);
   };
+  // The menu refocuses a clicked item, then its trigger once it closes; a closed tab takes
+  // both away, so the menu hands focus to the lesson as it closes.
+  const discardClosedTabRef = useRef(false);
 
   const walkTo = (threadId: string) =>
     useRightPanelStore
@@ -405,7 +408,10 @@ export function SideChatPanel(props: {
               size="xs"
               variant="outline"
               disabled={!canOperate}
-              onClick={() => finishSideChat(false)}
+              onClick={() => {
+                // A closed tab takes this button with it, so the cursor goes back to the lesson.
+                if (finishSideChat(false) === "closed") props.onFocusLesson();
+              }}
             >
               Done
             </Button>
@@ -420,8 +426,20 @@ export function SideChatPanel(props: {
               >
                 <EllipsisIcon />
               </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem variant="destructive" onClick={() => finishSideChat(true)}>
+              <MenuPopup
+                align="end"
+                finalFocus={() => {
+                  if (!discardClosedTabRef.current) return true;
+                  props.onFocusLesson();
+                  return false;
+                }}
+              >
+                <MenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    discardClosedTabRef.current = finishSideChat(true) === "closed";
+                  }}
+                >
                   Discard
                 </MenuItem>
               </MenuPopup>
