@@ -209,6 +209,45 @@ describe("getThreadListV2OrderedSection", () => {
       ),
     ).toEqual(["pinned-first", "pinned-later"]);
   });
+
+  it("hides side chats from the list and its ordered sections", () => {
+    const lesson = makeThread({ id: ThreadId.make("lesson"), title: "Lesson" });
+    const sideChat = makeThread({
+      id: ThreadId.make("side-chat"),
+      title: "Side chat",
+      lineage: {
+        parentThreadId: lesson.id,
+        rootThreadId: lesson.id,
+        relationshipToParent: "fork",
+      },
+      sideChat: {
+        lessonThreadId: lesson.id,
+        anchor: {
+          threadId: lesson.id,
+          messageId: MessageId.make("message-lesson-reply"),
+          start: 12,
+          end: 29,
+          prefix: "the ",
+          suffix: " is what",
+        },
+        label: "observation space",
+        state: "open",
+        noteStatus: null,
+        excerptLength: 17,
+      },
+    });
+    const threads = [lesson, sideChat];
+    expect(
+      buildThreadListV2Items({ threads, environmentId: null, searchQuery: "", now: NOW }).items.map(
+        (item) => item.thread.id,
+      ),
+    ).toEqual([lesson.id]);
+    expect(
+      getThreadListV2OrderedSection({ threads, section: "active", now: NOW }).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([lesson.id]);
+  });
 });
 
 describe("buildThreadListV2Items", () => {
