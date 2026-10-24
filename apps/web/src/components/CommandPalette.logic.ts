@@ -11,6 +11,7 @@ import {
   type EnvironmentId,
   type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
+  isSideChatThread,
   type KeybindingCommand,
   type SourceControlDiscoveryResult,
   type SourceControlRepositoryInfo,
@@ -21,7 +22,12 @@ import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { type ReactNode } from "react";
-import { getThreadSortTimestamp, sortThreads } from "../lib/threadSort";
+import {
+  getLatestThreadForProject,
+  getThreadSortTimestamp,
+  sortThreads,
+  type ThreadSortInput,
+} from "../lib/threadSort";
 import { normalizeSearchText } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
@@ -344,6 +350,42 @@ export function buildProjectActionItems(input: {
       await input.runProject(project);
     },
   }));
+}
+
+/**
+ * The thread opening a project lands on: the latest of its threads, or of its group's
+ * when it heads one. Never a side chat, which opens only in its lesson's panel.
+ */
+export function resolveProjectLatestThread<
+  TThread extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "projectId"> &
+    ThreadSortInput & { readonly sideChat?: unknown },
+>(input: {
+  readonly threads: ReadonlyArray<TThread>;
+  readonly project: Pick<Project, "environmentId" | "id">;
+  readonly groupedProjectKeys: ReadonlySet<string> | null;
+  readonly sortOrder: SidebarThreadSortOrder;
+}): TThread | null {
+  const groupedProjectKeys = input.groupedProjectKeys;
+  if (groupedProjectKeys) {
+    return (
+      sortThreads(
+        input.threads.filter(
+          (thread) =>
+            thread.archivedAt === null &&
+            !isSideChatThread(thread) &&
+            groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
+        ),
+        input.sortOrder,
+      )[0] ?? null
+    );
+  }
+  return getLatestThreadForProject(
+    input.threads.filter(
+      (thread) => thread.environmentId === input.project.environmentId && !isSideChatThread(thread),
+    ),
+    input.project.id,
+    input.sortOrder,
+  );
 }
 
 export type BuildThreadActionItemsThread = Pick<

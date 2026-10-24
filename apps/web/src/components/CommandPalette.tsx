@@ -143,7 +143,6 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
 import {
   cn,
   getLocalFileManagerName,
@@ -191,6 +190,7 @@ import {
   overlayModeForCommand,
   remoteProjectInputPlaceholder,
   reduceCommandPaletteSearchState,
+  resolveProjectLatestThread,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -847,20 +847,12 @@ function OpenCommandPaletteDialog(props: {
           ),
         )
       : null;
-    const latestThread = groupedProjectKeys
-      ? (sortThreads(
-          threads.filter(
-            (thread) =>
-              thread.archivedAt === null &&
-              groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
-          ),
-          clientSettings.sidebarThreadSortOrder,
-        )[0] ?? null)
-      : getLatestThreadForProject(
-          threads.filter((thread) => thread.environmentId === project.environmentId),
-          project.id,
-          clientSettings.sidebarThreadSortOrder,
-        );
+    const latestThread = resolveProjectLatestThread({
+      threads,
+      project,
+      groupedProjectKeys,
+      sortOrder: clientSettings.sidebarThreadSortOrder,
+    });
     if (latestThread) {
       await navigate({
         to: "/$environmentId/$threadId",
@@ -1773,11 +1765,12 @@ function OpenCommandPaletteDialog(props: {
       cwd,
     );
     if (existing) {
-      const latestThread = getLatestThreadForProject(
-        threads.filter((thread) => thread.environmentId === existing.environmentId),
-        existing.id,
-        clientSettings.sidebarThreadSortOrder,
-      );
+      const latestThread = resolveProjectLatestThread({
+        threads,
+        project: existing,
+        groupedProjectKeys: null,
+        sortOrder: clientSettings.sidebarThreadSortOrder,
+      });
       if (latestThread && latestThread.settledOverride !== "settled") {
         await navigate({
           to: "/$environmentId/$threadId",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
-import { makeThreadFixture } from "../test-fixtures";
+import { makeSideChatThreadFixture, makeThreadFixture } from "../test-fixtures";
 import {
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -10,6 +10,7 @@ import {
   reduceCommandPaletteUiState,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
+  resolveProjectLatestThread,
   type CommandPaletteUiState,
 } from "./CommandPalette.logic";
 
@@ -438,5 +439,34 @@ describe("returning from file and content search", () => {
     expect(closed).toEqual({ open: false, mode: "files", openIntent: null });
     expect(reduceCommandPaletteUiState(closed, { _tag: "BackToCommand" })).toEqual(closed);
     expect(reduceCommandPaletteUiState(closed, { _tag: "SetOpen", open: true })).toEqual(root);
+  });
+});
+
+describe("resolveProjectLatestThread", () => {
+  it("opens a project on its latest thread, never on a side chat", () => {
+    const lesson = makeThread({ id: ThreadId.make("lesson") });
+    const sideChat = {
+      ...makeSideChatThreadFixture({
+        id: ThreadId.make("side"),
+        lessonId: lesson.id,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+      }),
+      projectId: PROJECT_ID,
+      createdAt: "2026-03-05T00:00:00.000Z",
+      updatedAt: "2026-03-05T00:00:00.000Z",
+    };
+    const input = {
+      threads: [lesson, sideChat],
+      project: { environmentId: LOCAL_ENVIRONMENT_ID, id: PROJECT_ID },
+      sortOrder: "updated_at",
+    } as const;
+
+    expect(resolveProjectLatestThread({ ...input, groupedProjectKeys: null })?.id).toBe(lesson.id);
+    expect(
+      resolveProjectLatestThread({
+        ...input,
+        groupedProjectKeys: new Set([`${LOCAL_ENVIRONMENT_ID}:${PROJECT_ID}`]),
+      })?.id,
+    ).toBe(lesson.id);
   });
 });
