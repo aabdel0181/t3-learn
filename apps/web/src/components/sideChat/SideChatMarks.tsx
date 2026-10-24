@@ -186,23 +186,57 @@ function SideChatTagSlot(props: {
     );
   }
   return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`Open one of ${slot.tags.length} side chats`}
-            className={className}
-            style={{ top: slot.top }}
-          />
+    <SideChatMenu
+      marks={slot.tags}
+      align="end"
+      trigger={
+        <button
+          type="button"
+          aria-label={`Open one of ${slot.tags.length} side chats`}
+          className={className}
+          style={{ top: slot.top }}
+        />
+      }
+      onOpen={onOpen}
+    >
+      <MessageCircleIcon className="size-2.5" />
+    </SideChatMenu>
+  );
+}
+
+/**
+ * Lists side chats to open, and hands focus back to its trigger itself: Base UI leaves
+ * it on <body> once an item is clicked, and on every later close of that menu.
+ */
+function SideChatMenu(props: {
+  readonly marks: ReadonlyArray<Pick<SideChatMark, "threadId" | "label">>;
+  readonly align: "start" | "end";
+  readonly trigger: React.ReactElement;
+  readonly children: React.ReactNode;
+  readonly onOpen: (threadId: ThreadId) => void;
+}) {
+  const triggerRef = useRef<HTMLElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  return (
+    <Menu
+      onOpenChangeComplete={(open) => {
+        const focused = document.activeElement;
+        // Focus that a choice moved elsewhere on purpose stays there.
+        if (
+          !open &&
+          (focused === null || focused === document.body || popupRef.current?.contains(focused))
+        ) {
+          triggerRef.current?.focus({ preventScroll: true });
         }
-      >
-        <MessageCircleIcon className="size-2.5" />
+      }}
+    >
+      <MenuTrigger ref={triggerRef} render={props.trigger}>
+        {props.children}
       </MenuTrigger>
-      <MenuPopup align="end">
-        {slot.tags.map((tag) => (
-          <MenuItem key={tag.threadId} onClick={() => onOpen(tag.threadId)}>
-            {tag.label}
+      <MenuPopup ref={popupRef} align={props.align} finalFocus={false}>
+        {props.marks.map((mark) => (
+          <MenuItem key={mark.threadId} onClick={() => props.onOpen(mark.threadId)}>
+            {mark.label}
           </MenuItem>
         ))}
       </MenuPopup>
@@ -277,15 +311,13 @@ export function SideChatMarksChip(props: {
     );
   }
   return (
-    <Menu>
-      <MenuTrigger render={<Button size="micro" variant="ghost-muted" />}>{label}</MenuTrigger>
-      <MenuPopup align="start">
-        {marks.map((mark) => (
-          <MenuItem key={mark.threadId} onClick={() => onOpen(mark.threadId)}>
-            {mark.label}
-          </MenuItem>
-        ))}
-      </MenuPopup>
-    </Menu>
+    <SideChatMenu
+      marks={marks}
+      align="start"
+      trigger={<Button size="micro" variant="ghost-muted" />}
+      onOpen={onOpen}
+    >
+      {label}
+    </SideChatMenu>
   );
 }

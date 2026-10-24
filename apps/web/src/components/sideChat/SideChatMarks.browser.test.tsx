@@ -125,7 +125,21 @@ it("gives marks that end on the same line one tag that lists them", async () => 
   );
   await vi.waitFor(() => expect(highlightedText()).toEqual(["observation space", "reward signal"]));
 
-  await userEvent.click(screen.getByRole("button", { name: "Open one of 2 side chats" }));
+  const tag = screen.getByRole("button", { name: "Open one of 2 side chats" });
+  await userEvent.click(tag);
   await userEvent.click(page.getByRole("menuitem", { name: "reward signal" }));
   expect(onOpen).toHaveBeenLastCalledWith("side-3");
+  await expect.element(tag).toHaveFocus();
+
+  // Like a lone tag, the group keeps focus after the keyboard opens a side chat or Escape.
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  expect(onOpen).toHaveBeenLastCalledWith("side-1");
+  await expect.element(tag).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  await expect.element(tag).toHaveFocus();
 });
