@@ -736,12 +736,14 @@ function makeLocalCommandHarness(input: {
               ),
             }),
           getTurnStartHistory: () =>
-            Effect.fail(
-              new ProjectionStore.ProjectionStoreReadError({
-                threadId,
-                cause: input.historyReadFailureAfterFallback,
-              }),
-            ),
+            "historyReadFailureAfterFallback" in input
+              ? Effect.fail(
+                  new ProjectionStore.ProjectionStoreReadError({
+                    threadId,
+                    cause: input.historyReadFailureAfterFallback,
+                  }),
+                )
+              : Effect.succeed([]),
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
           open,
@@ -1171,6 +1173,51 @@ effectIt.effect("starts with the fallback context when waiting for the opening s
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toContain("The lesson summary is unavailable.");
   }),
+);
+
+effectIt.effect(
+  "does not build a second opening context when a failed first run left one unsent",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "What is an observation space?",
+        failReadsAfterRunning: true,
+        sideChat: {
+          ...pendingSideChat,
+          opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
+        },
+      });
+      const projection = harness.projection();
+      const run = projection.runs.at(-1)!;
+      const failedRunId = RunId.make("run-side-chat-failed");
+      harness.setProjection({
+        ...projection,
+        runs: [{ ...run, id: failedRunId, ordinal: 1, status: "failed" }, run],
+        contextHandoffs: [
+          {
+            id: sideChatOpeningHandoffId(failedRunId),
+            transferId: null,
+            threadId: run.threadId,
+            targetRunId: failedRunId,
+            fromProviderThreadIds: [],
+            toProviderThreadId: run.providerThreadId,
+            coveredRunOrdinals: { from: 1, to: 1 },
+            strategy: "manual_context",
+            status: "ready",
+            summaryMessageId: null,
+            summaryText: "Earlier opening context",
+            createdByProviderInstanceId: null,
+            createdAt: run.requestedAt,
+            updatedAt: run.requestedAt,
+          },
+        ],
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun).toHaveBeenCalledOnce();
+      expect(openingSummaryText(harness.events)).toEqual([]);
+    }),
 );
 
 // regression: #15784 superseded provider startups kept running

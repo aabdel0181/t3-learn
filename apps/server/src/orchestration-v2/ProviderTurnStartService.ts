@@ -893,7 +893,8 @@ export const layer: Layer.Layer<
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
       // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
       // along with the first prompt there: either the first turn, or the first turn after a failed
-      // resume bound a replacement. A retried start finds this handoff among `handoffs`. The first
+      // resume bound a replacement. A retried start finds this handoff among `handoffs`, and so
+      // does the run after one that failed or was interrupted before sending its opening. The first
       // context already waited for a summary still being written (`awaitSideChatOpening`); one that
       // missed it leaves this context the fallback and serves the next fresh one.
       const sideChat = projection.thread.sideChat;
@@ -901,7 +902,8 @@ export const layer: Layer.Layer<
       if (
         sideChat !== undefined &&
         (providerThread.nativeThreadRef === null || !sameNativeThread) &&
-        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId)
+        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId) &&
+        !handoffs.some(isSideChatOpeningHandoff)
       ) {
         const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
           Effect.catch((error) =>
