@@ -10746,9 +10746,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   /**
    * Reopens `thread` when it is a done side chat, and every done side chat above it, so no side
    * chat is open below a done one whose note would never be written again. A later Done writes a
-   * fresh note. A note its parent received is kept as `deliveredNote`, and that later note says
-   * only what is new. A note the parent never received is dropped and replaced. A note still being
-   * written lands on nothing, because its request is no longer the side chat's.
+   * fresh note. A note the lesson received is kept as `deliveredNote`, and that later note says
+   * only what is new. Any other note is dropped and replaced, even one a parent side chat took up:
+   * that parent's own note can be dropped by this same reopen, so only the lesson's receipt is
+   * final. A note still being written lands on nothing, because its request is no longer the side
+   * chat's.
    */
   const reopenDoneSideChats = Effect.fn("Orchestrator.reopenDoneSideChats")(function* (
     command: OrchestrationV2ServerCommand,
@@ -10779,6 +10781,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const deliveredNote =
           outcome.status === "ready" &&
           outcome.note !== null &&
+          parentThreadId === sideChat.lessonThreadId &&
           parent?.sideChatNoteDeliveries?.[current.id] === outcome.requestId
             ? outcome.note
             : undefined;
