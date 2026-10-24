@@ -41,7 +41,8 @@ interface PlacedRow {
  * Lays the side-chat tree out as a tidy tree: leaves take consecutive columns,
  * a parent centres between its first and last child, and each depth is a row.
  * `rows` come root first in preorder, so walking them backwards visits every
- * child before its parent. A row whose parent is not in `rows` is a root.
+ * child before its parent. A row whose parent is not in `rows` gets no edge but
+ * keeps its depth.
  */
 export function layoutSideChatTree(
   rows: ReadonlyArray<SideChatTreeRow>,

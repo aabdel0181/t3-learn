@@ -1276,9 +1276,10 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
   return ids;
 }
 
-// Rows come from a hook so they are cached on the server keybindings alone. Built
-// inline, the compiler joins them to the query's cache scope (filtering might
-// mutate them), and every keystroke rebuilds and re-renders every row.
+// Rows come from a hook so they are cached on the server keybindings and the
+// sideChats capability alone. Built inline, the compiler joins them to the query's
+// cache scope (filtering might mutate them), and every keystroke rebuilds and
+// re-renders every row.
 function useKeybindingCatalog() {
   const serverConfig = useSettingsScope().environment?.serverConfig;
   const serverKeybindings = serverConfig?.keybindings;
