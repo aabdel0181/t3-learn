@@ -238,6 +238,12 @@ export function RightPanelSurfaceContent(props: {
         />
       );
     case "thread-map":
-      return <SideChatMapSurface key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
+      return (
+        <SideChatMapSurface
+          key={scopedThreadKey(threadRef)}
+          threadRef={threadRef}
+          onFocusLesson={props.sideChat.onFocusLesson}
+        />
+      );
   }
 }

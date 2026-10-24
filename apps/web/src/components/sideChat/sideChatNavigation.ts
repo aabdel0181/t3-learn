@@ -14,6 +14,7 @@ import {
 } from "../../rightPanelStore";
 import { readSideChatTreeShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { usePendingSideChatStore } from "./pendingSideChatStore";
 import { sideChatSurfacePath, topSideChatId } from "./sideChatPanel.logic";
 
 interface SideChatLink {
@@ -39,6 +40,14 @@ export function revealSideChat(
   panels.setMaximized(lessonRef, false);
 }
 
+/** Reveals the side chat and puts the cursor in its composer once its panel shows it. */
+export function focusSideChat(lessonRef: ScopedThreadRef, threadId: ThreadId): void {
+  revealSideChat(lessonRef, threadId);
+  usePendingSideChatStore
+    .getState()
+    .requestFocus(scopedThreadKey(scopeThreadRef(lessonRef.environmentId, threadId)));
+}
+
 /**
  * Leaves the side chat `surface` shows: the tab goes back to its parent side chat,
  * or closes when the side chat is a top-level one.
@@ -47,14 +56,31 @@ export function leaveSideChat(
   lessonRef: ScopedThreadRef,
   surface: SideChatSurface,
   rows: ReadonlyArray<SideChatTreeRow>,
-): void {
+): "walked" | "closed" {
   const path = sideChatSurfacePath(rows, surface.threadId);
   const panels = useRightPanelStore.getState();
   if (path.length > 1) {
     panels.navigateSideChat(lessonRef, surface.id, path.slice(0, -1), path);
-    return;
+    return "walked";
   }
   panels.closeSurface(lessonRef, surface.id);
+  return "closed";
+}
+
+/**
+ * Puts the cursor in the lesson's composer, with the lesson in view: a maximized panel
+ * shrinks back, and in the sheet layout the panel is a modal over the lesson, so it hides;
+ * its tabs stay for the panel toggle to bring back.
+ */
+export function returnToLesson(
+  lessonRef: ScopedThreadRef,
+  sheet: boolean,
+  focusComposer: () => void,
+): void {
+  const panels = useRightPanelStore.getState();
+  panels.setMaximized(lessonRef, false);
+  if (sheet) panels.close(lessonRef);
+  focusComposer();
 }
 
 /** Where a thread opens: a side chat opens on its lesson's route, in the lesson's panel. */

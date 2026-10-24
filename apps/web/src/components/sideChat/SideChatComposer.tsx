@@ -14,7 +14,7 @@ import {
   type ServerProviderSkill,
 } from "@t3tools/contracts";
 import { ArrowUpIcon } from "lucide-react";
-import { useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useImperativeHandle, useRef, useState } from "react";
 
 import {
   collapseExpandedComposerCursor,
@@ -82,10 +82,11 @@ export function SideChatComposer(props: {
   /** Null while the side chat is starting. */
   readonly shell: EnvironmentThreadShell | null;
   readonly providerEntry: ProviderInstanceEntry | undefined;
+  /** The environment's providers have loaded, so a missing entry means the provider is gone. */
+  readonly providerCatalogKnown: boolean;
   readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
   readonly runActive: boolean;
   readonly answeringPendingUserInput: boolean;
-  readonly autoFocus: boolean;
   readonly handleRef: React.RefObject<SideChatComposerHandle | null>;
   readonly onAdvancePendingUserInput: () => void;
   /** The pending question's custom answer, shown in the editor while answering. */
@@ -99,8 +100,7 @@ export function SideChatComposer(props: {
   readonly onPageScrollKeyUp: (key: string) => void;
   readonly onPageScrollRelease: () => void;
 }) {
-  const { sideChatRef, shell, providerEntry, runActive, answeringPendingUserInput, autoFocus } =
-    props;
+  const { sideChatRef, shell, providerEntry, runActive, answeringPendingUserInput } = props;
   const sideChatKey = scopedThreadKey(sideChatRef);
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
   const draftPrompt = useComposerThreadDraft(sideChatRef).prompt;
@@ -236,16 +236,15 @@ export function SideChatComposer(props: {
     },
   }));
 
-  useEffect(() => {
-    if (autoFocus) editorRef.current?.focusAtEnd();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Walking to another side chat in place puts the cursor in its draft too.
-  }, [autoFocus, sideChatKey]);
-
   const plan = planSend({ sendInFlight: sending, prompt });
   const status = sideChatComposerStatus({
     shellExists: shell !== null,
     openingStatus: props.openingStatus,
     runActive,
+    providerUnavailable:
+      props.providerCatalogKnown &&
+      plan._tag === "Blocked" &&
+      plan.reason === "provider-unavailable",
   });
 
   return (

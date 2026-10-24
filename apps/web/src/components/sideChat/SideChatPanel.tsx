@@ -17,6 +17,7 @@ import {
   type SideChatTreeRow,
 } from "@t3tools/client-runtime/state/thread-relationships";
 import {
+  type AssistantCitation,
   AuthOrchestrationOperateScope,
   type MessageId,
   type ScopedThreadRef,
@@ -42,6 +43,7 @@ import {
   useProject,
   useQuietThreadProjection,
   useQuietThreadShell,
+  useSideChatNoteDelivered,
   useSideChatTreeShells,
 } from "../../state/entities";
 import { useEnvironmentProviders } from "../../state/environments";
@@ -66,6 +68,7 @@ import { createPageScrollController } from "../chat/pageScrollController";
 import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { ScrollArea } from "../ui/scroll-area";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
@@ -108,10 +111,25 @@ export function SideChatPanel(props: {
   const askPending = usePendingSideChatStore((state) =>
     selectStartingSideChat(state, scopedThreadKey(lessonRef)),
   );
+  const focusRequested = usePendingSideChatStore((state) => state.focusThreadKey === sideChatKey);
+  // The lesson forgets a pending side chat once its shell lands, before the detail with its
+  // excerpt loads. Holding the asked citation for that gap keeps the excerpt from blinking out.
+  const [held, setHeld] = useState<{
+    readonly key: string;
+    readonly citation: AssistantCitation;
+  } | null>(null);
+  if (pending !== undefined) {
+    if (held?.key !== sideChatKey || held.citation !== pending.citation) {
+      setHeld({ key: sideChatKey, citation: pending.citation });
+    }
+  } else if (held !== null && (held.key !== sideChatKey || detail !== undefined)) {
+    setHeld(null);
+  }
+  const heldCitation = held?.key === sideChatKey ? held.citation : null;
   const citation =
     shell?.sideChat && detail
       ? sideChatAnchorCitation(environmentId, shell.sideChat.anchor, detail.excerpt)
-      : (pending?.citation ?? null);
+      : (pending?.citation ?? heldCitation);
   const crumbs =
     shell === null && pending !== undefined
       ? startingBreadcrumb(rows, pending.citation.threadId, {
@@ -121,8 +139,18 @@ export function SideChatPanel(props: {
         })
       : sideChatBreadcrumb(rows, surface.threadId, surface.trail);
 
+  const crumbsRef = useRef<HTMLDivElement>(null);
+  const crumbsKey = crumbs.map((crumb) => `${crumb.role}:${crumb.threadId}`).join(" ");
+  useEffect(() => {
+    crumbsRef.current
+      ?.querySelector<HTMLElement>("[aria-current='page']")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new path or current crumb re-renders the crumbs, so the current one scrolls back into view.
+  }, [crumbsKey]);
+
   const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
-  const providers = useEnvironmentProviders().get(environmentId) ?? NO_PROVIDERS;
+  const loadedProviders = useEnvironmentProviders().get(environmentId);
+  const providers = loadedProviders ?? NO_PROVIDERS;
   const providerEntry =
     shell === null
       ? undefined
@@ -204,6 +232,12 @@ export function SideChatPanel(props: {
     };
   }, []);
 
+  useEffect(() => {
+    if (!props.visible || !focusRequested) return;
+    composerHandleRef.current?.focusAtEnd();
+    usePendingSideChatStore.getState().clearFocus(sideChatKey);
+  }, [props.visible, focusRequested, sideChatKey]);
+
   const finish = useOrchestrationCommand(threadEnvironment.finishSideChat, {
     reportFailure: false,
   });
@@ -230,8 +264,11 @@ export function SideChatPanel(props: {
   // The note is written in the background, so the panel moves on without waiting for it.
   const finishSideChat = (discard: boolean) => {
     void reportFinish(discard);
-    leaveSideChat(lessonRef, surface, rows);
+    return leaveSideChat(lessonRef, surface, rows);
   };
+  // The menu refocuses a clicked item, then its trigger once it closes; a closed tab takes
+  // both away, so the menu hands focus to the lesson as it closes.
+  const discardClosedTabRef = useRef(false);
 
   const walkTo = (threadId: string) =>
     useRightPanelStore
@@ -279,11 +316,24 @@ export function SideChatPanel(props: {
     });
   };
 
-  const sideChatState = shell?.sideChat?.state;
-  const statusLine = sideChatStatusLine(
-    shell?.sideChat ?? undefined,
-    detail?.done?.outcome.note ?? null,
+  const sideChat = shell?.sideChat ?? undefined;
+  const sideChatState = sideChat?.state;
+  const outcome = detail?.done?.outcome;
+  const parentRow =
+    sideChat === undefined
+      ? undefined
+      : rows.find((row) => row.threadId === sideChat.anchor.threadId);
+  const noteDelivered = useSideChatNoteDelivered(
+    sideChat?.noteStatus === "ready" && outcome !== undefined
+      ? scopeThreadRef(environmentId, sideChat.anchor.threadId)
+      : null,
+    sideChatRef.threadId,
+    outcome?.requestId ?? "",
   );
+  const statusLine = sideChatStatusLine(sideChat, outcome?.note ?? null, {
+    label: parentRow === undefined || parentRow.state === "lesson" ? null : parentRow.label,
+    delivered: noteDelivered,
+  });
   const answeringPendingUserInput = activePendingProgress !== null;
 
   return (
@@ -329,46 +379,43 @@ export function SideChatPanel(props: {
       >
         <header className="flex min-h-9 shrink-0 items-center gap-1 border-b border-border px-2">
           <nav aria-label="Side chat path" className="min-w-0 flex-1">
-            <ol className="flex min-w-0 items-center gap-0.5 text-xs">
-              {crumbs.map((crumb, index) => (
-                <li
-                  key={crumb.threadId}
-                  className={cn(
-                    "flex min-w-0 items-center gap-0.5",
-                    crumb.role !== "current" && "shrink-0",
-                  )}
-                >
-                  {index === 0 ? null : (
-                    <ChevronRightIcon
-                      aria-hidden="true"
-                      className="size-3 shrink-0 text-muted-foreground"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    aria-current={crumb.role === "current" ? "page" : undefined}
-                    className={cn(
-                      "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      crumb.role === "current"
-                        ? "font-medium text-foreground"
-                        : crumb.role === "forward"
-                          ? "text-muted-foreground/70"
-                          : "text-muted-foreground",
+            <ScrollArea ref={crumbsRef} radius="none" hideScrollbars scrollFade>
+              <ol className="flex w-max min-w-full items-center gap-0.5 text-xs">
+                {crumbs.map((crumb, index) => (
+                  <li key={crumb.threadId} className="flex shrink-0 items-center gap-0.5">
+                    {index === 0 ? null : (
+                      <ChevronRightIcon
+                        aria-hidden="true"
+                        className="size-3 shrink-0 text-muted-foreground"
+                      />
                     )}
-                    onClick={() => onCrumb(crumb)}
-                  >
-                    {crumb.label}
-                  </button>
-                </li>
-              ))}
-            </ol>
+                    <button
+                      type="button"
+                      aria-current={crumb.role === "current" ? "page" : undefined}
+                      className={cn(
+                        "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                        crumb.role === "current"
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                      onClick={() => onCrumb(crumb)}
+                    >
+                      {crumb.label}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </ScrollArea>
           </nav>
           {sideChatState === "open" ? (
             <Button
               size="xs"
               variant="outline"
               disabled={!canOperate}
-              onClick={() => finishSideChat(false)}
+              onClick={() => {
+                // A closed tab takes this button with it, so the cursor goes back to the lesson.
+                if (finishSideChat(false) === "closed") props.onFocusLesson();
+              }}
             >
               Done
             </Button>
@@ -383,8 +430,20 @@ export function SideChatPanel(props: {
               >
                 <EllipsisIcon />
               </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem variant="destructive" onClick={() => finishSideChat(true)}>
+              <MenuPopup
+                align="end"
+                finalFocus={() => {
+                  if (!discardClosedTabRef.current) return true;
+                  props.onFocusLesson();
+                  return false;
+                }}
+              >
+                <MenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    discardClosedTabRef.current = finishSideChat(true) === "closed";
+                  }}
+                >
                   Discard
                 </MenuItem>
               </MenuPopup>
@@ -402,7 +461,8 @@ export function SideChatPanel(props: {
             sideChatRef={sideChatRef}
             detailRef={detailRef}
             projection={projection}
-            detailLoading={detailRef !== null && projection === null}
+            // A side chat this panel just started has nothing to load yet.
+            detailLoading={detailRef !== null && projection === null && heldCitation === null}
             optimisticMessages={optimisticMessages}
             listRef={listRef}
             citationRequest={citationRequest}
@@ -480,10 +540,10 @@ export function SideChatPanel(props: {
           sideChatRef={sideChatRef}
           shell={shell}
           providerEntry={providerEntry}
+          providerCatalogKnown={loadedProviders !== undefined}
           openingStatus={detail?.opening.status ?? null}
           runActive={runActive}
           answeringPendingUserInput={answeringPendingUserInput}
-          autoFocus={props.visible && pending?.status === "starting"}
           handleRef={composerHandleRef}
           onAdvancePendingUserInput={onAdvanceActivePendingUserInputStable}
           pendingUserInputCustomAnswer={activePendingProgress?.customAnswer}

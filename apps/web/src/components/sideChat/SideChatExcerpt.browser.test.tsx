@@ -76,3 +76,9 @@ it("offers no toggle for a short excerpt", async () => {
   await expect.element(quote()).toHaveTextContent("observation space");
   await expect.element(page.getByRole("button", { name: "Show more" })).not.toBeInTheDocument();
 });
+
+it("exposes the whole excerpt as the description of its reveal button", async () => {
+  await using _screen = await render(excerpt(LONG_EXCERPT));
+
+  await expect.element(quote()).toHaveAccessibleDescription(LONG_EXCERPT.trim());
+});

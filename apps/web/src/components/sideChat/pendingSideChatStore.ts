@@ -13,15 +13,24 @@ export interface PendingSideChat {
 interface PendingSideChatState {
   /** Keyed by the side chat's scoped thread key. Memory only: a reload forgets it. */
   readonly byThreadKey: Readonly<Record<string, PendingSideChat>>;
+  /**
+   * The side chat whose composer takes the cursor when its panel next shows it. Set when
+   * the control that opened it goes away with the click, leaving focus nowhere, and the
+   * panel may not be mounted yet. Memory only.
+   */
+  readonly focusThreadKey: string | null;
   readonly begin: (threadKey: string, entry: PendingSideChat) => void;
   readonly markStarted: (threadKey: string) => void;
   readonly remove: (threadKey: string) => void;
   /** Forgets the lesson's side chats whose shells have arrived. */
   readonly prune: (lessonThreadKey: string, liveThreadIds: ReadonlySet<string>) => void;
+  readonly requestFocus: (threadKey: string) => void;
+  readonly clearFocus: (threadKey: string) => void;
 }
 
 export const usePendingSideChatStore = create<PendingSideChatState>()((set) => ({
   byThreadKey: {},
+  focusThreadKey: null,
   begin: (threadKey, entry) =>
     set((state) => ({ byThreadKey: { ...state.byThreadKey, [threadKey]: entry } })),
   markStarted: (threadKey) =>
@@ -47,6 +56,9 @@ export const usePendingSideChatStore = create<PendingSideChatState>()((set) => (
       );
       return kept.length === entries.length ? state : { byThreadKey: Object.fromEntries(kept) };
     }),
+  requestFocus: (threadKey) => set({ focusThreadKey: threadKey }),
+  clearFocus: (threadKey) =>
+    set((state) => (state.focusThreadKey === threadKey ? { focusThreadKey: null } : state)),
 }));
 
 /** The server has not yet answered a side chat opened from this lesson. */

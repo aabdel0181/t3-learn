@@ -8,7 +8,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { BookOpenIcon, MessageCircleIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { useComposerHandleContext } from "../../composerHandleContext";
 import { observeResize } from "../../lib/observeResize";
 import { layoutSideChatTree } from "../../lib/sideChatTreeLayout";
 import { cn } from "../../lib/utils";
@@ -29,7 +28,7 @@ import {
   sideChatMapNodeDescription,
   sideChatMapNodeStatus,
 } from "./SideChatMap.logic";
-import { revealSideChat } from "./sideChatNavigation";
+import { focusSideChat } from "./sideChatNavigation";
 
 // The scroller's p-3, left and right.
 const SCROLLER_PADDING_X = 24;
@@ -177,10 +176,12 @@ export function SideChatMap(props: {
 }
 
 /** The Map tab: the lesson's side-chat tree, whichever of the lesson's threads it opens on. */
-export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef }) {
+export function SideChatMapSurface(props: {
+  readonly threadRef: ScopedThreadRef;
+  readonly onFocusLesson: () => void;
+}) {
   const { threadRef } = props;
   const navigate = useNavigate();
-  const composerRef = useComposerHandleContext();
   const routeShell = useQuietThreadShell(threadRef);
   const lessonRef = scopeThreadRef(
     threadRef.environmentId,
@@ -207,7 +208,7 @@ export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef 
     rows.find((row) => row.threadId === shownThreadId)?.threadId ?? lessonRef.threadId;
   const focusLesson = () => {
     if (lessonRef.threadId === threadRef.threadId) {
-      composerRef?.current?.focusAtEnd();
+      props.onFocusLesson();
       return;
     }
     void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(lessonRef) });
@@ -217,7 +218,7 @@ export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef 
     <SideChatMap
       rows={rows}
       currentThreadId={currentThreadId}
-      onOpenSideChat={(threadId) => revealSideChat(lessonRef, threadId)}
+      onOpenSideChat={(threadId) => focusSideChat(lessonRef, threadId)}
       onFocusLesson={focusLesson}
     />
   );

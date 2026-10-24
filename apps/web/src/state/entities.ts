@@ -26,7 +26,7 @@ import {
   type OrchestrationV2SideChatAnchor,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
-  type ThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
@@ -632,6 +632,42 @@ export function useSideChatMarks(
       ? EMPTY_SIDE_CHAT_MARKS_ATOM
       : sideChatMarksAtomFamily(
           `${threadKey(anchorRef)}${SIDE_CHAT_MARKS_KEY_SEPARATOR}${messageId}`,
+        ),
+  );
+}
+
+const EMPTY_SIDE_CHAT_NOTE_DELIVERED_ATOM = Atom.make<boolean | null>(null).pipe(
+  Atom.withLabel("web-side-chat-note-delivered:empty"),
+);
+const SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR = "\u001f";
+
+/** One answer from the parent's structure, so the parent's other updates do not re-render readers. */
+const sideChatNoteDeliveredAtomFamily = Atom.family((key: string) => {
+  const [parentKey = "", sideChatId = "", requestId = ""] = key.split(
+    SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR,
+  );
+  const parentRef = parseThreadKey(parentKey);
+  const childId = ThreadId.make(sideChatId);
+  return Atom.make((get) => {
+    const parent = get(environmentThreadDetails.quietThreadAtom(parentRef));
+    if (parent === null) return null;
+    return parent.projection.thread.sideChatNoteDeliveries?.[childId] === requestId;
+  }).pipe(Atom.withLabel(`web-side-chat-note-delivered:${key}`));
+});
+
+/** Whether the parent received the side chat's note `requestId`; null until the parent's detail loads. */
+export function useSideChatNoteDelivered(
+  parentRef: ScopedThreadRef | null,
+  sideChatId: ThreadId,
+  requestId: string,
+): boolean | null {
+  return useAtomValue(
+    parentRef === null
+      ? EMPTY_SIDE_CHAT_NOTE_DELIVERED_ATOM
+      : sideChatNoteDeliveredAtomFamily(
+          [threadKey(parentRef), sideChatId, requestId].join(
+            SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR,
+          ),
         ),
   );
 }

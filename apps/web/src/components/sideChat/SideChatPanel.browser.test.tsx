@@ -5,6 +5,7 @@ import {
   EnvironmentId,
   MessageId,
   NodeId,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
@@ -36,6 +37,19 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       : (state.shells.find((shell) => shell.id === ref.threadId) ?? null)) as never,
   useQuietThreadProjection: ((ref: { threadId: string } | null) =>
     ref === null ? null : (state.projections[ref.threadId] ?? null)) as never,
+  useSideChatNoteDelivered: ((
+    parentRef: { threadId: string } | null,
+    sideChatId: string,
+    requestId: string,
+  ) => {
+    const parent =
+      parentRef === null
+        ? undefined
+        : (state.projections[parentRef.threadId] as EnvironmentThreadStructure | undefined);
+    return parent === undefined
+      ? null
+      : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
+  }) as never,
   useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
 }));
 
@@ -89,7 +103,8 @@ import {
 import type { Thread } from "../../types";
 import { toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
-import { usePendingSideChatStore } from "./pendingSideChatStore";
+import { pendingSideChatThreadIds, usePendingSideChatStore } from "./pendingSideChatStore";
+import { SideChatMapSurface } from "./SideChatMap";
 import { SideChatPanel } from "./SideChatPanel";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -215,7 +230,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
     closeRevisionByThreadKey: {},
   });
   useClosedViewStore.setState({ entries: [] });
-  usePendingSideChatStore.setState({ byThreadKey: {} });
+  usePendingSideChatStore.setState({ byThreadKey: {}, focusThreadKey: null });
   useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   return dispatch;
 }
@@ -332,6 +347,113 @@ it("shows a starting side chat with its excerpt and puts the cursor in its compo
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
 });
 
+it("puts the cursor in the composer when Ask lands on a highlight that already has a side chat", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  const run = vi.fn(() => new Promise<never>(() => {}));
+  await using screen = await renderPanel();
+  await expect.element(composer(screen)).toBeInTheDocument();
+  // Selecting the lesson's text takes focus out of the panel.
+  (document.activeElement as HTMLElement).blur();
+
+  await act(() =>
+    askInSideChat({
+      lessonRef: LESSON_REF,
+      citation: {
+        version: 1,
+        environmentId: ENVIRONMENT_ID,
+        threadId: LESSON_ID,
+        messageId: MessageId.make("lesson-1-reply"),
+        text: "space",
+        start: 15,
+        end: 20,
+        prefix: "An observation ",
+        suffix: " is what the agent can see.",
+      },
+      sideChatShells: state.shells as ReadonlyArray<Thread>,
+      topThreadId: null,
+      run,
+    }),
+  );
+
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(run).not.toHaveBeenCalled();
+});
+
+/** The lesson's panel showing only its active tab, as the right panel does. */
+function ActiveTab() {
+  const surface = useRightPanelStore((store) => {
+    const panel = selectThreadRightPanelState(store.byThreadKey, LESSON_REF);
+    return panel.surfaces.find((entry) => entry.id === panel.activeSurfaceId);
+  });
+  if (surface?.kind === "thread-map") {
+    return <SideChatMapSurface threadRef={LESSON_REF} onFocusLesson={() => {}} />;
+  }
+  if (surface?.kind !== "side-chat") return null;
+  return (
+    <SideChatPanel
+      key={`${scopedThreadKey(LESSON_REF)}:${surface.id}`}
+      lessonRef={LESSON_REF}
+      surface={surface}
+      visible
+      onFocusLesson={() => {}}
+    />
+  );
+}
+
+it("puts the cursor in the composer of a side chat opened from the Map", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  useRightPanelStore.getState().open(LESSON_REF, "thread-map");
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  await using screen = await render(<ActiveTab />, { container });
+  const node = screen.getByRole("treeitem", { name: "observation space", exact: true });
+  await expect.element(node).toBeInTheDocument();
+
+  (node.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(composer(screen)).toHaveFocus();
+});
+
+it("keeps the excerpt and the empty conversation between the shell arriving and the detail loading", async () => {
+  setup();
+  const citation: AssistantCitation = {
+    version: 1,
+    environmentId: ENVIRONMENT_ID,
+    threadId: LESSON_ID,
+    messageId: MessageId.make("lesson-1-reply"),
+    text: "observation space",
+    start: 3,
+    end: 20,
+    prefix: "An ",
+    suffix: " is what the agent can see.",
+  };
+  const run = vi.fn(() => new Promise<never>(() => {}));
+  await using screen = await renderPanel({ router: LESSON_PATH });
+  await act(() =>
+    askInSideChat({
+      lessonRef: LESSON_REF,
+      citation,
+      sideChatShells: [],
+      topThreadId: null,
+      run,
+    }),
+  );
+  await expect.element(revealButton(screen)).toHaveTextContent("observation space");
+  const lessonKey = scopedThreadKey(LESSON_REF);
+  const [id] = pendingSideChatThreadIds(usePendingSideChatStore.getState(), lessonKey);
+
+  // The shell lands and the lesson forgets the pending entry; the detail is still loading.
+  state.shells = [LESSON_SHELL, sideChatShell(id!, LESSON_ID, "observation space")];
+  act(() => usePendingSideChatStore.getState().prune(lessonKey, new Set([id!])));
+
+  await expect.element(revealButton(screen)).toHaveTextContent("observation space");
+  await expect.element(screen.getByText("Send a message to start the conversation.")).toBeVisible();
+});
+
 it("Done on a nested side chat returns to its parent without waiting for the note", async () => {
   // The finish never settles: the panel must not wait for the note.
   const dispatch = setup(new Promise(() => {}));
@@ -394,6 +516,54 @@ it("Discard finishes the side chat without a note", async () => {
   expect(surfaces()).toEqual([]);
 });
 
+const lessonMessage = () => page.getByRole("textbox", { name: "Lesson message" });
+
+/** The panel beside a stand-in for the lesson's composer, which the panel hands the cursor to. */
+function renderPanelBesideLesson() {
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  return render(
+    <>
+      <textarea aria-label="Lesson message" />
+      <Panel onFocusLesson={() => (lessonMessage().element() as HTMLElement).focus()} />
+    </>,
+    { container },
+  );
+}
+
+it("hands the cursor to the lesson when Discard closes the side chat's tab", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanelBesideLesson();
+  const actions = screen.getByRole("button", { name: "More side chat actions" });
+  await expect.element(actions).toBeInTheDocument();
+
+  (actions.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitem", { name: "Discard" })).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+
+  expect(surfaces()).toEqual([]);
+  await expect.element(lessonMessage()).toHaveFocus();
+});
+
+it("hands the cursor to the lesson when Done closes a side chat's tab beside another", async () => {
+  setup();
+  const side2 = sideChatShell("side-2", LESSON_ID, "reward signal");
+  state.shells = [LESSON_SHELL, SIDE_1, side2];
+  showSideChat("side-1", "side-1");
+  showSideChat("side-2", "side-2");
+  await using screen = await renderPanelBesideLesson();
+  await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
+
+  (doneButton(screen).element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(crumb(screen, "reward signal")).toHaveAttribute("aria-current", "page");
+  await expect.element(lessonMessage()).toHaveFocus();
+});
+
 it("walks the breadcrumb Lesson › observation space › Box in place", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
@@ -420,26 +590,65 @@ it("walks the breadcrumb Lesson › observation space › Box in place", async (
   expect(onFocusLesson).toHaveBeenCalledOnce();
 });
 
+/** A finished side chat whose note is ready, and the parent that may have received it. */
+function doneWithNote(
+  shell: Thread,
+  note: string,
+  parentDeliveries: OrchestrationV2AppThread["sideChatNoteDeliveries"],
+) {
+  const done: Thread = {
+    ...shell,
+    sideChat: { ...shell.sideChat!, state: "done", noteStatus: "ready" },
+  };
+  const parentId = shell.sideChat!.anchor.threadId;
+  const base = makeThreadProjectionFixture();
+  const parent: EnvironmentThreadStructure = {
+    environmentId: ENVIRONMENT_ID,
+    projection: {
+      ...base,
+      thread: { ...base.thread, id: parentId, sideChatNoteDeliveries: parentDeliveries },
+    },
+  };
+  return {
+    done,
+    projections: {
+      [done.id]: sideChatProjection(done, {
+        done: {
+          at: "2026-10-22T00:00:00.000Z",
+          outcome: { status: "ready", note, requestId: "note-1" },
+        },
+      }),
+      [parentId]: parent,
+    },
+  };
+}
+
 it("shows the note a finished side chat sent to the lesson", async () => {
   setup();
   const note = "They didn't know what an observation space is.";
-  const done = sideChatShell("side-1", LESSON_ID, "observation space", {
-    sideChat: { ...SIDE_1.sideChat!, state: "done", noteStatus: "ready" },
-  });
+  const { done, projections } = doneWithNote(SIDE_1, note, { [SIDE_1.id]: "note-1" });
   state.shells = [LESSON_SHELL, done];
-  state.projections = {
-    "side-1": sideChatProjection(done, {
-      done: {
-        at: "2026-10-22T00:00:00.000Z",
-        outcome: { status: "ready", note, requestId: "note-1" },
-      },
-    }),
-  };
+  state.projections = projections;
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
   await expect.element(screen.getByRole("status")).toHaveTextContent(`Sent to lesson: ${note}`);
   await expect.element(doneButton(screen)).not.toBeInTheDocument();
+});
+
+it("says a nested side chat's note waits for the parent side chat it goes to", async () => {
+  setup();
+  const note = "They mixed up Box and Discrete.";
+  // side-1 received an earlier note of this side chat, not this one.
+  const { done, projections } = doneWithNote(NESTED_1, note, { [NESTED_1.id]: "older-note" });
+  state.shells = [LESSON_SHELL, SIDE_1, done];
+  state.projections = projections;
+  showSideChat("side-1", "nested-1");
+  await using screen = await renderPanel();
+
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent(`Goes with your next message in “observation space”: ${note}`);
 });
 
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {

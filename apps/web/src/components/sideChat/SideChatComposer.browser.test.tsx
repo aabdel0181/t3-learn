@@ -99,10 +99,10 @@ function composer(props: Partial<ComponentProps<typeof SideChatComposer>> = {}) 
       sideChatRef={SIDE_CHAT_REF}
       shell={SHELL}
       providerEntry={PROVIDER_ENTRY}
+      providerCatalogKnown
       openingStatus="ready"
       runActive={false}
       answeringPendingUserInput={false}
-      autoFocus={false}
       handleRef={createRef<SideChatComposerHandle>()}
       onAdvancePendingUserInput={() => {}}
       onOptimisticMessage={() => {}}
@@ -127,10 +127,9 @@ async function typeQuestion(screen: Screen) {
 
 it("keeps typing in the side chat's draft and holds Send while the side chat starts", async () => {
   const dispatch = setup();
-  await using screen = await render(composer({ shell: null, autoFocus: true }));
+  await using screen = await render(composer({ shell: null }));
 
-  await expect.element(editor(screen)).toHaveFocus();
-  await userEvent.keyboard("What is a Box?");
+  await typeQuestion(screen);
 
   await expect.element(screen.getByText("Starting side chat…")).toBeVisible();
   await expect.element(sendButton(screen)).toBeDisabled();

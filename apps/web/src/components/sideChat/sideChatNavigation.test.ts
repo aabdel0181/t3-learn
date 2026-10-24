@@ -1,12 +1,19 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import type { RightPanelSurface, SideChatSurface } from "../../rightPanelStore";
+import {
+  type RightPanelSurface,
+  type SideChatSurface,
+  selectThreadRightPanelState,
+  useRightPanelStore,
+} from "../../rightPanelStore";
 import { makeSideChatThreadFixture, makeThreadFixture } from "../../test-fixtures";
 import {
   isSideChatNotificationQuiet,
   resolveFinishableSideChat,
   resolveThreadOpenTarget,
+  returnToLesson,
   sideChatLessonRef,
 } from "./sideChatNavigation";
 
@@ -79,5 +86,43 @@ describe("resolveFinishableSideChat", () => {
     expect(resolveFinishableSideChat({ ...input, shells: [lesson, side, doneNested] })).toBeNull();
     expect(resolveFinishableSideChat({ ...input, activeSurfaceId: map.id })).toBeNull();
     expect(resolveFinishableSideChat({ ...input, surfaces: [], activeSurfaceId: null })).toBeNull();
+  });
+});
+
+describe("returnToLesson", () => {
+  it("hides the panel first when it is a sheet over the lesson, keeping its tabs", () => {
+    useRightPanelStore.setState(useRightPanelStore.getInitialState());
+    const lessonRef = scopeThreadRef(environmentId, lessonId);
+    const panel = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, lessonRef);
+    useRightPanelStore
+      .getState()
+      .openSideChat(lessonRef, { topThreadId: sideId, threadId: sideId });
+    const focusComposer = vi.fn();
+
+    returnToLesson(lessonRef, false, focusComposer);
+    expect(panel().isOpen).toBe(true);
+    expect(focusComposer).toHaveBeenCalledOnce();
+
+    returnToLesson(lessonRef, true, focusComposer);
+    expect(panel().isOpen).toBe(false);
+    expect(panel().surfaces).toEqual([
+      { id: "side-chat:side", kind: "side-chat", threadId: sideId },
+    ]);
+    expect(focusComposer).toHaveBeenCalledTimes(2);
+  });
+
+  it("un-maximizes the panel, which would otherwise hide the lesson it focuses", () => {
+    useRightPanelStore.setState(useRightPanelStore.getInitialState());
+    const lessonRef = scopeThreadRef(environmentId, lessonId);
+    const panels = useRightPanelStore.getState();
+    panels.openSideChat(lessonRef, { topThreadId: sideId, threadId: sideId });
+    panels.setMaximized(lessonRef, true);
+
+    returnToLesson(lessonRef, false, () => {});
+
+    const panel = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, lessonRef);
+    expect(panel.maximized).toBeUndefined();
+    expect(panel.isOpen).toBe(true);
   });
 });

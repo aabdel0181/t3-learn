@@ -105,7 +105,9 @@ it("marks the side chat of the tab the learner was last on", async () => {
   panels.activateSurface(lessonRef, "side-chat:c");
   panels.open(lessonRef, "thread-map");
 
-  await using screen = await render(<SideChatMapSurface threadRef={lessonRef} />);
+  await using screen = await render(
+    <SideChatMapSurface threadRef={lessonRef} onFocusLesson={() => {}} />,
+  );
 
   await expect.element(node(screen, "reward shaping")).toHaveAttribute("aria-selected", "true");
   await expect.element(node(screen, "observation space")).toHaveAttribute("aria-selected", "false");
