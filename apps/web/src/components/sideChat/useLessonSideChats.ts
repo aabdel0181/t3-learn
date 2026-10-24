@@ -16,7 +16,7 @@ import {
   sideChatSurfaceTopThreadId,
   useRightPanelStore,
 } from "../../rightPanelStore";
-import { useSideChatTreeShells } from "../../state/entities";
+import { readThreadShell, useSideChatTreeShells } from "../../state/entities";
 import { useEnvironmentShellStatus } from "../../state/shell";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -120,7 +120,10 @@ function clearGoneSideChatDrafts(lessonRef: ScopedThreadRef, live: ReadonlySet<s
     const shown = [sideChatSurfaceTopThreadId(surface), surface.threadId, ...(surface.trail ?? [])];
     for (const id of new Set(shown)) {
       if (live.has(id)) continue;
-      drafts.clearComposerContent(scopeThreadRef(lessonRef.environmentId, ThreadId.make(id)));
+      const ref = scopeThreadRef(lessonRef.environmentId, ThreadId.make(id));
+      // An archived side chat comes back when its lesson is unarchived, draft and all.
+      if (readThreadShell(ref)?.deletedAt === null) continue;
+      drafts.clearComposerContent(ref);
     }
   }
 }

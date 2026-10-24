@@ -4,6 +4,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   shells: [] as ReadonlyArray<{ readonly id: string }>,
+  threadShells: [] as ReadonlyArray<{ readonly id: string }>,
   shellStatus: "live" as string | null,
 }));
 
@@ -11,6 +12,8 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
   ...(await importOriginal()),
   useSideChatTreeShells: ((ref: unknown) => (ref === null ? [] : state.shells)) as never,
   readSideChatTreeShells: (() => state.shells) as never,
+  readThreadShell: ((ref: { threadId: string }) =>
+    state.threadShells.find((shell) => shell.id === ref.threadId) ?? null) as never,
 }));
 
 vi.mock(import("../../state/shell"), async (importOriginal) => ({
@@ -89,6 +92,7 @@ const lessonInput = (overrides: Partial<LessonSideChatsInput> = {}): LessonSideC
 
 function setup() {
   state.shells = [LESSON_SHELL];
+  state.threadShells = [];
   state.shellStatus = "live";
   useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   useRightPanelStore.setState({
@@ -178,6 +182,20 @@ it("clears the unsent drafts of side chats that are gone", async () => {
   expect(after.getComposerDraft(draftRef("side-1"))?.prompt).toBe("Kept question");
   expect(after.getComposerDraft(draftRef("nested-gone"))).toBeNull();
   expect(after.getComposerDraft(draftRef("side-gone"))).toBeNull();
+});
+
+it("keeps the unsent draft of a side chat archived with its lesson", async () => {
+  setup();
+  // Archiving the lesson archives its side chats, and unarchiving brings them back.
+  state.threadShells = [{ ...SIDE_1, archivedAt: "2026-10-24T00:00:00.000Z" }];
+  showSideChat("side-1");
+  const draftRef = scopeThreadRef(ENVIRONMENT_ID, SIDE_1.id);
+  useComposerDraftStore.getState().setPrompt(draftRef, "Kept question");
+
+  await using _screen = await render(<Probe input={lessonInput()} onResult={() => {}} />);
+
+  expect(surfaces()).toEqual([]);
+  expect(useComposerDraftStore.getState().getComposerDraft(draftRef)?.prompt).toBe("Kept question");
 });
 
 it("opens the side chat whose AI is waiting for an answer", async () => {
