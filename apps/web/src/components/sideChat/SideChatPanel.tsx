@@ -442,10 +442,12 @@ export function SideChatPanel(props: {
                       )}
                       onClick={() => onCrumb(crumb)}
                       // Chrome leaves a partly visible element where it is on focus, so a
-                      // crumb under the fade would take the cursor out of sight.
-                      onFocus={(event) =>
-                        event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })
-                      }
+                      // crumb under the fade would take the cursor out of sight. A click
+                      // focuses on mousedown, and moving the crumb then would drop the click.
+                      onFocus={(event) => {
+                        if (!event.currentTarget.matches(":focus-visible")) return;
+                        event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+                      }}
                     >
                       {crumb.label}
                     </button>
