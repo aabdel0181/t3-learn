@@ -83,17 +83,32 @@ export function sideChatBreadcrumb(
   return crumbs;
 }
 
-/** What the panel says about a finished side chat's note. `note` is its text, once loaded. */
+/**
+ * What the panel says about a finished side chat's note. `note` is its text, once loaded.
+ * A ready note waits for the user's next message in the parent, so it is only "sent" once the
+ * parent recorded it. `parent.label` names a parent side chat, null for the lesson, and
+ * `parent.delivered` is null until the parent's detail is known.
+ */
 export function sideChatStatusLine(
   sideChat: Pick<OrchestrationV2ThreadShellSideChat, "state" | "noteStatus"> | undefined,
   note: string | null,
+  parent: { readonly label: string | null; readonly delivered: boolean | null },
 ): string | null {
   if (sideChat?.state !== "done") return null;
   switch (sideChat.noteStatus) {
     case "generating":
       return "Writing note…";
-    case "ready":
-      return note === null || note === "" ? null : `Sent to lesson: ${note}`;
+    case "ready": {
+      if (note === null || note === "" || parent.delivered === null) return null;
+      if (parent.label === null) {
+        return parent.delivered
+          ? `Sent to lesson: ${note}`
+          : `Goes with your next lesson message: ${note}`;
+      }
+      return parent.delivered
+        ? `Sent to “${parent.label}”: ${note}`
+        : `Goes with your next message in “${parent.label}”: ${note}`;
+    }
     case "none":
       return "No note needed";
     case "failed":

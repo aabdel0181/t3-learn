@@ -42,6 +42,7 @@ import {
   useProject,
   useQuietThreadProjection,
   useQuietThreadShell,
+  useSideChatNoteDelivered,
   useSideChatTreeShells,
 } from "../../state/entities";
 import { useEnvironmentProviders } from "../../state/environments";
@@ -279,11 +280,24 @@ export function SideChatPanel(props: {
     });
   };
 
-  const sideChatState = shell?.sideChat?.state;
-  const statusLine = sideChatStatusLine(
-    shell?.sideChat ?? undefined,
-    detail?.done?.outcome.note ?? null,
+  const sideChat = shell?.sideChat ?? undefined;
+  const sideChatState = sideChat?.state;
+  const outcome = detail?.done?.outcome;
+  const parentRow =
+    sideChat === undefined
+      ? undefined
+      : rows.find((row) => row.threadId === sideChat.anchor.threadId);
+  const noteDelivered = useSideChatNoteDelivered(
+    sideChat?.noteStatus === "ready" && outcome !== undefined
+      ? scopeThreadRef(environmentId, sideChat.anchor.threadId)
+      : null,
+    sideChatRef.threadId,
+    outcome?.requestId ?? "",
   );
+  const statusLine = sideChatStatusLine(sideChat, outcome?.note ?? null, {
+    label: parentRow === undefined || parentRow.state === "lesson" ? null : parentRow.label,
+    delivered: noteDelivered,
+  });
   const answeringPendingUserInput = activePendingProgress !== null;
 
   return (

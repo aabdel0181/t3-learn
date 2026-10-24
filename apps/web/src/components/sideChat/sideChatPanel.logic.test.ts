@@ -140,33 +140,61 @@ describe("sideChatBreadcrumb", () => {
 });
 
 describe("sideChatStatusLine", () => {
+  const note = "They didn't know what an observation space is.";
+  const toLesson = { label: null, delivered: true };
+
   it("says nothing while the side chat is open", () => {
-    expect(sideChatStatusLine({ state: "open", noteStatus: null }, null)).toBeNull();
+    expect(sideChatStatusLine({ state: "open", noteStatus: null }, null, toLesson)).toBeNull();
   });
 
   it("says nothing without a side chat", () => {
-    expect(sideChatStatusLine(undefined, null)).toBeNull();
+    expect(sideChatStatusLine(undefined, null, toLesson)).toBeNull();
   });
 
   it.each([
-    ["generating", null, "Writing note…"],
+    ["generating", "Writing note…"],
+    ["none", "No note needed"],
+    ["failed", "Couldn't write the note"],
+  ] as const)("describes a done side chat whose note is %s", (noteStatus, line) => {
+    expect(sideChatStatusLine({ state: "done", noteStatus }, null, toLesson)).toBe(line);
+  });
+
+  it.each([
+    ["the lesson received", { label: null, delivered: true }, `Sent to lesson: ${note}`],
     [
-      "ready",
-      "They didn't know what an observation space is.",
-      "Sent to lesson: They didn't know what an observation space is.",
+      "the lesson has yet to receive",
+      { label: null, delivered: false },
+      `Goes with your next lesson message: ${note}`,
     ],
-    ["none", null, "No note needed"],
-    ["failed", null, "Couldn't write the note"],
-  ] as const)("describes a done side chat whose note is %s", (noteStatus, note, line) => {
-    expect(sideChatStatusLine({ state: "done", noteStatus }, note)).toBe(line);
+    [
+      "a parent side chat received",
+      { label: "observation space", delivered: true },
+      `Sent to “observation space”: ${note}`,
+    ],
+    [
+      "a parent side chat has yet to receive",
+      { label: "observation space", delivered: false },
+      `Goes with your next message in “observation space”: ${note}`,
+    ],
+  ] as const)("names where a ready note goes when %s it", (_case, parent, line) => {
+    expect(sideChatStatusLine({ state: "done", noteStatus: "ready" }, note, parent)).toBe(line);
   });
 
   it("waits for the note text of a ready note instead of guessing", () => {
-    expect(sideChatStatusLine({ state: "done", noteStatus: "ready" }, null)).toBeNull();
+    expect(sideChatStatusLine({ state: "done", noteStatus: "ready" }, null, toLesson)).toBeNull();
+  });
+
+  it("waits to know whether the parent received a ready note instead of guessing", () => {
+    expect(
+      sideChatStatusLine({ state: "done", noteStatus: "ready" }, note, {
+        label: null,
+        delivered: null,
+      }),
+    ).toBeNull();
   });
 
   it("says nothing for a done side chat that never had a note started", () => {
-    expect(sideChatStatusLine({ state: "done", noteStatus: null }, null)).toBeNull();
+    expect(sideChatStatusLine({ state: "done", noteStatus: null }, null, toLesson)).toBeNull();
   });
 });
 

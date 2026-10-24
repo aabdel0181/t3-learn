@@ -5,6 +5,7 @@ import {
   EnvironmentId,
   MessageId,
   NodeId,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
@@ -36,6 +37,19 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       : (state.shells.find((shell) => shell.id === ref.threadId) ?? null)) as never,
   useQuietThreadProjection: ((ref: { threadId: string } | null) =>
     ref === null ? null : (state.projections[ref.threadId] ?? null)) as never,
+  useSideChatNoteDelivered: ((
+    parentRef: { threadId: string } | null,
+    sideChatId: string,
+    requestId: string,
+  ) => {
+    const parent =
+      parentRef === null
+        ? undefined
+        : (state.projections[parentRef.threadId] as EnvironmentThreadStructure | undefined);
+    return parent === undefined
+      ? null
+      : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
+  }) as never,
   useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
 }));
 
@@ -420,26 +434,65 @@ it("walks the breadcrumb Lesson › observation space › Box in place", async (
   expect(onFocusLesson).toHaveBeenCalledOnce();
 });
 
+/** A finished side chat whose note is ready, and the parent that may have received it. */
+function doneWithNote(
+  shell: Thread,
+  note: string,
+  parentDeliveries: OrchestrationV2AppThread["sideChatNoteDeliveries"],
+) {
+  const done: Thread = {
+    ...shell,
+    sideChat: { ...shell.sideChat!, state: "done", noteStatus: "ready" },
+  };
+  const parentId = shell.sideChat!.anchor.threadId;
+  const base = makeThreadProjectionFixture();
+  const parent: EnvironmentThreadStructure = {
+    environmentId: ENVIRONMENT_ID,
+    projection: {
+      ...base,
+      thread: { ...base.thread, id: parentId, sideChatNoteDeliveries: parentDeliveries },
+    },
+  };
+  return {
+    done,
+    projections: {
+      [done.id]: sideChatProjection(done, {
+        done: {
+          at: "2026-10-22T00:00:00.000Z",
+          outcome: { status: "ready", note, requestId: "note-1" },
+        },
+      }),
+      [parentId]: parent,
+    },
+  };
+}
+
 it("shows the note a finished side chat sent to the lesson", async () => {
   setup();
   const note = "They didn't know what an observation space is.";
-  const done = sideChatShell("side-1", LESSON_ID, "observation space", {
-    sideChat: { ...SIDE_1.sideChat!, state: "done", noteStatus: "ready" },
-  });
+  const { done, projections } = doneWithNote(SIDE_1, note, { [SIDE_1.id]: "note-1" });
   state.shells = [LESSON_SHELL, done];
-  state.projections = {
-    "side-1": sideChatProjection(done, {
-      done: {
-        at: "2026-10-22T00:00:00.000Z",
-        outcome: { status: "ready", note, requestId: "note-1" },
-      },
-    }),
-  };
+  state.projections = projections;
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
   await expect.element(screen.getByRole("status")).toHaveTextContent(`Sent to lesson: ${note}`);
   await expect.element(doneButton(screen)).not.toBeInTheDocument();
+});
+
+it("says a nested side chat's note waits for the parent side chat it goes to", async () => {
+  setup();
+  const note = "They mixed up Box and Discrete.";
+  // side-1 received an earlier note of this side chat, not this one.
+  const { done, projections } = doneWithNote(NESTED_1, note, { [NESTED_1.id]: "older-note" });
+  state.shells = [LESSON_SHELL, SIDE_1, done];
+  state.projections = projections;
+  showSideChat("side-1", "nested-1");
+  await using screen = await renderPanel();
+
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent(`Goes with your next message in “observation space”: ${note}`);
 });
 
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {
