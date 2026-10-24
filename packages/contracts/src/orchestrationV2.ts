@@ -1635,6 +1635,20 @@ export const OrchestrationV2TurnItem = Schema.Union([
 ]);
 export type OrchestrationV2TurnItem = typeof OrchestrationV2TurnItem.Type;
 
+const SIDE_CHAT_HANDOFF_TITLES: ReadonlySet<string> = new Set([
+  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
+]);
+
+/**
+ * The title of a handoff that carries side chat text, or null for any other item. Side chats reuse
+ * the `manual_context` handoff; the title tells them apart from a provider switch.
+ */
+export function sideChatHandoffTitle(item: OrchestrationV2TurnItem): string | null {
+  if (item.type !== "handoff" || item.strategy !== "manual_context") return null;
+  return item.title !== null && SIDE_CHAT_HANDOFF_TITLES.has(item.title) ? item.title : null;
+}
+
 const isUnknownTurnItem = hasUnknownUnionTag(OrchestrationV2TurnItem.members, "type");
 
 const turnItemArray = <Members extends ReadonlyArray<Schema.Top & { readonly fields: object }>>(

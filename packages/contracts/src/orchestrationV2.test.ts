@@ -3,7 +3,16 @@ import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
-import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
+import {
+  ContextHandoffId,
+  NodeId,
+  ProviderInstanceId,
+  ProviderThreadId,
+  RunAttemptId,
+  ThreadId,
+  TrimmedNonEmptyString,
+  TurnItemId,
+} from "./index.ts";
 import {
   isSideChatThread,
   latestProviderTurnForAttempt,
@@ -19,7 +28,10 @@ import {
   OrchestrationV2ThreadShellJson,
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
+  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
   SIDE_CHAT_EXCERPT_MAX_CHARS,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
+  sideChatHandoffTitle,
   threadShellSideChatOf,
 } from "./orchestrationV2.ts";
 
@@ -777,5 +789,63 @@ describe("side chats", () => {
     ]) {
       expect(() => decodeCommand(internal)).toThrow();
     }
+  });
+});
+
+describe("sideChatHandoffTitle", () => {
+  const base = {
+    id: TurnItemId.make("item-handoff"),
+    threadId: ThreadId.make("thread-handoff"),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 0,
+    status: "completed" as const,
+    startedAt: now,
+    completedAt: now,
+    updatedAt: now,
+  };
+  const handoff = (
+    title: string | null,
+    strategy: Extract<OrchestrationV2TurnItem, { type: "handoff" }>["strategy"],
+  ) =>
+    ({
+      ...base,
+      title,
+      type: "handoff" as const,
+      contextHandoffId: ContextHandoffId.make("handoff-1"),
+      fromProviderThreadIds: [],
+      toProviderThreadId: ProviderThreadId.make("provider-thread-1"),
+      fromProviderInstanceIds: [],
+      toProviderInstanceId: ProviderInstanceId.make("codex-default"),
+      strategy,
+    }) satisfies OrchestrationV2TurnItem;
+
+  it("names the manual-context handoffs that carry side chat text", () => {
+    expect(sideChatHandoffTitle(handoff(SIDE_CHAT_CONTEXT_HANDOFF_TITLE, "manual_context"))).toBe(
+      "Side chat context",
+    );
+    expect(sideChatHandoffTitle(handoff(SIDE_CHAT_NOTES_HANDOFF_TITLE, "manual_context"))).toBe(
+      "Side-chat notes included",
+    );
+  });
+
+  it("leaves provider-switch handoffs and other items alone", () => {
+    expect(sideChatHandoffTitle(handoff(null, "manual_context"))).toBeNull();
+    expect(sideChatHandoffTitle(handoff("Switched provider", "manual_context"))).toBeNull();
+    expect(
+      sideChatHandoffTitle(handoff(SIDE_CHAT_CONTEXT_HANDOFF_TITLE, "full_thread_summary")),
+    ).toBeNull();
+    expect(
+      sideChatHandoffTitle({
+        ...base,
+        title: SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+        type: "compaction",
+        driver: null,
+      }),
+    ).toBeNull();
   });
 });
