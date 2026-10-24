@@ -396,9 +396,7 @@ export function SideChatPanel(props: {
                         "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                         crumb.role === "current"
                           ? "font-medium text-foreground"
-                          : crumb.role === "forward"
-                            ? "text-muted-foreground/70"
-                            : "text-muted-foreground",
+                          : "text-muted-foreground",
                       )}
                       onClick={() => onCrumb(crumb)}
                     >
