@@ -77,10 +77,15 @@ export function returnToLesson(
   sheet: boolean,
   focusComposer: () => void,
 ): void {
+  showLesson(lessonRef, sheet);
+  focusComposer();
+}
+
+/** The lesson-in-view half of `returnToLesson`, for callers that already return focus there. */
+export function showLesson(lessonRef: ScopedThreadRef, sheet: boolean): void {
   const panels = useRightPanelStore.getState();
   panels.setMaximized(lessonRef, false);
   if (sheet) panels.close(lessonRef);
-  focusComposer();
 }
 
 /** Where a thread opens: a side chat opens on its lesson's route, in the lesson's panel. */
@@ -129,7 +134,7 @@ export async function openThreadTarget(input: {
   await input.navigate({
     to: "/$environmentId/$threadId",
     params: buildThreadRouteParams(routeRef),
-    replace: input.replace ?? false,
+    ...(input.replace ? { replace: true } : {}),
   });
 }
 

@@ -87,6 +87,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
   composerPromptLink,
   copyPromptLink,
@@ -228,6 +229,7 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import {
   leaveSideChat,
+  showLesson,
   openThreadTarget,
   resolveFinishableSideChat,
   sideChatLessonRef,
@@ -1399,7 +1401,10 @@ function OpenCommandPaletteDialog(props: {
         icon: <CheckIcon className={ITEM_ICON_CLASS} />,
         run: async () => {
           const rows = deriveSideChatTree(readSideChatTreeShells(lessonRef), lessonRef.threadId);
-          leaveSideChat(lessonRef, finishable.surface, rows);
+          if (leaveSideChat(lessonRef, finishable.surface, rows) === "closed") {
+            // The palette hands focus back to the lesson composer, which a sheet would cover.
+            showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
+          }
           const finished = await finishSideChat({
             environmentId: lessonRef.environmentId,
             input: { threadId: finishable.threadId },
