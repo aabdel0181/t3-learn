@@ -34,6 +34,7 @@ import {
   AssistantCitationRevealContext,
   assistantCitationNavigation,
 } from "../../lib/assistantCitationNavigation";
+import { observeResize } from "../../lib/observeResize";
 import { cn, randomUUID } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
@@ -147,9 +148,18 @@ export function SideChatPanel(props: {
   const crumbsRef = useRef<HTMLDivElement>(null);
   const crumbsKey = crumbs.map((crumb) => `${crumb.role}:${crumb.threadId}`).join(" ");
   useEffect(() => {
-    crumbsRef.current
-      ?.querySelector<HTMLElement>("[aria-current='page']")
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const trail = crumbsRef.current;
+    if (trail === null) return;
+    // The trail narrows when Done and the menu arrive after an Ask, and with the panel or
+    // window, which leaves the crumb it had scrolled to under the fade. A crumb with focus
+    // stays in view rather than the current one.
+    const scrollIntoView = () => {
+      const crumb =
+        trail.querySelector("button:focus") ?? trail.querySelector("[aria-current='page']");
+      crumb?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    scrollIntoView();
+    return observeResize(trail, scrollIntoView);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new path or current crumb re-renders the crumbs, so the current one scrolls back into view.
   }, [crumbsKey]);
 
@@ -431,6 +441,11 @@ export function SideChatPanel(props: {
                           : "text-muted-foreground",
                       )}
                       onClick={() => onCrumb(crumb)}
+                      // Chrome leaves a partly visible element where it is on focus, so a
+                      // crumb under the fade would take the cursor out of sight.
+                      onFocus={(event) =>
+                        event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })
+                      }
                     >
                       {crumb.label}
                     </button>
