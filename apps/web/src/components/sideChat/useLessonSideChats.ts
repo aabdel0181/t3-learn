@@ -7,8 +7,10 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import type { AssistantCitationSourceAnchor } from "../../lib/assistantTextSelection";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useSideChatTreeShells } from "../../state/entities";
+import { useEnvironmentShellStatus } from "../../state/shell";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
+import { isThreadRouteSnapshotAuthoritative } from "../../threadRoutes";
 import { askInSideChat } from "./openSideChat";
 import {
   pendingSideChatThreadIds,
@@ -27,7 +29,8 @@ export function useLessonSideChats(input: {
   readonly lessonRef: ScopedThreadRef | null;
   /** The environment advertises `capabilities.sideChats`. */
   readonly supported: boolean;
-  readonly bootstrapComplete: boolean;
+  /** The server config, which can arrive after the shells, has said whether `supported`. */
+  readonly capabilityKnown: boolean;
   readonly activityRunStatus: OrchestrationV2Run["status"] | null;
 }): {
   readonly shells: ReadonlyArray<EnvironmentThreadShell>;
@@ -38,15 +41,19 @@ export function useLessonSideChats(input: {
     | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
     | undefined;
 } {
-  const { lessonRef, supported, bootstrapComplete, activityRunStatus } = input;
+  const { lessonRef, supported, capabilityKnown, activityRunStatus } = input;
   const shells = useSideChatTreeShells(supported ? lessonRef : null);
+  const shellLive = isThreadRouteSnapshotAuthoritative(
+    useEnvironmentShellStatus(lessonRef?.environmentId ?? null),
+  );
   const run = useOrchestrationCommand(threadEnvironment.openSideChat, { reportFailure: false });
   const lessonKey = lessonRef === null ? null : scopedThreadKey(lessonRef);
   const askPending = usePendingSideChatStore((state) => selectStartingSideChat(state, lessonKey));
 
   useEffect(() => {
-    // Until bootstrap completes, every side chat looks gone.
-    if (lessonRef === null || !bootstrapComplete) return;
+    // The shells cached from the last visit can predate side chats asked for just
+    // before a reload, so only the live shell can say a side chat is gone.
+    if (lessonRef === null || !capabilityKnown || !shellLive) return;
     const key = scopedThreadKey(lessonRef);
     const shellIds = new Set<string>(shells.map((shell) => shell.id));
     usePendingSideChatStore.getState().prune(key, shellIds);
@@ -55,7 +62,7 @@ export function useLessonSideChats(input: {
       ...pendingSideChatThreadIds(usePendingSideChatStore.getState(), key),
     ]);
     useRightPanelStore.getState().reconcileSideChatSurfaces(lessonRef, live, supported);
-  }, [bootstrapComplete, lessonRef, shells, supported]);
+  }, [capabilityKnown, lessonRef, shellLive, shells, supported]);
 
   const awaitingId = sideChatAwaitingInput(shells);
   useEffect(() => {

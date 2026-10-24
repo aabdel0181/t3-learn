@@ -4,12 +4,18 @@ import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   shells: [] as ReadonlyArray<{ readonly id: string }>,
+  shellStatus: "live" as string | null,
 }));
 
 vi.mock(import("../../state/entities"), async (importOriginal) => ({
   ...(await importOriginal()),
   useSideChatTreeShells: ((ref: unknown) => (ref === null ? [] : state.shells)) as never,
   readSideChatTreeShells: (() => state.shells) as never,
+}));
+
+vi.mock(import("../../state/shell"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useEnvironmentShellStatus: (() => state.shellStatus) as never,
 }));
 
 vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) => ({
@@ -75,13 +81,14 @@ function Probe(props: {
 const lessonInput = (overrides: Partial<LessonSideChatsInput> = {}): LessonSideChatsInput => ({
   lessonRef: LESSON_REF,
   supported: true,
-  bootstrapComplete: true,
+  capabilityKnown: true,
   activityRunStatus: null,
   ...overrides,
 });
 
 function setup() {
   state.shells = [LESSON_SHELL];
+  state.shellStatus = "live";
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -126,6 +133,29 @@ it("drops tabs of side chats that are gone but keeps one that is still starting"
   ]);
   expect(result?.onAskInSideChat).toBeTypeOf("function");
   expect([...(result?.labelsById ?? [])]).toEqual([["side-1", "observation space"]]);
+});
+
+it("keeps side-chat tabs while the shell is only the cached one from the last visit", async () => {
+  setup();
+  // A reload restores shells cached before the newest side chats were asked for.
+  state.shellStatus = "cached";
+  state.shells = [LESSON_SHELL];
+  showSideChat("side-1");
+  showSideChat("side-2", "nested-2");
+  useRightPanelStore
+    .getState()
+    .navigateSideChat(LESSON_REF, "side-chat:side-2", ["side-2"], ["side-2", "nested-2"]);
+  const before = surfaces();
+
+  await using screen = await render(<Probe input={lessonInput()} onResult={() => {}} />);
+
+  expect(surfaces()).toEqual(before);
+
+  state.shellStatus = "live";
+  state.shells = [LESSON_SHELL, SIDE_1];
+  await screen.rerender(<Probe input={lessonInput()} onResult={() => {}} />);
+
+  expect(surfaces().map((surface) => surface.id)).toEqual(["side-chat:side-1"]);
 });
 
 it("opens the side chat whose AI is waiting for an answer", async () => {
