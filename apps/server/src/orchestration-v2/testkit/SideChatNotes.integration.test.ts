@@ -537,6 +537,45 @@ describe("side-chat notes", () => {
   );
 
   it.effect(
+    "a nested note the lesson received through its parent side chat never goes up again",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-settled-chain-up");
+        yield* Effect.gen(function* () {
+          const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
+          yield* finishWithNote(harness, box, BOX, { text: BOX_BOUNDS_NOTE }, "ready");
+          // `observation space` takes `Box`'s note in its own turn as well as at Done.
+          yield* harness.send(space, "Back to spaces.");
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+          yield* harness.send(lesson, "Continue the lesson.");
+
+          // A nested side chat asked after the lesson received that note still goes up.
+          yield* harness.send(space, "One more question.");
+          const shaping = yield* harness.openSideChat({ parentThreadId: space, label: SHAPING });
+          yield* harness.send(shaping, "What is reward shaping?");
+          harness.scriptNote(SHAPING, { text: SHAPING_NOTE });
+          yield* finishWithNote(
+            harness,
+            space,
+            SPACE,
+            { text: "Wanted a worked example." },
+            "ready",
+          );
+          assert.include(harness.outcomeInputFor(SPACE), shapingLine);
+          assert.notInclude(harness.outcomeInputFor(SPACE), boxLine);
+          yield* harness.send(lesson, "Next step.");
+
+          // The note kept for the next reopen no longer mentions either nested point.
+          yield* harness.send(space, "And another.");
+          yield* finishWithNote(harness, space, SPACE, { text: null }, "none");
+          assert.notInclude(harness.outcomeInputFor(SPACE), boxLine);
+          assert.notInclude(harness.outcomeInputFor(SPACE), shapingLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
     "a nested side chat reopened before the lesson received its parent's note writes its whole note again",
     () =>
       Effect.gen(function* () {

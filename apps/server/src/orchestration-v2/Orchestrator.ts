@@ -10718,6 +10718,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   note: command.note,
                   requestId: command.requestId,
                   ...(command.error === undefined ? {} : { error: command.error }),
+                  ...(command.nestedNotes === undefined || command.status === "failed"
+                    ? {}
+                    : { nestedNotes: command.nestedNotes }),
                 },
               },
             },
@@ -10746,11 +10749,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   /**
    * Reopens `thread` when it is a done side chat, and every done side chat above it, so no side
    * chat is open below a done one whose note would never be written again. A later Done writes a
-   * fresh note. A note the lesson received is kept as `deliveredNote`, and that later note says
-   * only what is new. Any other note is dropped and replaced, even one a parent side chat took up:
-   * that parent's own note can be dropped by this same reopen, so only the lesson's receipt is
-   * final. A note still being written lands on nothing, because its request is no longer the side
-   * chat's.
+   * fresh note. A note the lesson received is kept as `deliveredNote`, with the nested notes it was
+   * written with as `deliveredNestedNotes`, and that later note says only what is new. Any other
+   * note is dropped and replaced, even one a parent side chat took up: that parent's own note can
+   * be dropped by this same reopen, so only the lesson's receipt is final. A note still being
+   * written lands on nothing, because its request is no longer the side chat's.
    */
   const reopenDoneSideChats = Effect.fn("Orchestrator.reopenDoneSideChats")(function* (
     command: OrchestrationV2ServerCommand,
@@ -10778,13 +10781,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               );
       if (sideChat.done !== null) {
         const { outcome } = sideChat.done;
-        const deliveredNote =
+        const received =
           outcome.status === "ready" &&
           outcome.note !== null &&
           parentThreadId === sideChat.lessonThreadId &&
           parent?.sideChatNoteDeliveries?.[current.id] === outcome.requestId
-            ? outcome.note
-            : undefined;
+            ? {
+                deliveredNote: outcome.note,
+                ...(outcome.nestedNotes === undefined
+                  ? {}
+                  : {
+                      deliveredNestedNotes: [
+                        ...new Set([
+                          ...(sideChat.deliveredNestedNotes ?? []),
+                          ...outcome.nestedNotes,
+                        ]),
+                      ],
+                    }),
+              }
+            : {};
         yield* emit(
           events,
           command,
@@ -10795,11 +10810,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: yield* DateTime.now,
           payload: {
             ...current,
-            sideChat: {
-              ...sideChat,
-              done: null,
-              ...(deliveredNote === undefined ? {} : { deliveredNote }),
-            },
+            sideChat: { ...sideChat, done: null, ...received },
           },
         });
       }

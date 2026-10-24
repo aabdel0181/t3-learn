@@ -130,16 +130,22 @@ interface NestedSideChatNotes {
   readonly contextHandoffs?: ReadonlyArray<
     Pick<OrchestrationV2ContextHandoff, "strategy" | "history" | "summaryText">
   >;
+  /** Lines the lesson already received in one of the side chat's notes. */
+  readonly delivered?: ReadonlyArray<string>;
 }
 
-/** The `• re "<label>": <note>` line of every nested note, without repeats. */
-const nestedNoteLines = (input: NestedSideChatNotes): ReadonlySet<string> =>
-  new Set([
-    ...(input.contextHandoffs ?? [])
-      .filter(isSideChatNotesHandoff)
-      .flatMap((handoff) => handoff.summaryText.split("\n").slice(1)),
-    ...input.childNotes.map(noteLine),
-  ]);
+/** The `• re "<label>": <note>` line of every nested note the lesson lacks, without repeats. */
+export function nestedSideChatNoteLines(input: NestedSideChatNotes): ReadonlySet<string> {
+  const delivered = new Set(input.delivered);
+  return new Set(
+    [
+      ...(input.contextHandoffs ?? [])
+        .filter(isSideChatNotesHandoff)
+        .flatMap((handoff) => handoff.summaryText.split("\n").slice(1)),
+      ...input.childNotes.map(noteLine),
+    ].filter((line) => !delivered.has(line)),
+  );
+}
 
 /**
  * The nested notes as one note, `re "<label>": <note>` joined with "; ", or null when there are
@@ -147,7 +153,7 @@ const nestedNoteLines = (input: NestedSideChatNotes): ReadonlySet<string> =>
  * notes, so a nested point never hangs on the writer's judgment.
  */
 export function nestedSideChatNotesFallback(input: NestedSideChatNotes): string | null {
-  const notes = [...nestedNoteLines(input)].map((line) =>
+  const notes = [...nestedSideChatNoteLines(input)].map((line) =>
     line.startsWith(NOTE_BULLET) ? line.slice(NOTE_BULLET.length) : line,
   );
   return notes.length === 0 ? null : normalizeSideChatNote(notes.join("; "));
@@ -170,7 +176,7 @@ export function buildSideChatOutcomeInput(
   },
 ): string {
   const budget = input.budgetChars ?? SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS;
-  const childNoteLines = nestedNoteLines(input);
+  const childNoteLines = nestedSideChatNoteLines(input);
   const before = [SIDE_CHAT_OUTCOME_EXCERPT_HEADER, input.excerpt, "", TRANSCRIPT_HEADER];
   const after = [
     ...(childNoteLines.size === 0 ? [] : ["", CHILD_NOTES_HEADER, ...childNoteLines]),

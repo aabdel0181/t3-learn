@@ -402,11 +402,16 @@ export const OrchestrationV2SideChatOpening = Schema.Struct({
 });
 export type OrchestrationV2SideChatOpening = typeof OrchestrationV2SideChatOpening.Type;
 
+/** One `• re "<label>": <note>` line of a nested side chat's note, as a note writer read it. */
+const SideChatNestedNoteLines = Schema.Array(Schema.String);
+
 export const OrchestrationV2SideChatOutcome = Schema.Struct({
   status: Schema.Literals(["generating", "ready", "none", "failed"]),
   note: Schema.NullOr(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
   requestId: Schema.String,
   error: Schema.optional(Schema.String),
+  /** The nested notes this note was written with. */
+  nestedNotes: Schema.optional(SideChatNestedNoteLines),
 });
 export type OrchestrationV2SideChatOutcome = typeof OrchestrationV2SideChatOutcome.Type;
 
@@ -423,6 +428,8 @@ export const OrchestrationV2SideChat = Schema.Struct({
   done: Schema.NullOr(Schema.Struct({ at: IsoDateTime, outcome: OrchestrationV2SideChatOutcome })),
   /** The last note of this side chat that the lesson received, kept across a reopen. */
   deliveredNote: Schema.optional(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
+  /** Nested notes that went into a note the lesson received, so no later note carries them. */
+  deliveredNestedNotes: Schema.optional(SideChatNestedNoteLines),
 });
 export type OrchestrationV2SideChat = typeof OrchestrationV2SideChat.Type;
 
@@ -3226,6 +3233,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     error: Schema.optional(Schema.String),
     /** Child notes folded into this note, by child thread id. */
     childNoteDeliveries: Schema.optional(Schema.Record(ThreadId, Schema.String)),
+    nestedNotes: Schema.optional(SideChatNestedNoteLines),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.side_chat.notes.attach"),

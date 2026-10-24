@@ -28,6 +28,7 @@ import * as ThreadManagementService from "../ThreadManagementService.ts";
 import {
   buildSideChatOutcomeInput,
   isUserAuthoredSideChatTrigger,
+  nestedSideChatNoteLines,
   nestedSideChatNotesFallback,
   normalizeSideChatNote,
 } from "./notes.ts";
@@ -103,9 +104,13 @@ const isInCascadeTargetState = (
   }
 };
 
-/** The nested side chats whose notes a written note took up the chain, by the note's request. */
+/**
+ * The nested side chats whose notes a written note took up the chain, by the note's request, and
+ * the nested note lines it was written with.
+ */
 interface ChildNoteDeliveries {
   readonly childNoteDeliveries?: Readonly<Record<ThreadId, string>>;
+  readonly nestedNotes?: ReadonlyArray<string>;
 }
 
 type OutcomeResult =
@@ -277,10 +282,15 @@ const make = Effect.gen(function* () {
         children = yield* readChildren;
       }
       // Every ready note, not only undelivered ones: one an earlier Done took up went no further
-      // if this side chat reopened before its parent received that note. The previous note below
-      // keeps the writer from repeating what the lesson already has.
+      // if this side chat reopened before its parent received that note. Only the lesson's
+      // receipt is final, and a reopen keeps what it received as `deliveredNestedNotes`.
       const childNotes = readySideChatNotes(children);
-      const nestedNotes = { childNotes, contextHandoffs: records.contextHandoffs };
+      const nestedNotes = {
+        childNotes,
+        contextHandoffs: records.contextHandoffs,
+        delivered: sideChat.deliveredNestedNotes ?? [],
+      };
+      const nestedNoteLines = [...nestedSideChatNoteLines(nestedNotes)];
       const previousNote = sideChat.deliveredNote ?? null;
 
       const lesson = yield* threads.getThreadRecords(sideChat.lessonThreadId, []);
@@ -304,14 +314,16 @@ const make = Effect.gen(function* () {
       const note =
         normalizeSideChatNote(text) ??
         (previousNote === null ? nestedSideChatNotesFallback(nestedNotes) : null);
-      const deliveries =
-        childNotes.length === 0
+      const deliveries = {
+        ...(childNotes.length === 0
           ? {}
           : {
               childNoteDeliveries: Object.fromEntries(
                 childNotes.map((childNote) => [childNote.threadId, childNote.requestId]),
               ),
-            };
+            }),
+        ...(nestedNoteLines.length === 0 ? {} : { nestedNotes: nestedNoteLines }),
+      };
       return (
         note === null
           ? { status: "none", note: null, ...deliveries }

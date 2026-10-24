@@ -59,7 +59,8 @@ always lesson, then thread.
 A side chat's note writer reads every ready note of its direct children, received or not (an earlier
 note carrying one may never have reached the lesson), and counts them delivered when its own note
 lands. Until the lesson holds one of its notes, a null answer becomes those notes verbatim, so a gap
-three levels down reaches the lesson. `sideChatOutcomeRequestId` encodes depth so deeper writers are
+three levels down reaches the lesson. Once the lesson holds a note written with a nested note in view,
+that nested note is kept as `deliveredNestedNotes` and never fed to the writer again. `sideChatOutcomeRequestId` encodes depth so deeper writers are
 claimed first, or a parent could hold a lane slot waiting on a child that cannot start. A side chat is
 never open under a done one: a message in a done side chat, or a side chat opened under it, reopens it
 and every done ancestor. A note the lesson received is kept as `deliveredNote`, so the next says only
