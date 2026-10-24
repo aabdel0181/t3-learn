@@ -324,23 +324,28 @@ describe("side-chat notes", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("a side-chat message finishes its idle nested side chats and carries their note", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-side-chat");
-      yield* Effect.gen(function* () {
-        const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
-        harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
+  it.effect(
+    "a side-chat message finishes its idle nested side chats and carries their note, which its own note takes on",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-side-chat");
+        yield* Effect.gen(function* () {
+          const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
+          harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
 
-        yield* harness.send(space, "Back to observation spaces.");
+          yield* harness.send(space, "Back to observation spaces.");
 
-        assert.equal((yield* harness.thread(box)).sideChat?.done?.outcome.status, "ready");
-        assert.include(harness.prompts(space).at(-1), boxLine);
-        assert.isNull((yield* harness.thread(space)).sideChat?.done);
-        for (const prompt of harness.prompts(lesson)) {
-          assert.notInclude(prompt, SIDE_CHAT_NOTES_HEADER);
-        }
-      }).pipe(Effect.provide(harness.layer));
-    }).pipe(Effect.scoped),
+          assert.equal((yield* harness.thread(box)).sideChat?.done?.outcome.status, "ready");
+          assert.include(harness.prompts(space).at(-1), boxLine);
+          assert.isNull((yield* harness.thread(space)).sideChat?.done);
+          for (const prompt of harness.prompts(lesson)) {
+            assert.notInclude(prompt, SIDE_CHAT_NOTES_HEADER);
+          }
+
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
   );
 
   it.effect(

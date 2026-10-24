@@ -45,11 +45,12 @@ export class SideChatLifecycleService extends Context.Service<
   {
     /**
      * Writes the note for the side chat's `generating` outcome `requestId` and lands it with
-     * `thread.side_chat.outcome.complete`. The note takes up the ready notes of its nested side
-     * chats, after waiting for ones still being written until `SIDE_CHAT_WAIT_CAP_MS` after Done,
-     * and says only what is new next to the note its parent already received. Never fails:
-     * interrupts propagate, and anything else is logged and recorded as `failed`, because a failed
-     * outbox row pins the lesson's worktree.
+     * `thread.side_chat.outcome.complete`. The note takes up the notes of its nested side chats:
+     * the ones its own turns took, and the ready ones it has not received, after waiting for ones
+     * still being written until `SIDE_CHAT_WAIT_CAP_MS` after Done. It says only what is new next
+     * to the note its parent already received. Never fails: interrupts propagate, and anything
+     * else is logged and recorded as `failed`, because a failed outbox row pins the lesson's
+     * worktree.
      */
     readonly writeOutcome: (input: {
       readonly threadId: ThreadId;
@@ -238,9 +239,11 @@ const make = Effect.gen(function* () {
       // Read before the nested side chats, so a note of theirs that settles after the read is
       // still seen.
       const afterSequence = yield* eventSink.latestSequence();
-      const records = yield* threads.getThreadRecords(input.threadId, ["messages"], {
-        messageRoles: ["user", "assistant"],
-      });
+      const records = yield* threads.getThreadRecords(
+        input.threadId,
+        ["messages", "contextHandoffs"],
+        { messageRoles: ["user", "assistant"] },
+      );
       const { thread } = records;
       const sideChat = thread.sideChat;
       const done = sideChat?.done;
@@ -286,6 +289,7 @@ const make = Effect.gen(function* () {
                 DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
             ),
           childNotes,
+          contextHandoffs: records.contextHandoffs,
           previousNote: sideChat.deliveredNote ?? null,
         }),
       });
