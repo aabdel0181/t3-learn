@@ -155,7 +155,7 @@ describe("AssistantSelectionToolbar", () => {
     );
     select(screen.container, 0, 4001);
 
-    const tooLong = page.getByRole("button", { name: "Selection is too long to ask about" });
+    const tooLong = page.getByRole("button", { name: "Shorten selection to ask in side chat" });
     await expect.element(tooLong).toHaveTextContent("Shorten selection");
     await expect.element(tooLong).toHaveAttribute("aria-disabled", "true");
     await expect

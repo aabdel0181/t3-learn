@@ -317,7 +317,9 @@ export function AssistantSelectionToolbar({
                 tabIndex={rovingAction === "ask" ? 0 : -1}
                 aria-disabled={askBlockedReason !== null || undefined}
                 aria-description={askBlockedReason ?? undefined}
-                aria-label={askTooLong ? "Selection is too long to ask about" : "Ask in side chat"}
+                aria-label={
+                  askTooLong ? "Shorten selection to ask in side chat" : "Ask in side chat"
+                }
                 onFocus={() => setFocusedAction("ask")}
                 onClick={ask}
               />
