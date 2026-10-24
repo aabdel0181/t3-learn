@@ -17,6 +17,7 @@ import {
   type SideChatTreeRow,
 } from "@t3tools/client-runtime/state/thread-relationships";
 import {
+  type AssistantCitation,
   AuthOrchestrationOperateScope,
   type MessageId,
   type ScopedThreadRef,
@@ -25,11 +26,14 @@ import {
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon, ShieldIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { ComposerHandleContext } from "../../composerHandleContext";
-import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
+import {
+  AssistantCitationRevealContext,
+  assistantCitationNavigation,
+} from "../../lib/assistantCitationNavigation";
 import { cn, randomUUID } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
@@ -251,15 +255,25 @@ export function SideChatPanel(props: {
     if (crumb.role !== "current") walkTo(crumb.threadId);
   };
 
-  const reveal = () => {
-    if (citation === null) return;
-    if (citation.threadId === lessonRef.threadId) {
-      // Only the hash changes, so the lesson stays mounted and scrolls to the highlight.
-      void navigate({ ...assistantCitationNavigation(citation), replace: true });
-      return;
+  /** Shows a citation of one of the lesson's side chats here; false for any other thread. */
+  const revealCitation = (target: AssistantCitation): boolean => {
+    const top =
+      target.environmentId === environmentId ? topSideChatId(rows, target.threadId) : null;
+    if (top === null) return false;
+    if (top !== sideChatSurfaceTopThreadId(surface)) {
+      revealSideChat(lessonRef, target.threadId);
+      return true;
     }
-    walkTo(citation.threadId);
-    setCitationRequest({ citation, key: randomUUID() });
+    // Walking to the side chat already shown would drop its trail back down.
+    if (target.threadId !== surface.threadId) walkTo(target.threadId);
+    setCitationRequest({ citation: target, key: randomUUID() });
+    return true;
+  };
+
+  const reveal = () => {
+    if (citation === null || revealCitation(citation)) return;
+    // Only the hash changes, so the lesson stays mounted and scrolls to the highlight.
+    void navigate({ ...assistantCitationNavigation(citation), replace: true });
   };
 
   const onOpenThread = (threadId: ThreadId) => {
@@ -287,7 +301,7 @@ export function SideChatPanel(props: {
   const answeringPendingUserInput = activePendingProgress !== null;
 
   return (
-    <ComposerHandleContext value={null}>
+    <SideChatPanelContexts revealCitation={revealCitation}>
       <section
         data-side-chat-panel
         tabIndex={-1}
@@ -509,6 +523,20 @@ export function SideChatPanel(props: {
           onPageScrollRelease={() => pageScrollRef.current?.releaseActiveKey()}
         />
       </section>
+    </SideChatPanelContexts>
+  );
+}
+
+/** Keeps the lesson's composer out of the panel, and reveals cited side chats in it. */
+function SideChatPanelContexts(props: {
+  readonly revealCitation: (citation: AssistantCitation) => boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <ComposerHandleContext value={null}>
+      <AssistantCitationRevealContext value={props.revealCitation}>
+        {props.children}
+      </AssistantCitationRevealContext>
     </ComposerHandleContext>
   );
 }

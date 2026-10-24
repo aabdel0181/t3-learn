@@ -6,6 +6,7 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon, PencilIcon, QuoteIcon } from "lucide-react";
 import {
+  use,
   useEffect,
   useEffectEvent,
   useRef,
@@ -17,6 +18,7 @@ import {
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
 import {
+  AssistantCitationRevealContext,
   assistantCitationHash,
   assistantCitationNavigation,
 } from "../../lib/assistantCitationNavigation";
@@ -51,6 +53,7 @@ export function AssistantCitationChip({
   };
 }) {
   const navigate = useNavigate();
+  const revealInPlace = use(AssistantCitationRevealContext);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const commentPopupRef = useRef<HTMLDivElement>(null);
   const draftCommentRef = useRef<string | null>(null);
@@ -118,6 +121,7 @@ export function AssistantCitationChip({
         return;
       }
       event.preventDefault();
+      if (revealInPlace?.(citation) === true) return;
       void navigate(assistantCitationNavigation(citation));
     },
   };
