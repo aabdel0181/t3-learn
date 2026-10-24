@@ -68,15 +68,18 @@ export function leaveSideChat(
 }
 
 /**
- * Puts the cursor in the lesson's composer. In the sheet layout the panel is a modal over
- * the lesson, so it hides first; its tabs stay for the panel toggle to bring back.
+ * Puts the cursor in the lesson's composer, with the lesson in view: a maximized panel
+ * shrinks back, and in the sheet layout the panel is a modal over the lesson, so it hides;
+ * its tabs stay for the panel toggle to bring back.
  */
 export function returnToLesson(
   lessonRef: ScopedThreadRef,
   sheet: boolean,
   focusComposer: () => void,
 ): void {
-  if (sheet) useRightPanelStore.getState().close(lessonRef);
+  const panels = useRightPanelStore.getState();
+  panels.setMaximized(lessonRef, false);
+  if (sheet) panels.close(lessonRef);
   focusComposer();
 }
 

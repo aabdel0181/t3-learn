@@ -111,4 +111,18 @@ describe("returnToLesson", () => {
     ]);
     expect(focusComposer).toHaveBeenCalledTimes(2);
   });
+
+  it("un-maximizes the panel, which would otherwise hide the lesson it focuses", () => {
+    useRightPanelStore.setState(useRightPanelStore.getInitialState());
+    const lessonRef = scopeThreadRef(environmentId, lessonId);
+    const panels = useRightPanelStore.getState();
+    panels.openSideChat(lessonRef, { topThreadId: sideId, threadId: sideId });
+    panels.setMaximized(lessonRef, true);
+
+    returnToLesson(lessonRef, false, () => {});
+
+    const panel = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, lessonRef);
+    expect(panel.maximized).toBeUndefined();
+    expect(panel.isOpen).toBe(true);
+  });
 });
