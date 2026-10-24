@@ -1,11 +1,21 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { AssistantCitation, OrchestrationV2Run, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  type AssistantCitation,
+  type OrchestrationV2Run,
+  type ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useEffect } from "react";
 
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import type { AssistantCitationSourceAnchor } from "../../lib/assistantTextSelection";
-import { useRightPanelStore } from "../../rightPanelStore";
+import {
+  selectThreadRightPanelState,
+  sideChatSurfaceTopThreadId,
+  useRightPanelStore,
+} from "../../rightPanelStore";
 import { useSideChatTreeShells } from "../../state/entities";
 import { useEnvironmentShellStatus } from "../../state/shell";
 import { threadEnvironment } from "../../state/threads";
@@ -61,6 +71,8 @@ export function useLessonSideChats(input: {
       ...shellIds,
       ...pendingSideChatThreadIds(usePendingSideChatStore.getState(), key),
     ]);
+    // Without the capability no side chat is listed, though none is gone.
+    if (supported) clearGoneSideChatDrafts(lessonRef, live);
     useRightPanelStore.getState().reconcileSideChatSurfaces(lessonRef, live, supported);
   }, [capabilityKnown, lessonRef, shellLive, shells, supported]);
 
@@ -94,4 +106,21 @@ export function useLessonSideChats(input: {
           }),
     onAskInSideChat: supported && lessonRef !== null ? ask : undefined,
   };
+}
+
+/** A deleted side chat's draft would otherwise stay in persisted storage with no tab to reach it. */
+function clearGoneSideChatDrafts(lessonRef: ScopedThreadRef, live: ReadonlySet<string>) {
+  const { surfaces } = selectThreadRightPanelState(
+    useRightPanelStore.getState().byThreadKey,
+    lessonRef,
+  );
+  const drafts = useComposerDraftStore.getState();
+  for (const surface of surfaces) {
+    if (surface.kind !== "side-chat") continue;
+    const shown = [sideChatSurfaceTopThreadId(surface), surface.threadId, ...(surface.trail ?? [])];
+    for (const id of new Set(shown)) {
+      if (live.has(id)) continue;
+      drafts.clearComposerContent(scopeThreadRef(lessonRef.environmentId, ThreadId.make(id)));
+    }
+  }
 }

@@ -24,6 +24,7 @@ vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) 
 }));
 
 import { render } from "../../../test/render";
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import { makeSideChatThreadFixture, makeThreadFixture } from "../../test-fixtures";
 import type { Thread } from "../../types";
@@ -89,6 +90,7 @@ const lessonInput = (overrides: Partial<LessonSideChatsInput> = {}): LessonSideC
 function setup() {
   state.shells = [LESSON_SHELL];
   state.shellStatus = "live";
+  useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -156,6 +158,26 @@ it("keeps side-chat tabs while the shell is only the cached one from the last vi
   await screen.rerender(<Probe input={lessonInput()} onResult={() => {}} />);
 
   expect(surfaces().map((surface) => surface.id)).toEqual(["side-chat:side-1"]);
+});
+
+it("clears the unsent drafts of side chats that are gone", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  showSideChat("side-1", "nested-gone");
+  showSideChat("side-gone");
+  const drafts = useComposerDraftStore.getState();
+  const draftRef = (id: string) => scopeThreadRef(ENVIRONMENT_ID, ThreadId.make(id));
+  drafts.setPrompt(draftRef("side-1"), "Kept question");
+  drafts.setPrompt(draftRef("nested-gone"), "Nested question");
+  drafts.setPrompt(draftRef("side-gone"), "Lost question");
+
+  await using _screen = await render(<Probe input={lessonInput()} onResult={() => {}} />);
+
+  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
+  const after = useComposerDraftStore.getState();
+  expect(after.getComposerDraft(draftRef("side-1"))?.prompt).toBe("Kept question");
+  expect(after.getComposerDraft(draftRef("nested-gone"))).toBeNull();
+  expect(after.getComposerDraft(draftRef("side-gone"))).toBeNull();
 });
 
 it("opens the side chat whose AI is waiting for an answer", async () => {
