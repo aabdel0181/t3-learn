@@ -123,7 +123,8 @@ export function SideChatPanel(props: {
       : sideChatBreadcrumb(rows, surface.threadId, surface.trail);
 
   const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
-  const providers = useEnvironmentProviders().get(environmentId) ?? NO_PROVIDERS;
+  const loadedProviders = useEnvironmentProviders().get(environmentId);
+  const providers = loadedProviders ?? NO_PROVIDERS;
   const providerEntry =
     shell === null
       ? undefined
@@ -494,6 +495,7 @@ export function SideChatPanel(props: {
           sideChatRef={sideChatRef}
           shell={shell}
           providerEntry={providerEntry}
+          providerCatalogKnown={loadedProviders !== undefined}
           openingStatus={detail?.opening.status ?? null}
           runActive={runActive}
           answeringPendingUserInput={answeringPendingUserInput}

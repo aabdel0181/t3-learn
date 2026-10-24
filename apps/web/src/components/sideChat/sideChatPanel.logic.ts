@@ -118,13 +118,19 @@ export function sideChatStatusLine(
   }
 }
 
+const SIDE_CHAT_PROVIDER_UNAVAILABLE =
+  "This side chat's provider is unavailable. Enable it in Settings → Providers.";
+
 export function sideChatComposerStatus(input: {
   readonly shellExists: boolean;
   readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
   readonly runActive: boolean;
-}): "Starting side chat…" | "Preparing context…" | null {
+  /** Send is blocked on the side chat's own provider, with the provider list loaded. */
+  readonly providerUnavailable: boolean;
+}): "Starting side chat…" | "Preparing context…" | typeof SIDE_CHAT_PROVIDER_UNAVAILABLE | null {
   if (!input.shellExists) return "Starting side chat…";
   if (input.openingStatus === "pending" && input.runActive) return "Preparing context…";
+  if (input.providerUnavailable) return SIDE_CHAT_PROVIDER_UNAVAILABLE;
   return null;
 }
 

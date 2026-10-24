@@ -82,6 +82,8 @@ export function SideChatComposer(props: {
   /** Null while the side chat is starting. */
   readonly shell: EnvironmentThreadShell | null;
   readonly providerEntry: ProviderInstanceEntry | undefined;
+  /** The environment's providers have loaded, so a missing entry means the provider is gone. */
+  readonly providerCatalogKnown: boolean;
   readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
   readonly runActive: boolean;
   readonly answeringPendingUserInput: boolean;
@@ -246,6 +248,10 @@ export function SideChatComposer(props: {
     shellExists: shell !== null,
     openingStatus: props.openingStatus,
     runActive,
+    providerUnavailable:
+      props.providerCatalogKnown &&
+      plan._tag === "Blocked" &&
+      plan.reason === "provider-unavailable",
   });
 
   return (

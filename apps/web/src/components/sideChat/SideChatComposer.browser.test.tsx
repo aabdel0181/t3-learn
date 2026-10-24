@@ -99,6 +99,7 @@ function composer(props: Partial<ComponentProps<typeof SideChatComposer>> = {}) 
       sideChatRef={SIDE_CHAT_REF}
       shell={SHELL}
       providerEntry={PROVIDER_ENTRY}
+      providerCatalogKnown
       openingStatus="ready"
       runActive={false}
       answeringPendingUserInput={false}

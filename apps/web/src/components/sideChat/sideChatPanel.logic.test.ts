@@ -201,19 +201,34 @@ describe("sideChatStatusLine", () => {
 describe("sideChatComposerStatus", () => {
   it("says the side chat is starting until its shell exists", () => {
     expect(
-      sideChatComposerStatus({ shellExists: false, openingStatus: null, runActive: false }),
+      sideChatComposerStatus({
+        shellExists: false,
+        openingStatus: null,
+        runActive: false,
+        providerUnavailable: false,
+      }),
     ).toBe("Starting side chat…");
   });
 
   it("says it is preparing context while the opening summary is written for a running side chat", () => {
     expect(
-      sideChatComposerStatus({ shellExists: true, openingStatus: "pending", runActive: true }),
+      sideChatComposerStatus({
+        shellExists: true,
+        openingStatus: "pending",
+        runActive: true,
+        providerUnavailable: false,
+      }),
     ).toBe("Preparing context…");
   });
 
   it("says nothing when the summary is pending but no run waits for it", () => {
     expect(
-      sideChatComposerStatus({ shellExists: true, openingStatus: "pending", runActive: false }),
+      sideChatComposerStatus({
+        shellExists: true,
+        openingStatus: "pending",
+        runActive: false,
+        providerUnavailable: false,
+      }),
     ).toBeNull();
   });
 
@@ -221,10 +236,26 @@ describe("sideChatComposerStatus", () => {
     "says nothing once the opening is %s",
     (openingStatus) => {
       expect(
-        sideChatComposerStatus({ shellExists: true, openingStatus, runActive: true }),
+        sideChatComposerStatus({
+          shellExists: true,
+          openingStatus,
+          runActive: true,
+          providerUnavailable: false,
+        }),
       ).toBeNull();
     },
   );
+
+  it("says the side chat's provider is unavailable, since Send stays off until it is back", () => {
+    expect(
+      sideChatComposerStatus({
+        shellExists: true,
+        openingStatus: "ready",
+        runActive: false,
+        providerUnavailable: true,
+      }),
+    ).toBe("This side chat's provider is unavailable. Enable it in Settings → Providers.");
+  });
 });
 
 describe("sideChatAnchorCitation", () => {
