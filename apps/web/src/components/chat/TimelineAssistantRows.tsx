@@ -50,7 +50,9 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      {/* Side-chat tags get a gutter: the line spacing is too tight to put them over the
+          text, and the list paints each row with `contain: paint`, so they can't go outside it. */}
+      <div className={cn("relative min-w-0 px-1 py-0.5", marksShown && "pr-6")}>
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <div data-thread-find-text="true">
           <AssistantCitationSource
