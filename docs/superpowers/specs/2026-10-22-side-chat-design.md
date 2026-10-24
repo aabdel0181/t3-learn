@@ -291,7 +291,7 @@ None of this touches `pendingMergeBackTransfers` or the merge-back guards.
     optimistic rows, fed into `ThreadTimeline`'s optimistic messages.
   - Pending approvals and questions from the side chat's AI render in the panel. When med opens the lesson while one
     is pending, the panel opens on that side chat.
-  - When done, the panel shows "Sent to lesson: …", "No note needed", "Writing note…" or "Couldn't write the note".
+  - When done, the panel shows "Goes with your next lesson message: …" until the lesson receives the note and "Sent to lesson: …" after, or "No note needed", "Writing note…" or "Couldn't write the note". A nested side chat names its parent side chat instead: "Goes with your next message in “<parent>”: …" and "Sent to “<parent>”: …".
 - **Input isolation (R3):** add a `[data-side-chat-panel]` scope and respect it in `shouldRedirectInputToComposer`
   (`composerFocusRedirect.ts:61-80`), `usePasteToFocusComposer`, `useComposerStash`, `useChatShortcuts` /
   `getShortcutContext` and `composerFocus`. Keystrokes and pastes inside the panel go to the side-chat composer,
