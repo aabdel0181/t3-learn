@@ -13,7 +13,10 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { useDiffPanelStore } from "../../diffPanelStore";
-import { type ThreadPanelPresentation } from "../../rightPanelLayout";
+import {
+  RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY,
+  type ThreadPanelPresentation,
+} from "../../rightPanelLayout";
 import {
   selectActiveRightPanel,
   type RightPanelSurface,
@@ -29,7 +32,7 @@ import type { useDeviceState } from "../../state/device";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
-import { revealSideChat } from "../sideChat/sideChatNavigation";
+import { focusSideChat, revealSideChat } from "../sideChat/sideChatNavigation";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 interface RightPanelActionsInput {
@@ -162,7 +165,12 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const addThreadMapSurfaceStable = useStableCallback(addThreadMapSurface);
   const openSideChatSurface = (threadId: ThreadId) => {
     if (!activeThreadRef) return;
-    revealSideChat(activeThreadRef, threadId);
+    // The sheet is modal, so focus has to go in, and it would otherwise land on a tab's close button.
+    if (window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches) {
+      focusSideChat(activeThreadRef, threadId);
+    } else {
+      revealSideChat(activeThreadRef, threadId);
+    }
   };
   const openSideChatSurfaceStable = useStableCallback(openSideChatSurface);
   const openFileSurface = (relativePath: string) => {
