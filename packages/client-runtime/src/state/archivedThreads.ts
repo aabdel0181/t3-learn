@@ -1,4 +1,8 @@
-import { EnvironmentId, type OrchestrationV2ArchivedShellSnapshot } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type OrchestrationV2ArchivedShellSnapshot,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Option from "effect/Option";
@@ -14,6 +18,23 @@ export interface ArchivedThreadSnapshotsState {
   readonly snapshots: ReadonlyArray<ArchivedSnapshotEntry>;
   readonly error: string | null;
   readonly isLoading: boolean;
+}
+
+/**
+ * The archived threads that get their own row. A side chat whose parent is archived too is left
+ * out: unarchiving the parent brings it back, and the server refuses to unarchive it alone.
+ */
+export function listedArchivedThreads<
+  Thread extends {
+    readonly id: ThreadId;
+    readonly sideChat?: { readonly anchor: { readonly threadId: ThreadId } };
+  },
+>(threads: ReadonlyArray<Thread>): ReadonlyArray<Thread> {
+  const archivedThreadIds = new Set(threads.map((thread) => thread.id));
+  return threads.filter(
+    (thread) =>
+      thread.sideChat === undefined || !archivedThreadIds.has(thread.sideChat.anchor.threadId),
+  );
 }
 
 const ARCHIVED_THREADS_ENVIRONMENT_KEY_SEPARATOR = "\u001f";

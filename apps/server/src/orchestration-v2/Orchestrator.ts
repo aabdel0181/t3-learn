@@ -2817,6 +2817,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} is not archived.`,
       });
     }
+    // A side chat comes back with its parent, so one unarchived alone would sit live under an
+    // archived thread that no list shows.
+    const parentThreadId = thread.lineage.parentThreadId;
+    if (
+      command.type === "thread.unarchive" &&
+      thread.sideChat !== undefined &&
+      parentThreadId !== null &&
+      (yield* projectionStore.getThread(parentThreadId).pipe(mapDispatchError(command)))
+        .archivedAt !== null
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${parentThreadId} is archived. Unarchive it instead.`,
+      });
+    }
     if (
       (command.type === "thread.settle" ||
         command.type === "thread.unsettle" ||
