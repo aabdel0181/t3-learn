@@ -37,6 +37,8 @@ import * as ProjectionStore from "../ProjectionStore.ts";
 import * as ProjectStore from "../ProjectStore.ts";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import * as ProviderAuthService from "../../provider/ProviderAuthService.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as TextGeneration from "../../textGeneration/TextGeneration.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ProviderContinuationService from "../ProviderContinuationService.ts";
 import * as ProviderEventIngestor from "../ProviderEventIngestor.ts";
@@ -50,6 +52,8 @@ import * as ProviderTurnStartServiceTestkit from "../ProviderTurnStartService.te
 import * as McpAppModelContext from "../../mcpApps/McpAppModelContext.ts";
 import * as RunExecutionService from "../RunExecutionService.ts";
 import * as RunFinalizationService from "../RunFinalizationService.ts";
+import * as SideChatLifecycleService from "../sideChat/SideChatLifecycleService.ts";
+import * as SideChatOpeningService from "../sideChat/SideChatOpeningService.ts";
 import * as ThreadTitleRegenerationService from "../ThreadTitleRegenerationService.ts";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
 import * as TurnItemPositionStore from "../TurnItemPositionStore.ts";
@@ -270,6 +274,8 @@ export function layerWithRegistry<Error>(
     readonly runContinuationWorker?: boolean;
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
+    /** The model behind every side-chat summary and note; it writes nothing by default. */
+    readonly sideChatTextGeneration?: TextGeneration.TextGeneration["Service"]["generateSideChatText"];
   } = {},
 ): Layer.Layer<
   | Orchestrator.OrchestratorV2
@@ -489,6 +495,23 @@ export function layerWithRegistry<Error>(
           ),
         )
       : Layer.empty;
+  const layerSideChatTextDependencies = Layer.mergeAll(
+    layerThreadManagementProvided,
+    layerServerSettings,
+    Layer.mock(TextGeneration.TextGeneration)({
+      generateSideChatText:
+        options.sideChatTextGeneration ?? (() => Effect.succeed({ text: null })),
+    }),
+    Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+  );
+  const layerSideChatOpeningProvided = SideChatOpeningService.layer.pipe(
+    Layer.provide(layerSideChatTextDependencies),
+  );
+  const layerSideChatLifecycleProvided = SideChatLifecycleService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(layerSideChatTextDependencies, layerStores, layerEventSinkProvided),
+    ),
+  );
   const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -499,6 +522,8 @@ export function layerWithRegistry<Error>(
         layerProviderTurnStartServiceProvided,
         layerRuntimeRequestServiceProvided,
         layerThreadTitleRegenerationTest,
+        layerSideChatOpeningProvided,
+        layerSideChatLifecycleProvided,
         layerServerSettings,
         layerThreadManagementProvided,
       ),

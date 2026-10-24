@@ -1,4 +1,7 @@
-import type { ArchivedSnapshotEntry } from "@t3tools/client-runtime/state/threads";
+import {
+  listedArchivedThreads,
+  type ArchivedSnapshotEntry,
+} from "@t3tools/client-runtime/state/threads";
 import {
   scopeProject,
   scopeThreadShell,
@@ -45,7 +48,7 @@ export function buildArchivedThreadGroups(input: {
 
     const environmentLabel = input.environmentLabels[entry.environmentId] ?? null;
     const threadsByProjectId = new Map<string, EnvironmentThreadShell[]>();
-    for (const thread of entry.snapshot.threads) {
+    for (const thread of listedArchivedThreads(entry.snapshot.threads)) {
       if (thread.archivedAt === null) {
         continue;
       }

@@ -24,6 +24,11 @@ import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import {
+  LESSON_THREAD_ID,
+  observationAnchor,
+  SIDE_CHAT_THREAD_ID,
+} from "./testkit/sideChatFixtures.ts";
 
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(
   Layer.provide(SqlitePersistence.layerMemory),
@@ -177,6 +182,42 @@ it.effect("uses thread-not-found only after a projection loads outside the proje
     expect(error).toMatchObject({ projectId, threadId });
     expect("cause" in error).toBe(false);
   }).pipe(Effect.provide(layerTest));
+});
+
+const sideChatOpenCommand = {
+  type: "thread.side_chat.open",
+  commandId: CommandId.make("command:thread-management:side-chat-open"),
+  threadId: SIDE_CHAT_THREAD_ID,
+  anchorThreadId: LESSON_THREAD_ID,
+  anchor: observationAnchor(),
+  excerpt: "observation space",
+  createdBy: "agent",
+  creationSource: "server",
+} as const;
+
+it("hydrates the anchor thread for a side chat open", () => {
+  expect(ThreadManagementService.existingThreadIdsForCommand(sideChatOpenCommand)).toEqual([
+    LESSON_THREAD_ID,
+  ]);
+});
+
+it("stamps creation provenance on side chat open and done", () => {
+  const provenance = { createdBy: "user", creationSource: "web" } as const;
+  expect(
+    ThreadManagementService.withCreationProvenance(sideChatOpenCommand, provenance),
+  ).toMatchObject(provenance);
+  expect(
+    ThreadManagementService.withCreationProvenance(
+      {
+        type: "thread.side_chat.done",
+        commandId: CommandId.make("command:thread-management:side-chat-done"),
+        threadId: SIDE_CHAT_THREAD_ID,
+        createdBy: "agent",
+        creationSource: "server",
+      },
+      provenance,
+    ),
+  ).toMatchObject(provenance);
 });
 
 it.effect("waitForThread follows a restart continuation instead of the cut run", () =>
@@ -337,3 +378,62 @@ it.effect.each([
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
+
+it.effect("agent thread listings never include side chats", () => {
+  const projectId = ProjectId.make("project:thread-management:listing");
+  const shell = (id: string, updatedAt: string, extra: object = {}) => ({
+    id: ThreadId.make(id),
+    projectId,
+    updatedAt: DateTime.makeUnsafe(updatedAt),
+    lineage: {
+      rootThreadId: ThreadId.make("lesson"),
+      parentThreadId: null,
+      relationshipToParent: null,
+    },
+    ...extra,
+  });
+  const lesson = shell("lesson", "2026-10-22T10:00:00.000Z");
+  const helper = shell("helper", "2026-10-22T11:00:00.000Z", {
+    lineage: {
+      rootThreadId: ThreadId.make("lesson"),
+      parentThreadId: ThreadId.make("lesson"),
+      relationshipToParent: "subagent",
+    },
+  });
+  const sideChat = shell("box", "2026-10-22T12:00:00.000Z", {
+    lineage: {
+      rootThreadId: ThreadId.make("lesson"),
+      parentThreadId: ThreadId.make("lesson"),
+      relationshipToParent: "fork",
+    },
+    sideChat: {
+      lessonThreadId: ThreadId.make("lesson"),
+      anchor: observationAnchor(),
+      label: "Box",
+      state: "done",
+      noteStatus: "ready",
+      excerptLength: 3,
+    },
+  });
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getShellSnapshot: () => Effect.succeed({ threads: [lesson, helper, sideChat] } as never),
+      }),
+    ),
+    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const service = yield* ThreadManagementService.ThreadManagementService;
+    const ids = (includeSubagents: boolean) =>
+      service
+        .listProjectThreads({ projectId, includeSubagents })
+        .pipe(Effect.map((threads) => threads.map((thread) => thread.id)));
+
+    expect(yield* ids(false)).toEqual(["lesson"]);
+    expect(yield* ids(true)).toEqual(["helper", "lesson"]);
+  }).pipe(Effect.provide(layerTest));
+});

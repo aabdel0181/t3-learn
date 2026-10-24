@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
+  isSideChatThread,
   type ModelSelection,
   type Project,
   ProjectId,
@@ -282,7 +283,9 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
     const shell = yield* threads.getShellSnapshot();
     const existingThread = shell.threads.find(
       (thread) =>
-        thread.projectId === project.id && thread.lineage.relationshipToParent !== "subagent",
+        thread.projectId === project.id &&
+        thread.lineage.relationshipToParent !== "subagent" &&
+        !isSideChatThread(thread),
     );
     if (existingThread === undefined) {
       const serverSettings = yield* ServerSettings.ServerSettingsService;

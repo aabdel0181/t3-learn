@@ -34,6 +34,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { deriveSideChatTree } from "@t3tools/client-runtime/state/thread-relationships";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -59,6 +60,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  NetworkIcon,
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
@@ -85,6 +87,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
   composerPromptLink,
   copyPromptLink,
@@ -93,6 +96,7 @@ import {
 import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useTheme } from "../hooks/useTheme";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
@@ -112,7 +116,14 @@ import {
   useEnvironments,
   usePrimaryEnvironmentId,
 } from "../state/environments";
-import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
+import {
+  readSideChatTreeShells,
+  useProjects,
+  useServerConfigs,
+  useSideChatTreeShells,
+  useThreadShells,
+  waitForProject,
+} from "../state/entities";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -131,9 +142,9 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   PULL_REQUESTS_PANEL_REF,
   selectActiveRightPanel,
+  selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
 import {
   cn,
   getLocalFileManagerName,
@@ -170,7 +181,6 @@ import {
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
-  RECENT_THREAD_LIMIT,
   reduceCommandPaletteUiState,
   createCommandPaletteSearchState,
   type AddProjectCloneFlow,
@@ -181,6 +191,7 @@ import {
   overlayModeForCommand,
   remoteProjectInputPlaceholder,
   reduceCommandPaletteSearchState,
+  resolveProjectLatestThread,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -217,6 +228,14 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
+import {
+  leaveSideChat,
+  showLesson,
+  openThreadTarget,
+  resolveFinishableSideChat,
+  sideChatLessonRef,
+} from "./sideChat/sideChatNavigation";
+import { shouldFinishSideChatOnClose } from "./sideChat/sideChatPanel.logic";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -514,6 +533,9 @@ function OpenCommandPaletteDialog(props: {
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
     reportFailure: false,
   });
+  const finishSideChat = useAtomCommand(threadEnvironment.finishSideChat, {
+    reportFailure: false,
+  });
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -538,6 +560,18 @@ function OpenCommandPaletteDialog(props: {
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
+  );
+  const sideChatLesson =
+    activeThread !== null && activeThreadServerConfig?.environment.capabilities.sideChats === true
+      ? sideChatLessonRef(activeThread)
+      : null;
+  const sideChatLessonPanel = useRightPanelStore((state) =>
+    selectThreadRightPanelState(state.byThreadKey, sideChatLesson),
+  );
+  const sideChatLessonShells = useSideChatTreeShells(sideChatLesson);
+  const canOperateSideChatLesson = useEnvironmentScope(
+    sideChatLesson?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
   );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
@@ -820,20 +854,12 @@ function OpenCommandPaletteDialog(props: {
           ),
         )
       : null;
-    const latestThread = groupedProjectKeys
-      ? (sortThreads(
-          threads.filter(
-            (thread) =>
-              thread.archivedAt === null &&
-              groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
-          ),
-          clientSettings.sidebarThreadSortOrder,
-        )[0] ?? null)
-      : getLatestThreadForProject(
-          threads.filter((thread) => thread.environmentId === project.environmentId),
-          project.id,
-          clientSettings.sidebarThreadSortOrder,
-        );
+    const latestThread = resolveProjectLatestThread({
+      threads,
+      project,
+      groupedProjectKeys,
+      sortOrder: clientSettings.sidebarThreadSortOrder,
+    });
     if (latestThread) {
       await navigate({
         to: "/$environmentId/$threadId",
@@ -895,9 +921,11 @@ function OpenCommandPaletteDialog(props: {
     ];
   })();
 
-  const { threadItems: allThreadItems, isSearchPending: isThreadSearchPending } =
-    useCommandPaletteThreadItems({ activeThreadId, threadSearchQuery });
-  const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const {
+    threadItems: allThreadItems,
+    recentThreadItems,
+    isSearchPending: isThreadSearchPending,
+  } = useCommandPaletteThreadItems({ activeThreadId, threadSearchQuery });
 
   // Stable so the item builders that capture it during render never see the
   // highlight ref it writes.
@@ -1343,6 +1371,69 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  if (activeThread !== null && sideChatLesson !== null) {
+    const lessonRef = sideChatLesson;
+    const currentThreadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-side-chat-map",
+      // The filter reads only searchTerms, so the title goes first for anyone typing what they see.
+      searchTerms: ["Open side-chat map", "side chat", "map", "tree", "diagram", "detours"],
+      title: "Open side-chat map",
+      icon: <NetworkIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(lessonRef, "thread-map");
+        await openThreadTarget({
+          navigate,
+          environmentId: lessonRef.environmentId,
+          target: { routeThreadId: lessonRef.threadId, sideChatThreadId: null },
+          currentThreadRef,
+        });
+      },
+    });
+    const finishable = resolveFinishableSideChat({
+      surfaces: sideChatLessonPanel.surfaces,
+      activeSurfaceId: sideChatLessonPanel.isOpen ? sideChatLessonPanel.activeSurfaceId : null,
+      shells: sideChatLessonShells,
+      environmentId: lessonRef.environmentId,
+    });
+    if (finishable !== null && canOperateSideChatLesson) {
+      actionItems.push({
+        kind: "action",
+        value: "action:finish-side-chat",
+        searchTerms: ["Finish side chat (Done)", "side chat", "done", "finish", finishable.label],
+        title: "Finish side chat (Done)",
+        description: finishable.label,
+        icon: <CheckIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const shells = readSideChatTreeShells(lessonRef);
+          const rows = deriveSideChatTree(shells, lessonRef.threadId);
+          const deletes = shouldFinishSideChatOnClose(
+            shells.find((shell) => shell.id === finishable.threadId) ?? null,
+          );
+          if (leaveSideChat(lessonRef, finishable.surface, rows) === "closed") {
+            // The palette hands focus back to the lesson composer, which a sheet would cover.
+            showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
+          }
+          const finished = await finishSideChat({
+            environmentId: lessonRef.environmentId,
+            input: { threadId: finishable.threadId },
+          });
+          if (finished._tag === "Success") {
+            // The server deleted the empty side chat, so nothing can reach its draft again.
+            if (deletes) {
+              useComposerDraftStore
+                .getState()
+                .clearComposerContent(scopeThreadRef(lessonRef.environmentId, finishable.threadId));
+            }
+          } else if (!isAtomCommandInterrupted(finished)) {
+            throw squashAtomCommandFailure(finished);
+          }
+        },
+      });
+    }
+  }
+
   if (activeThread !== null) {
     const thread = activeThread;
     actionItems.push({
@@ -1698,11 +1789,12 @@ function OpenCommandPaletteDialog(props: {
       cwd,
     );
     if (existing) {
-      const latestThread = getLatestThreadForProject(
-        threads.filter((thread) => thread.environmentId === existing.environmentId),
-        existing.id,
-        clientSettings.sidebarThreadSortOrder,
-      );
+      const latestThread = resolveProjectLatestThread({
+        threads,
+        project: existing,
+        groupedProjectKeys: null,
+        sortOrder: clientSettings.sidebarThreadSortOrder,
+      });
       if (latestThread && latestThread.settledOverride !== "settled") {
         await navigate({
           to: "/$environmentId/$threadId",

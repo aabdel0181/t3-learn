@@ -1,10 +1,13 @@
 import {
   isOrchestrationV2WorkActive,
+  isSideChatThread,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+
+import type { EnvironmentThreadShell } from "./models.ts";
 
 export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
 
@@ -36,7 +39,13 @@ export interface ThreadRelationshipWalkRow {
 export function resolveMergeBackTargetThreadId(
   projection: Pick<OrchestrationV2ThreadProjection, "thread"> | null,
 ): ThreadId | null {
-  if (projection?.thread.lineage.relationshipToParent !== "fork") return null;
+  // A side chat is a fork of its parent, but it hands back through Done, not Merge back.
+  if (
+    projection?.thread.lineage.relationshipToParent !== "fork" ||
+    isSideChatThread(projection.thread)
+  ) {
+    return null;
+  }
   return projection.thread.forkedFrom?.type === "run"
     ? projection.thread.forkedFrom.threadId
     : projection.thread.lineage.parentThreadId;
@@ -245,4 +254,100 @@ export function orderWebThreadLineageRows(input: {
     }
     return left.threadId < right.threadId ? -1 : left.threadId > right.threadId ? 1 : 0;
   });
+}
+
+export interface SideChatTreeRow {
+  readonly threadId: ThreadId;
+  readonly parentId: ThreadId | null;
+  readonly depth: number;
+  readonly label: string;
+  readonly state: "lesson" | "open" | "done";
+  readonly noteStatus: "generating" | "ready" | "none" | "failed" | null;
+}
+
+type SideChatTreeShell = Pick<EnvironmentThreadShell, "id" | "title" | "createdAt" | "sideChat">;
+
+interface SideChatTreeMember {
+  readonly id: ThreadId;
+  readonly createdAt: string;
+  readonly sideChat: NonNullable<SideChatTreeShell["sideChat"]>;
+}
+
+function compareSideChatSiblings(left: SideChatTreeMember, right: SideChatTreeMember): number {
+  if (left.createdAt !== right.createdAt) return left.createdAt < right.createdAt ? -1 : 1;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/**
+ * The lesson and its side chats as rows for the map: the lesson first, then
+ * depth-first preorder with siblings in creation order. A side chat whose
+ * parent is not one of the lesson's side chats hangs under the lesson.
+ */
+export function deriveSideChatTree(
+  shells: ReadonlyArray<SideChatTreeShell>,
+  lessonThreadId: ThreadId,
+): ReadonlyArray<SideChatTreeRow> {
+  // Callers order shells from most to least authoritative, so the first wins.
+  const shellsById = new Map<ThreadId, SideChatTreeShell>();
+  for (const shell of shells) {
+    if (!shellsById.has(shell.id)) shellsById.set(shell.id, shell);
+  }
+
+  const members: SideChatTreeMember[] = [];
+  for (const { id, createdAt, sideChat } of shellsById.values()) {
+    if (id === lessonThreadId || sideChat?.lessonThreadId !== lessonThreadId) continue;
+    members.push({ id, createdAt, sideChat });
+  }
+  members.sort(compareSideChatSiblings);
+
+  const memberIds = new Set(members.map((member) => member.id));
+  const childrenByParentId = new Map<ThreadId, SideChatTreeMember[]>();
+  for (const member of members) {
+    const anchorThreadId = member.sideChat.anchor.threadId;
+    const parentId = memberIds.has(anchorThreadId) ? anchorThreadId : lessonThreadId;
+    const siblings = childrenByParentId.get(parentId);
+    if (siblings === undefined) childrenByParentId.set(parentId, [member]);
+    else siblings.push(member);
+  }
+
+  const rows: SideChatTreeRow[] = [
+    {
+      threadId: lessonThreadId,
+      parentId: null,
+      depth: 0,
+      label: shellsById.get(lessonThreadId)?.title ?? "Lesson",
+      state: "lesson",
+      noteStatus: null,
+    },
+  ];
+  const visited = new Set<ThreadId>();
+  const walk = (start: SideChatTreeMember, startParentId: ThreadId, startDepth: number): void => {
+    const pending = [{ member: start, parentId: startParentId, depth: startDepth }];
+    for (let entry = pending.pop(); entry !== undefined; entry = pending.pop()) {
+      const { member, parentId, depth } = entry;
+      if (visited.has(member.id)) continue;
+      visited.add(member.id);
+      rows.push({
+        threadId: member.id,
+        parentId,
+        depth,
+        label: member.sideChat.label,
+        state: member.sideChat.state,
+        noteStatus: member.sideChat.noteStatus,
+      });
+      const children = childrenByParentId.get(member.id) ?? [];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        pending.push({ member: children[index]!, parentId: member.id, depth: depth + 1 });
+      }
+    }
+  };
+
+  for (const child of childrenByParentId.get(lessonThreadId) ?? []) {
+    walk(child, lessonThreadId, 1);
+  }
+  // A member still unvisited sits on a parent cycle, so hang it under the lesson to keep it reachable.
+  for (const member of members) {
+    if (!visited.has(member.id)) walk(member, lessonThreadId, 1);
+  }
+  return rows;
 }

@@ -6,6 +6,7 @@ import type {
   Project,
   ThreadId,
 } from "@t3tools/contracts";
+import { isSideChatThread } from "@t3tools/contracts";
 import {
   RelayApi,
   type RelayAgentActivityPublishProofPayload,
@@ -516,12 +517,13 @@ export const make = Effect.gen(function* () {
     // of one thread's activity proportional to how many threads exist.
     const threadShell = yield* threads.getThreadShell(threadId);
     if (
-      threadShell?.lineage.relationshipToParent === "subagent" &&
+      threadShell !== null &&
+      (threadShell.lineage.relationshipToParent === "subagent" || isSideChatThread(threadShell)) &&
       !(yield* Ref.get(publishedStateByThreadRef)).has(threadId)
     ) {
-      // Subagents never project activity, so the relay holds no row to clear.
-      // Their events would otherwise publish a tombstone each, and every
-      // publish re-delivers the user's aggregate.
+      // Subagents and side chats never project activity, so the relay holds no
+      // row to clear. Their events would otherwise publish a tombstone each,
+      // and every publish re-delivers the user's aggregate.
       return;
     }
     const thread =

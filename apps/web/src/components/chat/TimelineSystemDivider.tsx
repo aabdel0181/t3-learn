@@ -11,6 +11,7 @@ export function TimelineSystemDivider(props: {
   readonly icon?: LucideIcon;
   readonly showDetailSeparator?: boolean;
   readonly actionLabel?: string;
+  readonly actionExpanded?: boolean;
   readonly onAction?: () => void;
 }) {
   const Icon = props.icon;
@@ -47,6 +48,7 @@ export function TimelineSystemDivider(props: {
               <button
                 type="button"
                 aria-label={props.actionLabel}
+                aria-expanded={props.actionExpanded}
                 onClick={props.onAction}
                 className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 py-1 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
               />

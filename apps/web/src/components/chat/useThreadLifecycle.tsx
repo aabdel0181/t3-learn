@@ -17,6 +17,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   type EnvironmentId,
+  isSideChatThread,
   type ScopedThreadRef,
   type ThreadId,
   ProviderInteractionMode,
@@ -46,6 +47,7 @@ import { useEnvironmentScope } from "~/state/session";
 import { threadEnvironment } from "../../state/threads";
 import { vcsEnvironment } from "../../state/vcs";
 import { useChildThreadInputs, readThreadShell, waitForThreadShell } from "../../state/entities";
+import { openThreadTarget, resolveThreadOpenTarget } from "../sideChat/sideChatNavigation";
 import { environmentShell } from "../../state/shell";
 import { ThreadStatusLine } from "./ThreadStatusLine";
 import { formatRelativeTimeLabel, formatRelativeTimeUntilLabel } from "../../timestampFormat";
@@ -442,12 +444,25 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   };
   const onOpenRelatedThreadStable = useStableCallback(onOpenRelatedThread);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
+  // A side chat is answered in its lesson's panel, so its request opens there.
+  const onOpenChildThread = (threadId: ThreadId) => {
+    const child = childThreadInputs.find((thread) => thread.id === threadId);
+    return child !== undefined && isSideChatThread(child)
+      ? openThreadTarget({
+          navigate,
+          environmentId,
+          target: resolveThreadOpenTarget(child),
+          currentThreadRef: activeThreadRef,
+        })
+      : onOpenRelatedThread(threadId);
+  };
+  const onOpenChildThreadStable = useStableCallback(onOpenChildThread);
   const childInputBanner = childInputBannerItem({
     childThreadInputs,
     parentAwaitingUser: Boolean(
       activePendingApproval || activePendingUserInput || activeThreadShell?.hasPendingUserInput,
     ),
-    onOpenThread: onOpenRelatedThreadStable,
+    onOpenThread: onOpenChildThreadStable,
   });
 
   const sendStandaloneCommand = async (text: string, failureMessage: string) => {

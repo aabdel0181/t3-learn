@@ -26,6 +26,7 @@ import {
   type OrchestrationV2ThreadTranscript,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
+  isSideChatThread,
   ProjectId,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ProviderInstanceId,
@@ -73,6 +74,8 @@ export function withCreationProvenance(
     case "message.dispatch":
     case "thread.fork":
     case "thread.merge_back":
+    case "thread.side_chat.open":
+    case "thread.side_chat.done":
     case "delegated_task.request":
       return { ...command, ...provenance };
     default:
@@ -80,7 +83,7 @@ export function withCreationProvenance(
   }
 }
 
-function existingThreadIdsForCommand(
+export function existingThreadIdsForCommand(
   command: OrchestrationV2ServerCommand,
 ): ReadonlyArray<ThreadId> {
   switch (command.type) {
@@ -95,6 +98,9 @@ function existingThreadIdsForCommand(
       return [];
     case "thread.fork":
       return [command.sourceThreadId];
+    // The side chat does not exist yet; its opening reads the anchor's messages.
+    case "thread.side_chat.open":
+      return [command.anchorThreadId];
     case "thread.merge_back":
       return command.sourceThreadId === command.targetThreadId
         ? [command.sourceThreadId]
@@ -363,6 +369,7 @@ export interface ThreadManagementServiceShape {
     readonly location?: "active" | "archive";
   }) => Effect.Effect<OrchestrationV2ThreadShellSnapshot, Orchestrator.OrchestratorV2Error>;
   readonly listActiveSubagentThreadIds: Orchestrator.OrchestratorV2["Service"]["listActiveSubagentThreadIds"];
+  readonly listActiveSideChatThreadIds: Orchestrator.OrchestratorV2["Service"]["listActiveSideChatThreadIds"];
   readonly readShellSnapshot: (options?: {
     readonly location?: "active" | "archive";
   }) => Effect.Effect<
@@ -737,9 +744,11 @@ const make = Effect.gen(function* () {
       ),
       Effect.map((snapshot) =>
         snapshot.threads
+          // Side chats are the user's own panels, so agents never see them, even with includeSubagents.
           .filter(
             (thread) =>
-              input.includeSubagents || thread.lineage.relationshipToParent !== "subagent",
+              !isSideChatThread(thread) &&
+              (input.includeSubagents || thread.lineage.relationshipToParent !== "subagent"),
           )
           .toSorted(
             (left, right) =>
@@ -1175,6 +1184,7 @@ const make = Effect.gen(function* () {
     getProjectThread,
     getShellSnapshot: orchestrator.getShellSnapshot,
     listActiveSubagentThreadIds: orchestrator.listActiveSubagentThreadIds,
+    listActiveSideChatThreadIds: orchestrator.listActiveSideChatThreadIds,
     readShellSnapshot: orchestrator.readShellSnapshot,
     getThreadShell: orchestrator.getThreadShell,
     listProjectThreads,

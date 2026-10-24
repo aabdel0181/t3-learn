@@ -7,6 +7,8 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
   ThreadId,
   TurnItemId,
   type OrchestrationV2ThreadProjection,
@@ -73,7 +75,29 @@ describe("orchestration V2 wire projection", () => {
       payload: item,
     };
     expect(JSON.stringify(projectDomainEventForWire(event))).not.toContain(item.summary);
+    expect(projectTurnItemForDetail(item)).not.toHaveProperty("summary");
     expect(item.summary).toBe("PRIVATE_HANDOFF_TRANSCRIPT");
+  });
+
+  it("sends what a side chat handoff gave the AI only when a client fetches the item", () => {
+    const handoff = (title: string | null) => ({
+      ...base,
+      type: "handoff" as const,
+      title,
+      contextHandoffId: ContextHandoffId.make("handoff:side-chat"),
+      fromProviderThreadIds: [],
+      toProviderThreadId: ProviderThreadId.make("target"),
+      fromProviderInstanceIds: [],
+      toProviderInstanceId: ProviderInstanceId.make("codex"),
+      strategy: "manual_context" as const,
+      summary: "WHAT_THE_AI_WAS_GIVEN",
+    });
+    for (const title of [SIDE_CHAT_CONTEXT_HANDOFF_TITLE, SIDE_CHAT_NOTES_HANDOFF_TITLE]) {
+      const item = handoff(title);
+      expect(projectTurnItemForWire(item)).not.toHaveProperty("summary");
+      expect(projectTurnItemForDetail(item)).toMatchObject({ summary: "WHAT_THE_AI_WAS_GIVEN" });
+    }
+    expect(projectTurnItemForDetail(handoff("Switched provider"))).not.toHaveProperty("summary");
   });
 
   it("preserves image metadata through wire and JSON contracts while redacting output", () => {

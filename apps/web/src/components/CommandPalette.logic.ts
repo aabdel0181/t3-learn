@@ -11,6 +11,7 @@ import {
   type EnvironmentId,
   type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
+  isSideChatThread,
   type KeybindingCommand,
   type SourceControlDiscoveryResult,
   type SourceControlRepositoryInfo,
@@ -21,12 +22,17 @@ import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { type ReactNode } from "react";
-import { getThreadSortTimestamp, sortThreads } from "../lib/threadSort";
+import {
+  getLatestThreadForProject,
+  getThreadSortTimestamp,
+  sortThreads,
+  type ThreadSortInput,
+} from "../lib/threadSort";
 import { normalizeSearchText } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
-export const RECENT_THREAD_LIMIT = 12;
+const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
 
@@ -346,6 +352,42 @@ export function buildProjectActionItems(input: {
   }));
 }
 
+/**
+ * The thread opening a project lands on: the latest of its threads, or of its group's
+ * when it heads one. Never a side chat, which opens only in its lesson's panel.
+ */
+export function resolveProjectLatestThread<
+  TThread extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "projectId"> &
+    ThreadSortInput & { readonly sideChat?: unknown },
+>(input: {
+  readonly threads: ReadonlyArray<TThread>;
+  readonly project: Pick<Project, "environmentId" | "id">;
+  readonly groupedProjectKeys: ReadonlySet<string> | null;
+  readonly sortOrder: SidebarThreadSortOrder;
+}): TThread | null {
+  const groupedProjectKeys = input.groupedProjectKeys;
+  if (groupedProjectKeys) {
+    return (
+      sortThreads(
+        input.threads.filter(
+          (thread) =>
+            thread.archivedAt === null &&
+            !isSideChatThread(thread) &&
+            groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
+        ),
+        input.sortOrder,
+      )[0] ?? null
+    );
+  }
+  return getLatestThreadForProject(
+    input.threads.filter(
+      (thread) => thread.environmentId === input.project.environmentId && !isSideChatThread(thread),
+    ),
+    input.project.id,
+    input.sortOrder,
+  );
+}
+
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
   | "archivedAt"
@@ -356,6 +398,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "modelSelection"
   | "projectId"
   | "runtime"
+  | "sideChat"
   | "title"
   | "worktreePath"
 > & {
@@ -374,7 +417,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   renderTrailingContent?: (thread: TThread) => ReactNode;
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
-  runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
+  runThread: (
+    thread: Pick<SidebarThreadSummary, "environmentId" | "id" | "sideChat">,
+  ) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
@@ -434,6 +479,25 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         },
       },
     );
+  });
+}
+
+export type ThreadActionItemsInput<TThread extends BuildThreadActionItemsThread> = Omit<
+  Parameters<typeof buildThreadActionItems<TThread>>[0],
+  "limit"
+>;
+
+/**
+ * The empty query's recent threads. Side chats stay out, as in every other thread
+ * list: they open inside their lesson's panel, and search still finds them.
+ */
+export function buildRecentThreadActionItems<TThread extends BuildThreadActionItemsThread>(
+  input: ThreadActionItemsInput<TThread>,
+): CommandPaletteActionItem[] {
+  return buildThreadActionItems({
+    ...input,
+    threads: input.threads.filter((thread) => !isSideChatThread(thread)),
+    limit: RECENT_THREAD_LIMIT,
   });
 }
 

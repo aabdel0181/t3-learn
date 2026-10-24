@@ -95,6 +95,19 @@ export type ReviewGuideGenerationResult = Omit<
   "headSha" | "generatedAt" | "modelSelection"
 >;
 
+export type SideChatTextKind = "opening_summary" | "outcome_note";
+
+export interface SideChatTextGenerationInput {
+  kind: SideChatTextKind;
+  prompt: string;
+  cwd: string;
+  modelSelection: ModelSelection;
+}
+
+export interface SideChatTextGenerationResult {
+  text: string | null;
+}
+
 export interface ProviderTextGeneration {
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,
@@ -115,4 +128,8 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateSideChatText: (
+    input: SideChatTextGenerationInput,
+  ) => Effect.Effect<SideChatTextGenerationResult, TextGenerationError>;
 }

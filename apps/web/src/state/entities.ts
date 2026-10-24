@@ -18,11 +18,14 @@ import {
   threadKey,
 } from "@t3tools/client-runtime/state/entities";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
-import type {
-  EnvironmentId,
-  OrchestrationV2ProjectedTurnItem,
-  OrchestrationV2ThreadProjection,
-  OrchestrationV2ThreadShell,
+import {
+  isSideChatThread,
+  MessageId,
+  type EnvironmentId,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2SideChatAnchor,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
@@ -389,6 +392,14 @@ function shellParentThreadId(
     : thread.lineage.parentThreadId;
 }
 
+/** Side chats live in their lesson's panel, so Lineage shows one only as the current thread. */
+export function isLineageThread(
+  thread: Pick<OrchestrationV2ThreadShell, "id" | "sideChat">,
+  currentThreadId: ThreadId,
+): boolean {
+  return thread.id === currentThreadId || !isSideChatThread(thread);
+}
+
 /**
  * The live shells the panel's immediate relationships can reach: the thread,
  * its parent, its children, and the threads its subagents, workflow members and
@@ -423,7 +434,9 @@ export function selectThreadRelationshipShells(
   const currentParentId = current === undefined ? null : shellParentThreadId(current);
   if (currentParentId !== null) named.add(currentParentId);
   return threads.filter(
-    (thread) => named.has(thread.id) || shellParentThreadId(thread) === threadId,
+    (thread) =>
+      (named.has(thread.id) || shellParentThreadId(thread) === threadId) &&
+      isLineageThread(thread, threadId),
   );
 }
 
@@ -446,4 +459,215 @@ export function useThreadRelationshipShells(
   ref: ScopedThreadRef,
 ): ReadonlyArray<OrchestrationV2ThreadShell> {
   return useAtomValue(relationshipShellsAtomFamily(threadKey(ref)));
+}
+
+/**
+ * The lesson and its live side chats from its environment, in input order. The
+ * lesson comes along so the side-chat tree can label its root; archived and
+ * deleted shells, other lessons' side chats and other environments are left out.
+ */
+export function selectSideChatTreeShells(
+  lessonRef: ScopedThreadRef,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return shells.filter(
+    (shell) =>
+      shell.environmentId === lessonRef.environmentId &&
+      shell.archivedAt === null &&
+      shell.deletedAt === null &&
+      (shell.id === lessonRef.threadId || shell.sideChat?.lessonThreadId === lessonRef.threadId),
+  );
+}
+
+/**
+ * Built from the quiet shells and held while the lesson's own shells are
+ * unchanged, so another thread streaming does not re-render its readers.
+ */
+const sideChatTreeShellsAtomFamily = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  let previous: ReadonlyArray<EnvironmentThreadShell> = [];
+  return Atom.make((get) => {
+    const next = selectSideChatTreeShells(ref, get(environmentThreadShells.quietThreadShellsAtom));
+    if (arrayElementsEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-tree-shells:${key}`));
+});
+
+export function useSideChatTreeShells(
+  lessonRef: ScopedThreadRef | null,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return useAtomValue(
+    lessonRef === null
+      ? EMPTY_THREAD_SHELLS_ATOM
+      : sideChatTreeShellsAtomFamily(threadKey(lessonRef)),
+  );
+}
+
+export function readSideChatTreeShells(
+  lessonRef: ScopedThreadRef,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return appAtomRegistry.get(sideChatTreeShellsAtomFamily(threadKey(lessonRef)));
+}
+
+export interface SideChatMark {
+  readonly threadId: ThreadId;
+  readonly label: string;
+  readonly state: "open" | "done";
+  readonly anchor: OrchestrationV2SideChatAnchor;
+}
+
+const EMPTY_SIDE_CHAT_MARKS: ReadonlyArray<SideChatMark> = Object.freeze([]);
+const EMPTY_SIDE_CHAT_MARKS_ATOM = Atom.make(EMPTY_SIDE_CHAT_MARKS).pipe(
+  Atom.withLabel("web-side-chat-marks:empty"),
+);
+
+function isLiveSideChatAnchoredIn(
+  shell: EnvironmentThreadShell,
+  anchorRef: ScopedThreadRef,
+): boolean {
+  return (
+    shell.environmentId === anchorRef.environmentId &&
+    shell.archivedAt === null &&
+    shell.deletedAt === null &&
+    shell.sideChat?.anchor.threadId === anchorRef.threadId
+  );
+}
+
+/** The live side chats that highlight text in `messageId` of the anchor thread, oldest first. */
+export function selectSideChatMarks(
+  anchorRef: ScopedThreadRef,
+  messageId: MessageId,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<SideChatMark> {
+  const marks: { readonly createdAt: string; readonly mark: SideChatMark }[] = [];
+  for (const shell of shells) {
+    const sideChat = shell.sideChat;
+    if (!sideChat || sideChat.anchor.messageId !== messageId) continue;
+    if (!isLiveSideChatAnchoredIn(shell, anchorRef)) continue;
+    marks.push({
+      createdAt: shell.createdAt,
+      mark: {
+        threadId: shell.id,
+        label: sideChat.label,
+        state: sideChat.state,
+        anchor: sideChat.anchor,
+      },
+    });
+  }
+  marks.sort((left, right) =>
+    left.createdAt === right.createdAt ? 0 : left.createdAt < right.createdAt ? -1 : 1,
+  );
+  return marks.map((entry) => entry.mark);
+}
+
+export function sideChatMarksEqual(
+  left: ReadonlyArray<SideChatMark>,
+  right: ReadonlyArray<SideChatMark>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((mark, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        mark.threadId === other.threadId &&
+        mark.label === other.label &&
+        mark.state === other.state &&
+        mark.anchor.threadId === other.anchor.threadId &&
+        mark.anchor.messageId === other.anchor.messageId &&
+        mark.anchor.start === other.anchor.start &&
+        mark.anchor.end === other.anchor.end &&
+        mark.anchor.prefix === other.anchor.prefix &&
+        mark.anchor.suffix === other.anchor.suffix
+      );
+    })
+  );
+}
+
+/**
+ * The side chats anchored anywhere in one thread, filtered from the quiet shells
+ * once so each of its rows only slices this short list.
+ */
+const sideChatAnchorShellsAtomFamily = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  let previous: ReadonlyArray<EnvironmentThreadShell> = [];
+  return Atom.make((get) => {
+    const next = get(environmentThreadShells.quietThreadShellsAtom).filter((shell) =>
+      isLiveSideChatAnchoredIn(shell, ref),
+    );
+    if (arrayElementsEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-anchor-shells:${key}`));
+});
+
+const SIDE_CHAT_MARKS_KEY_SEPARATOR = "\u001f";
+
+/** Held while the message's marks draw the same, so a side chat's own updates do not repaint its row. */
+const sideChatMarksAtomFamily = Atom.family((key: string) => {
+  const separator = key.lastIndexOf(SIDE_CHAT_MARKS_KEY_SEPARATOR);
+  const anchorKey = key.slice(0, separator);
+  const ref = parseThreadKey(anchorKey);
+  const messageId = MessageId.make(key.slice(separator + 1));
+  let previous = EMPTY_SIDE_CHAT_MARKS;
+  return Atom.make((get) => {
+    const next = selectSideChatMarks(
+      ref,
+      messageId,
+      get(sideChatAnchorShellsAtomFamily(anchorKey)),
+    );
+    if (sideChatMarksEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-side-chat-marks:${key}`));
+});
+
+export function useSideChatMarks(
+  anchorRef: ScopedThreadRef | null,
+  messageId: MessageId,
+): ReadonlyArray<SideChatMark> {
+  return useAtomValue(
+    anchorRef === null
+      ? EMPTY_SIDE_CHAT_MARKS_ATOM
+      : sideChatMarksAtomFamily(
+          `${threadKey(anchorRef)}${SIDE_CHAT_MARKS_KEY_SEPARATOR}${messageId}`,
+        ),
+  );
+}
+
+const EMPTY_SIDE_CHAT_NOTE_DELIVERED_ATOM = Atom.make<boolean | null>(null).pipe(
+  Atom.withLabel("web-side-chat-note-delivered:empty"),
+);
+const SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR = "\u001f";
+
+/** One answer from the parent's structure, so the parent's other updates do not re-render readers. */
+const sideChatNoteDeliveredAtomFamily = Atom.family((key: string) => {
+  const [parentKey = "", sideChatId = "", requestId = ""] = key.split(
+    SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR,
+  );
+  const parentRef = parseThreadKey(parentKey);
+  const childId = ThreadId.make(sideChatId);
+  return Atom.make((get) => {
+    const parent = get(environmentThreadDetails.quietThreadAtom(parentRef));
+    if (parent === null) return null;
+    return parent.projection.thread.sideChatNoteDeliveries?.[childId] === requestId;
+  }).pipe(Atom.withLabel(`web-side-chat-note-delivered:${key}`));
+});
+
+/** Whether the parent received the side chat's note `requestId`; null until the parent's detail loads. */
+export function useSideChatNoteDelivered(
+  parentRef: ScopedThreadRef | null,
+  sideChatId: ThreadId,
+  requestId: string,
+): boolean | null {
+  return useAtomValue(
+    parentRef === null
+      ? EMPTY_SIDE_CHAT_NOTE_DELIVERED_ATOM
+      : sideChatNoteDeliveredAtomFamily(
+          [threadKey(parentRef), sideChatId, requestId].join(
+            SIDE_CHAT_NOTE_DELIVERED_KEY_SEPARATOR,
+          ),
+        ),
+  );
 }

@@ -19,6 +19,8 @@ import * as ProviderTurnControl from "./ProviderTurnControlService.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunFinalization from "./RunFinalizationService.ts";
 import * as RuntimeRequests from "./RuntimeRequestService.ts";
+import * as SideChatLifecycle from "./sideChat/SideChatLifecycleService.ts";
+import * as SideChatOpening from "./sideChat/SideChatOpeningService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitles from "./ThreadTitleRegenerationService.ts";
 
@@ -89,6 +91,10 @@ it.effect.each([
         Layer.mock(CheckpointRollback.CheckpointRollbackServiceV2)({}),
         Layer.mock(RuntimeRequests.RuntimeRequestServiceV2)({}),
         Layer.mock(ThreadTitles.ThreadTitleRegenerationService)({}),
+        Layer.mock(SideChatOpening.SideChatOpeningService)({ execute: () => Effect.void }),
+        Layer.mock(SideChatLifecycle.SideChatLifecycleService)({
+          awaitNotesForRunStart: () => Effect.void,
+        }),
         Layer.mock(ThreadManagement.ThreadManagementService)({}),
         ServerSettings.layerTest(),
         Layer.mock(ProviderTurnStart.ProviderTurnStartServiceV2)({

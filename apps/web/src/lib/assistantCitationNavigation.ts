@@ -5,6 +5,7 @@ import {
 } from "@t3tools/shared/assistantCitations";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Result from "effect/Result";
+import { createContext } from "react";
 
 import { randomUUID } from "./utils";
 
@@ -45,3 +46,11 @@ export function assistantCitationNavigation(citation: AssistantCitation) {
     state: { assistantCitationActivation: randomUUID() },
   };
 }
+
+/**
+ * Shows a citation where it is instead of following its link; false follows the link.
+ * The side-chat panel sets it, since a side chat's own route would replace the lesson.
+ */
+export const AssistantCitationRevealContext = createContext<
+  ((citation: AssistantCitation) => boolean) | null
+>(null);

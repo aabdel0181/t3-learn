@@ -4,7 +4,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef } from "react";
 
@@ -96,7 +96,14 @@ export function ReopenClosedViewShortcut() {
       return {
         environmentKnown: catalog.entries.has(ref.environmentId),
         catalogReady: catalog.isReady,
-        ownerExists: readThreadShell(ref) !== null || drafts.getDraftThreadByRef(ref) !== null,
+        ownerExists:
+          (readThreadShell(ref) !== null || drafts.getDraftThreadByRef(ref) !== null) &&
+          // Discard, or Done on an empty side chat, deletes the side chat its tab showed.
+          (entry.kind !== "panel-tab" ||
+            entry.surface.kind !== "side-chat" ||
+            readThreadShell(
+              scopeThreadRef(ref.environmentId, ThreadId.make(entry.surface.threadId)),
+            ) !== null),
         shellLive:
           appAtomRegistry.get(environmentShell.stateValueAtom(ref.environmentId)).status === "live",
         panel,

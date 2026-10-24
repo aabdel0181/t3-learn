@@ -239,6 +239,30 @@ describe("thread undo shortcut", () => {
   });
 });
 
+describe("side chat shortcut", () => {
+  it("asks about the selection with mod+alt+s outside the terminal", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ß", code: "KeyS", metaKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "sideChat.askSelection",
+    );
+    const linuxAsk = event({ key: "s", code: "KeyS", ctrlKey: true, altKey: true });
+    assert.strictEqual(
+      resolveShortcutCommand(linuxAsk, DEFAULT_RESOLVED_KEYBINDINGS, { platform: "Linux" }),
+      "sideChat.askSelection",
+    );
+    assert.isNull(
+      resolveShortcutCommand(linuxAsk, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+});
+
 describe("split/new/close terminal shortcuts", () => {
   it("supports when expressions", () => {
     const keybindings = compile([

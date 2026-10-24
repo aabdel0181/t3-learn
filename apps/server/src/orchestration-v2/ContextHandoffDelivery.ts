@@ -23,6 +23,8 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly budget: number | Effect.Effect<number, BudgetError>;
     readonly deferInline?: boolean;
+    /** Handoffs that are dropped whole, rather than failing the turn, when they do not fit. */
+    readonly optional?: (handoff: OrchestrationV2ContextHandoff) => boolean;
     readonly alreadyDeliveredItemIds: ReadonlySet<string>;
     readonly inject?: (
       history: ProviderAdapter.ProviderAdapterV2HistoricalContext,
@@ -39,41 +41,68 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     if (pending.length === 0 || (input.deferInline && input.inject === undefined))
       return { context: "", delivered: Effect.void, unsent: Effect.void };
     const budget = typeof input.budget === "number" ? input.budget : yield* input.budget;
-    let coverage = pending
-      .map(
-        (handoff) =>
-          `Context handoff (${handoff.strategy === "fork_delta_summary" ? "merge_back / fork_delta_summary" : handoff.strategy}):\n${
-            handoff.history?.coverage ??
-            `From thread ${handoff.threadId}, runs ${handoff.coveredRunOrdinals.from}-${handoff.coveredRunOrdinals.to}. Recover history with t3_thread_read, view=activity; paginate with afterPosition, and use itemId/textOffset for long items.`
-          }`,
-      )
-      .join("\n");
-    if (historyCost([], coverage) > Math.min(4_000, budget / 2)) {
-      const strategies = Array.from(new Set(pending.map((handoff) => handoff.strategy)));
-      coverage = `Context handoff (${strategies.join(", ")}). ${pending.length} handoff records; detailed coverage references omitted. Recover history with t3_thread_read({threadId:"${input.providerThread.appThreadId ?? pending[0]!.threadId}",view:"activity",limit:20,maxCharsPerItem:4000}); paginate with afterPosition=nextPosition. Follow fork/handoff source references in activity. For long items use itemId and textOffset=nextTextOffset until null.`;
-    }
-    const seen = new Set(input.alreadyDeliveredItemIds);
-    const messages = pending
-      .flatMap((handoff) => handoff.history?.messages ?? [])
-      .filter((message) => {
-        if (seen.has(message.itemId)) return false;
-        seen.add(message.itemId);
-        return true;
+    const plan = (handoffs: ReadonlyArray<OrchestrationV2ContextHandoff>) => {
+      let coverage = handoffs
+        .map(
+          (handoff) =>
+            `Context handoff (${handoff.strategy === "fork_delta_summary" ? "merge_back / fork_delta_summary" : handoff.strategy}):\n${
+              handoff.history?.coverage ??
+              `From thread ${handoff.threadId}, runs ${handoff.coveredRunOrdinals.from}-${handoff.coveredRunOrdinals.to}. Recover history with t3_thread_read, view=activity; paginate with afterPosition, and use itemId/textOffset for long items.`
+            }`,
+        )
+        .join("\n");
+      if (historyCost([], coverage) > Math.min(4_000, budget / 2)) {
+        const strategies = Array.from(new Set(handoffs.map((handoff) => handoff.strategy)));
+        coverage = `Context handoff (${strategies.join(", ")}). ${handoffs.length} handoff records; detailed coverage references omitted. Recover history with t3_thread_read({threadId:"${input.providerThread.appThreadId ?? handoffs[0]!.threadId}",view:"activity",limit:20,maxCharsPerItem:4000}); paginate with afterPosition=nextPosition. Follow fork/handoff source references in activity. For long items use itemId and textOffset=nextTextOffset until null.`;
+      }
+      const seen = new Set(input.alreadyDeliveredItemIds);
+      const messages = handoffs
+        .flatMap((handoff) => handoff.history?.messages ?? [])
+        .filter((message) => {
+          if (seen.has(message.itemId)) return false;
+          seen.add(message.itemId);
+          return true;
+        });
+      const oldContext = handoffs
+        .filter((handoff) => handoff.history === undefined)
+        .map((handoff) => handoff.summaryText)
+        .join("\n\n");
+      const fullCoverage =
+        oldContext && historyCost([], `${coverage}\n${oldContext}`) + 512 <= budget
+          ? `${coverage}\n${oldContext}`
+          : coverage;
+      return {
+        selected: selectHistory({
+          messages,
+          coverage: fullCoverage,
+          omittedItems: handoffs.reduce(
+            (sum, handoff) => sum + (handoff.history?.omittedItems ?? 0),
+            0,
+          ),
+          budget,
+        }),
+        summariesIncluded: oldContext === "" || fullCoverage !== coverage,
+      };
+    };
+    let remaining = pending;
+    let planned = plan(remaining);
+    const optional = input.optional;
+    if (
+      optional !== undefined &&
+      remaining.some(optional) &&
+      (!planned.summariesIncluded ||
+        historyCost(planned.selected.messages, planned.selected.context) > budget)
+    ) {
+      yield* Effect.logWarning("Dropped side-chat notes that do not fit the context budget", {
+        handoffIds: remaining.filter(optional).map((handoff) => handoff.id),
+        budget,
       });
-    const oldContext = pending
-      .filter((handoff) => handoff.history === undefined)
-      .map((handoff) => handoff.summaryText)
-      .join("\n\n");
-    const fullCoverage =
-      oldContext && historyCost([], `${coverage}\n${oldContext}`) + 512 <= budget
-        ? `${coverage}\n${oldContext}`
-        : coverage;
-    const selected = selectHistory({
-      messages,
-      coverage: fullCoverage,
-      omittedItems: pending.reduce((sum, handoff) => sum + (handoff.history?.omittedItems ?? 0), 0),
-      budget,
-    });
+      remaining = remaining.filter((handoff) => !optional(handoff));
+      if (remaining.length === 0)
+        return { context: "", delivered: Effect.void, unsent: Effect.void };
+      planned = plan(remaining);
+    }
+    const { selected } = planned;
     if (historyCost(selected.messages, selected.context) > budget) {
       if (input.deferInline) return { context: "", delivered: Effect.void, unsent: Effect.void };
       return yield* new ContextHandoffBudgetError();
@@ -81,7 +110,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     const omittedItemIds = new Set(selected.omittedItemIds);
     const persist = (status: "pending" | "injected" | "inline") =>
       Effect.forEach(
-        pending,
+        remaining,
         (handoff) =>
           input.persist({
             ...handoff,
@@ -111,7 +140,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       );
     if (input.inject !== undefined && nativeThreadId !== undefined) {
       if (
-        pending.some(
+        remaining.some(
           (handoff) =>
             handoff.delivery?.nativeThreadId === nativeThreadId &&
             handoff.delivery.status === "pending",
@@ -134,13 +163,13 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     if (input.deferInline) {
       // Compaction APIs cannot accept an inline transcript. Keep it available
       // for the next ordinary turn when native injection is unsupported.
-      yield* Effect.forEach(pending, input.persist, { discard: true });
+      yield* Effect.forEach(remaining, input.persist, { discard: true });
       return { context: "", delivered: Effect.void, unsent: Effect.void };
     }
     return {
       context: renderHistory(selected.messages, selected.context),
       delivered: persist("inline"),
-      unsent: Effect.forEach(pending, input.persist, { discard: true }),
+      unsent: Effect.forEach(remaining, input.persist, { discard: true }),
     };
   },
 );

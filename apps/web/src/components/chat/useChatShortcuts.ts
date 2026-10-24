@@ -10,8 +10,19 @@ import {
 import { getTerminalFocusOwner, type TerminalFocusOwner } from "../../lib/terminalFocus";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
-import { shouldTypeToFocusComposer } from "./composerFocusRedirect";
+import {
+  eventPathContainsSelector,
+  SIDE_CHAT_PANEL_SELECTOR,
+  shouldTypeToFocusComposer,
+} from "./composerFocusRedirect";
 import { composerShortcutCommands } from "./composerShortcuts";
+
+const LESSON_ONLY_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "modelPicker.toggle",
+  "thread.steerQueuedMessage",
+  "thread.stop",
+  "chat.find",
+]);
 
 /** Runs a command. Returning false lets the key event through untouched. */
 export type ChatShortcutHandler = (context: {
@@ -75,6 +86,15 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       context: shortcutContext,
     });
     if (!command) return;
+    // The side chat has its own composer, so the lesson's composer chords stay out of its
+    // panel. A side chat never queues, so steering there can't mean the lesson's queue, and
+    // the lesson's find bar can't search the panel, so the browser's find gets the key.
+    if (
+      (LESSON_ONLY_COMMANDS.has(command) || command.startsWith("composer.")) &&
+      eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR)
+    ) {
+      return;
+    }
     const run =
       input.commands[command] ??
       composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??

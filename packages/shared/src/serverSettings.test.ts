@@ -18,6 +18,7 @@ import {
   resolveModelPreferences,
   isModelSelectionProviderEnabled,
   parsePersistedServerObservabilitySettings,
+  resolveSideChatTextModel,
   resolveSourceControlWriterModelSelection,
   resolveProjectAgentBrowserAccess,
   resolveProjectAutoPull,
@@ -442,6 +443,137 @@ describe("serverSettings helpers", () => {
     expect(resolveSourceControlWriterModelSelection(settings, [provider], null)).toBe(
       settings.textGenerationModelSelection,
     );
+  });
+
+  describe("side-chat text model", () => {
+    const lessonProject = ProjectId.make("project-lesson");
+    const snapshotFor = (
+      instanceId: ProviderInstanceId,
+      driver: ProviderDriverKind,
+      overrides: Partial<ServerProvider> = {},
+    ): ServerProvider => ({
+      instanceId,
+      driver,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-07-27T00:00:00.000Z",
+      availability: "available",
+      models: [],
+      slashCommands: [],
+      skills: [],
+      ...overrides,
+    });
+    const settingsWithInstance = (instanceId: ProviderInstanceId, driver: ProviderDriverKind) => ({
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: { [instanceId]: { driver, enabled: true, config: {} } },
+    });
+
+    it("writes side-chat text with the lesson provider's small model", () => {
+      const instanceId = ProviderInstanceId.make("claudeAgent");
+      const driver = ProviderDriverKind.make("claudeAgent");
+
+      expect(
+        resolveSideChatTextModel(
+          { providerInstanceId: instanceId, projectId: lessonProject },
+          DEFAULT_SERVER_SETTINGS,
+          [snapshotFor(instanceId, driver)],
+        ),
+      ).toEqual({ instanceId, model: "claude-haiku-5-5" });
+    });
+
+    it("keeps the configured text model when it already uses the lesson provider", () => {
+      const instanceId = ProviderInstanceId.make("codex");
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        textGenerationModelSelection: createModelSelection(instanceId, "gpt-5.4-mini"),
+      };
+
+      expect(
+        resolveSideChatTextModel(
+          { providerInstanceId: instanceId, projectId: lessonProject },
+          settings,
+          [snapshotFor(instanceId, ProviderDriverKind.make("codex"))],
+        ),
+      ).toBe(settings.textGenerationModelSelection);
+    });
+
+    it("falls back to the text-generation setting when the lesson provider cannot write text", () => {
+      const acpId = ProviderInstanceId.make("acp_lesson");
+      const acpDriver = ProviderDriverKind.make("acpRegistry");
+      const grokId = ProviderInstanceId.make("grok");
+      const grokDriver = ProviderDriverKind.make("grok");
+      const claudeId = ProviderInstanceId.make("claudeAgent");
+      const claudeDriver = ProviderDriverKind.make("claudeAgent");
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          [acpId]: { driver: acpDriver, enabled: true, config: {} },
+          [grokId]: { driver: grokDriver, enabled: true, config: {} },
+        },
+      };
+      const resolve = (
+        instanceId: ProviderInstanceId,
+        providers: ReadonlyArray<ServerProvider> | undefined,
+      ) =>
+        resolveSideChatTextModel(
+          { providerInstanceId: instanceId, projectId: lessonProject },
+          settings,
+          providers,
+        );
+
+      expect(
+        resolve(acpId, [snapshotFor(acpId, acpDriver, { supportsTextGeneration: false })]),
+      ).toBe(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection);
+      expect(resolve(grokId, [snapshotFor(grokId, grokDriver)])).toBe(
+        DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+      );
+      expect(resolve(claudeId, undefined)).toBe(
+        DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+      );
+      expect(resolve(claudeId, [snapshotFor(acpId, acpDriver)])).toBe(
+        DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+      );
+      // A provider with a small model still falls back when it is not usable.
+      expect(
+        resolve(claudeId, [snapshotFor(claudeId, claudeDriver, { supportsTextGeneration: false })]),
+      ).toBe(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection);
+    });
+
+    it("falls back to the text-generation setting when the lesson provider is off or unavailable", () => {
+      const instanceId = ProviderInstanceId.make("claudeAgent");
+      const driver = ProviderDriverKind.make("claudeAgent");
+      const settings = settingsWithInstance(instanceId, driver);
+      const lesson = { providerInstanceId: instanceId, projectId: lessonProject };
+
+      expect(resolveSideChatTextModel(lesson, settings, [snapshotFor(instanceId, driver)])).toEqual(
+        { instanceId, model: "claude-haiku-5-5" },
+      );
+      expect(
+        resolveSideChatTextModel(lesson, settings, [
+          snapshotFor(instanceId, driver, { enabled: false }),
+        ]),
+      ).toBe(settings.textGenerationModelSelection);
+      expect(
+        resolveSideChatTextModel(lesson, settings, [
+          snapshotFor(instanceId, driver, { availability: "unavailable" }),
+        ]),
+      ).toBe(settings.textGenerationModelSelection);
+      expect(
+        resolveSideChatTextModel(
+          lesson,
+          {
+            ...settings,
+            projectSettingsOverrides: {
+              [lessonProject]: { providerInstances: { [instanceId]: { enabled: false } } },
+            },
+          },
+          [snapshotFor(instanceId, driver)],
+        ),
+      ).toBe(settings.textGenerationModelSelection);
+    });
   });
 
   it("replaces providerInstances maps so omitted instance fields are cleared", () => {

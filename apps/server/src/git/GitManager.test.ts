@@ -361,6 +361,7 @@ function createTextGeneration(
         title: "Update workflow",
       }),
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
+    generateSideChatText: () => Effect.succeed({ text: null }),
     ...overrides,
   };
 
@@ -410,6 +411,7 @@ function createTextGeneration(
         ),
       ),
     generateReviewGuide: (input) => implementation.generateReviewGuide(input),
+    generateSideChatText: (input) => implementation.generateSideChatText(input),
   };
 }
 

@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
+import { usePendingSideChatStore } from "./sideChat/pendingSideChatStore";
+import { openThreadTarget } from "./sideChat/sideChatNavigation";
 import { SidebarInset } from "./ui/sidebar";
 import {
   finalizePromotedDraftThreadByRef,
@@ -107,6 +109,12 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     draftThreadExists: draftThread !== null,
   });
   const serverThreadStarted = threadHasStarted(serverThreadShell);
+  // A side chat lives in its lesson's panel, never as a full thread of its own. A deleted
+  // one is missing like any other thread.
+  const sideChatLessonThreadId =
+    target.kind === "server" && serverThreadShell?.deletedAt == null
+      ? (serverThreadShell?.sideChat?.lessonThreadId ?? null)
+      : null;
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
   useEffect(() => {
@@ -157,6 +165,23 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
 
   useEffect(() => {
+    // A reload starts from the cached shell, which can predate the side chat's deletion,
+    // and the tab the reveal adds would outlive this route.
+    if (target.kind !== "server" || sideChatLessonThreadId === null || !bootstrapComplete) return;
+    usePendingSideChatStore.getState().requestFocus(scopedThreadKey(target.threadRef));
+    void openThreadTarget({
+      navigate,
+      environmentId: target.threadRef.environmentId,
+      target: {
+        routeThreadId: sideChatLessonThreadId,
+        sideChatThreadId: target.threadRef.threadId,
+      },
+      // Back must not land on the side chat's route again.
+      replace: true,
+    });
+  }, [bootstrapComplete, navigate, sideChatLessonThreadId, target]);
+
+  useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
       return;
     }
@@ -177,7 +202,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
         />
       );
     }
-  } else if (renderState === "ready" || (renderState === "loading" && serverThreadShell !== null)) {
+  } else if (
+    sideChatLessonThreadId === null &&
+    (renderState === "ready" || (renderState === "loading" && serverThreadShell !== null))
+  ) {
     view = (
       <ChatView
         key={nextChatViewKey?.key}

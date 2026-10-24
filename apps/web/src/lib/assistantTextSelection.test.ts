@@ -14,6 +14,7 @@ import {
   type AssistantTextSelector,
   captureAssistantTextSelection,
   createAssistantTextSelector,
+  findAssistantAnchorText,
   findAssistantCitationText,
 } from "./assistantTextSelection";
 
@@ -505,5 +506,32 @@ describe("findAssistantCitationText", () => {
       start,
       end: start + 5,
     });
+  });
+});
+
+describe("findAssistantAnchorText", () => {
+  const sentence = "An observation space is what the agent can see.";
+  const anchor = createAssistantTextSelector(sentence, 3, 20)!;
+
+  it("finds an anchor by its context after earlier text shifts it", () => {
+    expect(findAssistantAnchorText(sentence, anchor)).toEqual({ start: 3, end: 20 });
+    expect(findAssistantAnchorText(`Recap first. ${sentence}`, anchor)).toEqual({
+      start: 16,
+      end: 33,
+    });
+  });
+
+  it("does not guess when the context repeats or no longer matches", () => {
+    expect(findAssistantAnchorText(`${sentence} ${sentence}`, anchor)).toBeNull();
+    expect(
+      findAssistantAnchorText("An action space is what the agent can see.", anchor),
+    ).toBeNull();
+  });
+
+  it("anchors a whole-message selection only while the message keeps its length", () => {
+    const text = "observation space";
+    const whole = { start: 0, end: 17, prefix: "", suffix: "" };
+    expect(findAssistantAnchorText(text, whole)).toEqual({ start: 0, end: 17 });
+    expect(findAssistantAnchorText(`${text}!`, whole)).toBeNull();
   });
 });

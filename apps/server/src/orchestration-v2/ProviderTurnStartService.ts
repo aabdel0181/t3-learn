@@ -8,6 +8,7 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
+  type OrchestrationV2SideChatOpening,
   type OrchestrationV2TurnItem,
   RunId,
   ThreadId,
@@ -33,6 +34,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
 import {
   DEFAULT_HANDOFF_TOKEN_CAP,
   handoffTokenCapConfig,
@@ -58,6 +60,16 @@ import {
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
+import {
+  awaitWithinSideChatWaitCap,
+  buildSideChatOpeningContext,
+  isSideChatOpeningHandoff,
+  loadSideChatOpeningSources,
+  sideChatOpeningEffectId,
+  sideChatOpeningHandoffId,
+} from "./sideChat/sideChatOpening.ts";
+import { isSideChatNotesHandoff, isUserAuthoredSideChatTrigger } from "./sideChat/notes.ts";
+import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -113,6 +125,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | EffectOutbox.EffectOutboxV2
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -130,6 +143,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
 
     // These callbacks outlive startup while a run drains background work. Build
@@ -259,12 +273,16 @@ export const layer: Layer.Layer<
           .filter((transfer) => transfer.type === "subagent_result")
           .map((transfer) => transfer.id),
       );
+      // Side-chat notes ride only the user's own messages, so notes carried over from an earlier
+      // run wait for the user's next message.
+      const takesSideChatNotes = message !== undefined && isUserAuthoredSideChatTrigger(message);
       const handoffs = projection.contextHandoffs.filter(
         (handoff) =>
           (handoff.transferId == null || !subagentResultTransfers.has(handoff.transferId)) &&
           handoff.status === "ready" &&
           (handoff.targetRunId === run.id ||
-            (handoff.toProviderThreadId === run.providerThreadId &&
+            ((takesSideChatNotes || !isSideChatNotesHandoff(handoff)) &&
+              handoff.toProviderThreadId === run.providerThreadId &&
               projection.runs.some(
                 (source) =>
                   source.id === handoff.targetRunId &&
@@ -873,6 +891,70 @@ export const layer: Layer.Layer<
         modelSelectionsEqual(previousSelection, run.modelSelection);
       const sameNativeThread =
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
+      // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
+      // along with the first prompt there: either the first turn, or the first turn after a failed
+      // resume bound a replacement. A retried start finds this handoff among `handoffs`, and so
+      // does the run after one that failed or was interrupted before sending its opening. The first
+      // context already waited for a summary still being written (`awaitSideChatOpening`); one that
+      // missed it leaves this context the fallback and serves the next fresh one.
+      const sideChat = projection.thread.sideChat;
+      const openingHandoffId = sideChatOpeningHandoffId(run.id);
+      if (
+        sideChat !== undefined &&
+        (providerThread.nativeThreadRef === null || !sameNativeThread) &&
+        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId) &&
+        !handoffs.some(isSideChatOpeningHandoff)
+      ) {
+        const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Side chat opening sources are unavailable", {
+              threadId: projection.thread.id,
+              runId,
+              error,
+            }).pipe(Effect.as({ lessonTopic: null, parentOpeningText: null })),
+          ),
+        );
+        const opening = buildSideChatOpeningContext({
+          run,
+          rootNodeId: rootNode.id,
+          providerThreadId: providerThread.id,
+          summaryText: buildSideChatOpeningSummaryText({
+            opening: sideChat.opening,
+            excerpt: sideChat.excerpt,
+            excerptContext: sideChat.excerptContext,
+            ...sources,
+          }),
+          turnItemId: idAllocator.derive.runSignalTurnItem({
+            runId,
+            signal: `context-handoff:${openingHandoffId}`,
+          }),
+          createdAt: now,
+        });
+        yield* eventSink.write({
+          events: [
+            {
+              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              type: "context-handoff.updated",
+              threadId: projection.thread.id,
+              runId,
+              providerInstanceId: run.providerInstanceId,
+              occurredAt: now,
+              payload: opening.handoff,
+            },
+            {
+              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              type: "turn-item.updated",
+              threadId: projection.thread.id,
+              runId,
+              nodeId: rootNode.id,
+              providerInstanceId: run.providerInstanceId,
+              occurredAt: now,
+              payload: opening.turnItem,
+            },
+          ],
+        });
+        effectiveHandoffs = [opening.handoff, ...effectiveHandoffs];
+      }
       const threadUsage = loadedProviderThread.contextUsage ?? providerThread.contextUsage;
       const previousUsage = measuredContext
         ? { ...threadUsage, ...measuredContext.usage }
@@ -1186,6 +1268,7 @@ export const layer: Layer.Layer<
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff],
             deferInline: compact,
+            optional: isSideChatNotesHandoff,
             providerThread: runningProviderThread,
             budget: Effect.gen(function* () {
               return handoffBudget({
@@ -1337,12 +1420,46 @@ export const layer: Layer.Layer<
       });
     });
 
+    // A side chat's first context waits briefly for an opening summary still being written, then
+    // `start` reads the settled opening. It waits before the workspace lease: a side chat shares the
+    // lesson's worktree, and holding the lease would stall every other startup, terminal and git
+    // operation there. Once a context went out, a later fresh one takes the opening as it is.
+    const awaitSideChatOpening = Effect.fn(
+      "orchestrationV2.providerTurnStart.awaitSideChatOpening",
+    )(
+      function* (
+        input: { readonly threadId: ThreadId; readonly runId: RunId },
+        opening: OrchestrationV2SideChatOpening,
+      ) {
+        const { contextHandoffs } = yield* projectionStore.getThreadRecords(input.threadId, [
+          "contextHandoffs",
+        ]);
+        if (contextHandoffs.some(isSideChatOpeningHandoff)) return;
+        yield* awaitWithinSideChatWaitCap(
+          effectOutbox.awaitSettled(sideChatOpeningEffectId(opening.requestId)),
+        );
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Side chat opening wait failed", {
+              threadId: input.threadId,
+              runId: input.runId,
+              error,
+            }),
+          ),
+        ),
+    );
+
     return ProviderTurnStartServiceV2.of({
       start: Effect.fn("ProviderTurnStartService.start")(
         function* (input) {
+          const { thread } = yield* projectionStore.getThreadRecords(input.threadId, []);
+          if (thread.sideChat?.opening.status === "pending") {
+            yield* awaitSideChatOpening(input, thread.sideChat.opening);
+          }
           // Storage cleanup removes worktrees under the same lease. Only startup
           // holds it; the provider turn runs after it is released.
-          const { thread } = yield* projectionStore.getThreadRecords(input.threadId, []);
           const providerTurn = yield* thread.worktreePath === null
             ? start(input)
             : withWorkspaceLease(path.resolve(thread.worktreePath), start(input));

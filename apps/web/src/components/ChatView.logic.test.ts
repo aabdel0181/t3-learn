@@ -7,6 +7,7 @@ import {
   withMessageContext,
   deriveAvailableRevertTurnCounts,
   deriveWorkspaceMutationId,
+  presentThreadShellFromProjection,
 } from "./ChatView.logic";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
@@ -1237,5 +1238,48 @@ describe("deriveWorkspaceMutationId", () => {
     expect(deriveWorkspaceMutationId([item("reply", "assistant_message", "completed")], null)).toBe(
       null,
     );
+  });
+});
+
+describe("presentThreadShellFromProjection", () => {
+  it("gives a direct-linked side chat the slim shell side chat, not its text", () => {
+    const projection = makeThreadProjectionFixture();
+    const lessonThreadId = ThreadId.make("thread-lesson");
+    const anchor = {
+      threadId: lessonThreadId,
+      messageId: MessageId.make("message-lesson-reply"),
+      start: 120,
+      end: 137,
+      prefix: "the agent reads the ",
+      suffix: " and picks an action",
+    };
+    const shell = presentThreadShellFromProjection(
+      EnvironmentId.make("environment-local"),
+      projection.thread.id,
+      {
+        ...projection,
+        thread: {
+          ...projection.thread,
+          sideChat: {
+            lessonThreadId,
+            anchor,
+            excerpt: "observation space",
+            excerptContext: "Each step, the agent reads the observation space and picks an action.",
+            label: "observation space",
+            opening: { status: "pending", text: null, requestId: "opening-1" },
+            done: null,
+          },
+        },
+      },
+      { updatedAt: projection.updatedAt, lastVisitedAt: null },
+    );
+    expect(shell.source.sideChat).toEqual({
+      lessonThreadId,
+      anchor,
+      label: "observation space",
+      state: "open",
+      noteStatus: null,
+      excerptLength: 17,
+    });
   });
 });

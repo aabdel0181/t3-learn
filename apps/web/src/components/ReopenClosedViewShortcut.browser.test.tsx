@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   keybindings: [] as ResolvedKeybindingsConfig,
   params: {} as Record<string, string>,
   workspaceAvailable: true,
+  deletedThreadIds: [] as ReadonlyArray<string>,
   navigate: vi.fn(),
   openPreview: vi.fn(),
   setShortcuts: vi.fn(async () => undefined),
@@ -63,7 +64,10 @@ vi.mock(import("../state/shell"), async (original) => {
 });
 vi.mock(import("../state/entities"), async (original) => ({
   ...(await original()),
-  readThreadShell: (() => ({ projectId: "project-1", worktreePath: null })) as never,
+  readThreadShell: ((threadRef: ScopedThreadRef) =>
+    state.deletedThreadIds.includes(threadRef.threadId)
+      ? null
+      : { projectId: "project-1", worktreePath: null }) as never,
   readProject: (() =>
     state.workspaceAvailable ? { workspaceRoot: "/work/project" } : null) as never,
 }));
@@ -94,6 +98,7 @@ function setup() {
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     params: {},
     workspaceAvailable: true,
+    deletedThreadIds: [],
   });
   state.navigate.mockResolvedValue(undefined);
   state.openPreview.mockReset();
@@ -263,4 +268,26 @@ describe("root reopen shortcut", () => {
       expect(useClosedViewStore.getState().entries).toEqual([]);
     },
   );
+
+  it("skips a closed side chat that has since been deleted", async () => {
+    setup();
+    const store = useClosedViewStore.getState();
+    store.remember({ kind: "panel-tab", threadRef: ref, surface: { kind: "diff", id: "diff" } });
+    const discarded = store.remember({
+      kind: "panel-tab",
+      threadRef: ref,
+      surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+    });
+    state.deletedThreadIds = ["side-1"];
+    await using _view = await renderShortcut();
+
+    await act(() => {
+      press();
+    });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref).surfaces,
+    ).toEqual([{ kind: "diff", id: "diff" }]);
+    expect(useClosedViewStore.getState().entries.map((entry) => entry.id)).toEqual([discarded]);
+  });
 });

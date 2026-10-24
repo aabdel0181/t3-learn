@@ -75,6 +75,26 @@ describe("subagent shell events", () => {
     ).toBe(true);
     expect(subagents.has("new-child")).toBe(true);
   });
+
+  it("keeps side-chat transcript updates off the shell stream", () => {
+    const quiet = new Set<string>();
+    const created = {
+      event: {
+        threadId: "box",
+        type: "thread.created",
+        payload: {
+          lineage: { relationshipToParent: "fork" },
+          sideChat: { lessonThreadId: "lesson", label: "Box" },
+        },
+      },
+    } as ApplicationStoredEvent;
+    expect(shouldPublishShellApplicationEvent(created, quiet)).toBe(true);
+    expect(shouldPublishShellApplicationEvent(stored("box", "turn-item.updated"), quiet)).toBe(
+      false,
+    );
+    expect(shouldPublishShellApplicationEvent(stored("box", "message.updated"), quiet)).toBe(false);
+    expect(shouldPublishShellApplicationEvent(stored("box", "run.updated"), quiet)).toBe(true);
+  });
 });
 
 it.effect("coalesces a slow shell subscriber by identity and location in sequence order", () =>

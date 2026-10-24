@@ -36,6 +36,7 @@ import {
   TrimmedNonEmptyString,
   TurnItemId,
 } from "./baseSchemas.ts";
+import { ASSISTANT_CITATION_CONTEXT_LENGTH } from "./assistantCitations.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import {
   OrchestrationGetFullThreadDiffInput,
@@ -370,6 +371,79 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 );
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
+export const SIDE_CHAT_EXCERPT_MAX_CHARS = 4_000;
+export const SIDE_CHAT_EXCERPT_CONTEXT_MAX_CHARS = 1_500;
+export const SIDE_CHAT_LABEL_MAX_CHARS = 120;
+export const SIDE_CHAT_NOTE_MAX_CHARS = 300;
+export const SIDE_CHAT_SUMMARY_MAX_CHARS = 2_000;
+export const SIDE_CHAT_WAIT_CAP_MS = 15_000;
+export const SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS = 24_000;
+
+/** Titles of the handoff turn items that carry side chat text. The server writes them, the web renders them. */
+export const SIDE_CHAT_CONTEXT_HANDOFF_TITLE = "Side chat context";
+export const SIDE_CHAT_NOTES_HANDOFF_TITLE = "Side-chat notes included";
+
+/** Where in the lesson the highlighted text sat. Offsets are UTF-16 positions, as in `AssistantCitation`. */
+export const OrchestrationV2SideChatAnchor = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  turnItemId: Schema.optional(TurnItemId),
+  start: NonNegativeInt,
+  end: NonNegativeInt,
+  prefix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
+  suffix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
+});
+export type OrchestrationV2SideChatAnchor = typeof OrchestrationV2SideChatAnchor.Type;
+
+export const OrchestrationV2SideChatOpening = Schema.Struct({
+  status: Schema.Literals(["pending", "ready", "fallback", "failed"]),
+  text: Schema.NullOr(Schema.String),
+  requestId: Schema.String,
+});
+export type OrchestrationV2SideChatOpening = typeof OrchestrationV2SideChatOpening.Type;
+
+/** One `• re "<label>": <note>` line of a nested side chat's note, as a note writer read it. */
+const SideChatNestedNoteLines = Schema.Array(Schema.String);
+
+export const OrchestrationV2SideChatOutcome = Schema.Struct({
+  status: Schema.Literals(["generating", "ready", "none", "failed"]),
+  note: Schema.NullOr(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
+  requestId: Schema.String,
+  error: Schema.optional(Schema.String),
+  /** The nested notes this note was written with. */
+  nestedNotes: Schema.optional(SideChatNestedNoteLines),
+});
+export type OrchestrationV2SideChatOutcome = typeof OrchestrationV2SideChatOutcome.Type;
+
+export const OrchestrationV2SideChat = Schema.Struct({
+  lessonThreadId: ThreadId,
+  anchor: OrchestrationV2SideChatAnchor,
+  excerpt: Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.isMaxLength(SIDE_CHAT_EXCERPT_MAX_CHARS),
+  ),
+  excerptContext: Schema.String.check(Schema.isMaxLength(SIDE_CHAT_EXCERPT_CONTEXT_MAX_CHARS)),
+  label: TrimmedNonEmptyString.check(Schema.isMaxLength(SIDE_CHAT_LABEL_MAX_CHARS)),
+  opening: OrchestrationV2SideChatOpening,
+  done: Schema.NullOr(Schema.Struct({ at: IsoDateTime, outcome: OrchestrationV2SideChatOutcome })),
+  /** The last note of this side chat that the lesson received, kept across a reopen. */
+  deliveredNote: Schema.optional(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
+  /** Nested notes that went into a note the lesson received, so no later note carries them. */
+  deliveredNestedNotes: Schema.optional(SideChatNestedNoteLines),
+});
+export type OrchestrationV2SideChat = typeof OrchestrationV2SideChat.Type;
+
+/** What a thread shell keeps of a side chat. The text stays on the app thread. */
+export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
+  lessonThreadId: ThreadId,
+  anchor: OrchestrationV2SideChatAnchor,
+  label: OrchestrationV2SideChat.fields.label,
+  state: Schema.Literals(["open", "done"]),
+  noteStatus: Schema.NullOr(OrchestrationV2SideChatOutcome.fields.status),
+  excerptLength: NonNegativeInt,
+});
+export type OrchestrationV2ThreadShellSideChat = typeof OrchestrationV2ThreadShellSideChat.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -436,6 +510,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
+  sideChat: Schema.optional(OrchestrationV2SideChat),
+  /** On a side chat's parent: the outcome `requestId` of the note each child side chat last delivered. */
+  sideChatNoteDeliveries: Schema.optional(Schema.Record(ThreadId, Schema.String)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -448,6 +525,24 @@ export function isProviderNativeSubagentThread(
   thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">,
 ): boolean {
   return thread.lineage.relationshipToParent === "subagent" && thread.creationSource === "provider";
+}
+
+export function isSideChatThread(thread: { readonly sideChat?: unknown }): boolean {
+  return thread.sideChat != null;
+}
+
+/** The one derivation every thread shell builder uses for its slim side chat. */
+export function threadShellSideChatOf(
+  sideChat: OrchestrationV2SideChat,
+): OrchestrationV2ThreadShellSideChat {
+  return {
+    lessonThreadId: sideChat.lessonThreadId,
+    anchor: sideChat.anchor,
+    label: sideChat.label,
+    state: sideChat.done === null ? "open" : "done",
+    noteStatus: sideChat.done?.outcome.status ?? null,
+    excerptLength: sideChat.excerpt.length,
+  };
 }
 
 export const OrchestrationV2RunStatus = Schema.Literals([
@@ -1547,6 +1642,20 @@ export const OrchestrationV2TurnItem = Schema.Union([
 ]);
 export type OrchestrationV2TurnItem = typeof OrchestrationV2TurnItem.Type;
 
+const SIDE_CHAT_HANDOFF_TITLES: ReadonlySet<string> = new Set([
+  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_NOTES_HANDOFF_TITLE,
+]);
+
+/**
+ * The title of a handoff that carries side chat text, or null for any other item. Side chats reuse
+ * the `manual_context` handoff; the title tells them apart from a provider switch.
+ */
+export function sideChatHandoffTitle(item: OrchestrationV2TurnItem): string | null {
+  if (item.type !== "handoff" || item.strategy !== "manual_context") return null;
+  return item.title !== null && SIDE_CHAT_HANDOFF_TITLES.has(item.title) ? item.title : null;
+}
+
 const isUnknownTurnItem = hasUnknownUnionTag(OrchestrationV2TurnItem.members, "type");
 
 const turnItemArray = <Members extends ReadonlyArray<Schema.Top & { readonly fields: object }>>(
@@ -1885,6 +1994,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
       }),
     ),
   ),
+  sideChat: Schema.optional(OrchestrationV2ThreadShellSideChat),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
@@ -2964,6 +3074,25 @@ export const OrchestrationV2Command = Schema.Union([
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.side_chat.open"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    /** The new side chat. The client allocates the id. */
+    threadId: ThreadId,
+    anchorThreadId: ThreadId,
+    anchor: OrchestrationV2SideChatAnchor,
+    excerpt: OrchestrationV2SideChat.fields.excerpt,
+    createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.done"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    threadId: ThreadId,
+    discard: Schema.optional(Schema.Boolean),
+    createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
     type: Schema.Literal("delegated_task.request"),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
@@ -3083,6 +3212,34 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.String,
     placeholder: Schema.optional(Schema.String),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /** Dropped unless requestId matches and the status is still pending/generating. */
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.opening.complete"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: Schema.String,
+    status: Schema.Literals(["ready", "fallback", "failed"]),
+    text: Schema.NullOr(Schema.String),
+  }),
+  /** Dropped unless requestId matches and the status is still pending/generating. */
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.outcome.complete"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    requestId: Schema.String,
+    status: Schema.Literals(["ready", "none", "failed"]),
+    note: Schema.NullOr(Schema.String),
+    error: Schema.optional(Schema.String),
+    /** Child notes folded into this note, by child thread id. */
+    childNoteDeliveries: Schema.optional(Schema.Record(ThreadId, Schema.String)),
+    nestedNotes: Schema.optional(SideChatNestedNoteLines),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.side_chat.notes.attach"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

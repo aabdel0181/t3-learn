@@ -47,6 +47,8 @@ import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
+import * as SideChatLifecycleService from "./sideChat/SideChatLifecycleService.ts";
+import * as SideChatOpeningService from "./sideChat/SideChatOpeningService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
@@ -172,6 +174,8 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      // The same instance the effect worker settles, so a turn start can await an opening summary.
+      EffectOutbox.layer,
     ),
   ),
 );
@@ -306,6 +310,19 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
     Layer.mergeAll(layerThreadManagementProvided, ProjectStore.layer, TextGeneration.layer),
   ),
 );
+const layerSideChatOpeningProvided = SideChatOpeningService.layer.pipe(
+  Layer.provide(Layer.mergeAll(layerThreadManagementProvided, TextGeneration.layer)),
+);
+const layerSideChatLifecycleProvided = SideChatLifecycleService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadManagementProvided,
+      layerStores,
+      layerEventSinkProvided,
+      TextGeneration.layer,
+    ),
+  ),
+);
 const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -316,6 +333,8 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       layerProviderTurnStartServiceProvided,
       layerRuntimeRequestServiceProvided,
       layerThreadTitleRegenerationProvided,
+      layerSideChatOpeningProvided,
+      layerSideChatLifecycleProvided,
       layerThreadManagementProvided,
     ),
   ),

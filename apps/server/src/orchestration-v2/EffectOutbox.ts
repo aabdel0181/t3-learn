@@ -116,6 +116,17 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     ]),
   }),
   Schema.Struct({
+    type: Schema.Literal("side-chat.opening"),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("side-chat.outcome"),
+    requestId: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("side-chat.cascade"),
+    action: Schema.Literals(["archive", "unarchive", "delete"]),
+  }),
+  Schema.Struct({
     type: Schema.Literal("delegated-tasks.stop"),
     reason: Schema.optional(Schema.String),
   }),
@@ -132,8 +143,19 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "preview.cleanup",
   "attachment.cleanup",
   "thread-title.generate",
+  "side-chat.opening",
+  "side-chat.outcome",
+  "side-chat.cascade",
   "delegated-tasks.stop",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
+
+/** Text generation runs beside a thread's critical work, serialized among itself. */
+const TEXT_GENERATION_LANE_EFFECT_TYPES = [
+  "thread-title.generate",
+  "side-chat.opening",
+  "side-chat.outcome",
+] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
+const TEXT_GENERATION_LANE_MAX_CONCURRENCY = 2;
 
 export const PROCESS_BOUND_EFFECT_TYPES = [
   "provider-turn.start",
@@ -321,6 +343,8 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
       ).pipe(Effect.asVoid);
     // An earlier effect waiting out a retry backoff still blocks later ones, so
     // a turn cannot start while a failed rollback is about to restore files.
+    // Global worker concurrency is 4; the text-generation lane holds at most 2
+    // so turn starts are never starved.
     const claimableCandidatePredicate = (
       availableBefore?: string,
       excludeRestartContinuations = false,
@@ -350,15 +374,24 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
             )
             AND (
               (
-                candidate.effect_type = 'thread-title.generate'
-                AND active.effect_type = 'thread-title.generate'
+                candidate.effect_type IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
+                AND active.effect_type IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
               )
               OR
               (
-                candidate.effect_type != 'thread-title.generate'
-                AND active.effect_type != 'thread-title.generate'
+                candidate.effect_type NOT IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
+                AND active.effect_type NOT IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
               )
             )
+        )
+        AND (
+          candidate.effect_type NOT IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
+          OR (
+            SELECT COUNT(*)
+            FROM orchestration_v2_effect_outbox AS lane_running
+            WHERE lane_running.status = 'running'
+              AND lane_running.effect_type IN ${sql.in(TEXT_GENERATION_LANE_EFFECT_TYPES)}
+          ) < ${TEXT_GENERATION_LANE_MAX_CONCURRENCY}
         )
       `;
 

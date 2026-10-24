@@ -11,7 +11,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
-import { type RightPanelSurface } from "./rightPanelStore";
+import { normalizeSideChatSurface, type RightPanelSurface } from "./rightPanelStore";
 
 export type ClosedView =
   | {
@@ -63,7 +63,10 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
     case "diff":
     case "files":
     case "pull-requests":
+    case "thread-map":
       return surface.id === surface.kind;
+    case "side-chat":
+      return normalizeSideChatSurface(surface) !== null;
     case "preview":
       return surface.resourceId === null || typeof surface.resourceId === "string";
     case "file":

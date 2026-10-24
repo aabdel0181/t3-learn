@@ -1,3 +1,4 @@
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import { useEffect } from "react";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -15,6 +16,14 @@ const shortcutContext = {
   isDesktop: false,
   modelPickerOpen: false,
 };
+
+// Spelled with ctrl rather than mod so the chord is the same on every platform.
+const keybindings = compileResolvedKeybindingsConfig([
+  { key: "ctrl+shift+m", command: "modelPicker.toggle" },
+  { key: "ctrl+shift+enter", command: "thread.steerQueuedMessage" },
+  { key: "ctrl+f", command: "chat.find" },
+  { key: "ctrl+shift+x", command: "thread.stop" },
+]);
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus();
 
@@ -44,27 +53,49 @@ function Launcher(props: { keys: string; received: string[] }) {
 
 // The chat's shortcut listener registers when the chat mounts, so a launcher that opens
 // later registers after it. Tests mount the chat first and add the launcher by rerendering.
-function Chat(props: { composerKeys: string[]; launcher?: { keys: string; received: string[] } }) {
+function Chat(props: {
+  composerKeys: string[];
+  ran?: string[];
+  launcher?: { keys: string; received: string[] };
+  sideChatPanel?: boolean;
+}) {
   useChatShortcuts({
     enabled: true,
-    keybindings: [],
+    keybindings,
     scriptKeybindings: [],
     getShortcutContext: () => shortcutContext,
     threadFindActive: false,
-    // Type-to-focus only calls insertTextAtEnd, so the stand-in composer implements just that.
+    // Type-to-focus only calls insertTextAtEnd and the model picker chord only calls
+    // toggleModelPicker, so the stand-in composer implements just those.
     composerRef: {
       current: {
         insertTextAtEnd: (key: string) => {
           props.composerKeys.push(key);
           return true;
         },
+        toggleModelPicker: () => {
+          props.ran?.push("modelPicker");
+        },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
     branchToolbarRef: { current: null },
     closeThreadFind: () => {},
-    commands: {},
+    commands: {
+      "thread.steerQueuedMessage": () => {
+        props.ran?.push("steerQueuedMessage");
+      },
+      "chat.find": () => {
+        props.ran?.push("find");
+      },
+      "thread.stop": () => {
+        props.ran?.push("stop");
+      },
+    },
     fallback: () => undefined,
   });
+  if (props.sideChatPanel) {
+    return <section data-side-chat-panel tabIndex={-1} aria-label="Side chat" ref={focusOnMount} />;
+  }
   return props.launcher ? <Launcher {...props.launcher} /> : null;
 }
 
@@ -93,4 +124,29 @@ it("still types other letters into the composer while the launcher is open", asy
 
   expect(composerKeys).toEqual(["a"]);
   expect(received).toEqual([]);
+});
+
+it("keeps keys and composer chords pressed in the side-chat panel off the lesson composer", async () => {
+  const composerKeys: string[] = [];
+  const ran: string[] = [];
+  await using screen = await render(
+    <Chat composerKeys={composerKeys} ran={ran} sideChatPanel />,
+    options,
+  );
+  await expect.element(screen.getByRole("region", { name: "Side chat" })).toHaveFocus();
+  const findPrevented: boolean[] = [];
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "f") findPrevented.push(event.defaultPrevented);
+  };
+  window.addEventListener("keydown", onKeyDown);
+  using _listener = { [Symbol.dispose]: () => window.removeEventListener("keydown", onKeyDown) };
+
+  await userEvent.keyboard("a{Control>}{Shift>}m{Enter}x{/Shift}f{/Control}");
+
+  expect({ composerKeys, ran, findPrevented }).toEqual({
+    composerKeys: [],
+    ran: [],
+    // The browser's own find searches the side chat.
+    findPrevented: [false],
+  });
 });

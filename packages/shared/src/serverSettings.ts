@@ -160,6 +160,39 @@ export function resolveSourceControlWriterModelSelection(
     : settings.textGenerationModelSelection;
 }
 
+/**
+ * Side-chat summaries and notes are written through the lesson's own provider
+ * so they never need a second provider to be signed in. A configured text
+ * model that already targets that provider wins; otherwise the provider's
+ * default small model is used when its snapshot says it can write text, and
+ * anything else falls back to the machine's text-generation setting.
+ */
+export function resolveSideChatTextModel(
+  lessonThread: {
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly projectId: ProjectId;
+  },
+  settings: ServerSettings,
+  providers: ReadonlyArray<ServerProvider> | undefined,
+): ModelSelection {
+  const configured = settings.textGenerationModelSelection;
+  const { providerInstanceId, projectId } = lessonThread;
+  if (configured.instanceId === providerInstanceId) {
+    return configured;
+  }
+
+  const provider = providers?.find((candidate) => candidate.instanceId === providerInstanceId);
+  const model = provider && DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider.driver];
+  return provider !== undefined &&
+    model !== undefined &&
+    provider.enabled === true &&
+    isProviderAvailable(provider) &&
+    isProviderTextGenerationCapable(provider) &&
+    resolveProjectProviderInstanceEnabled(settings, projectId, providerInstanceId)
+    ? createModelSelection(providerInstanceId, model)
+    : configured;
+}
+
 export function resolveReviewGuideModelSelection(
   settings: ServerSettings,
   providers: ReadonlyArray<ServerProvider> | undefined,

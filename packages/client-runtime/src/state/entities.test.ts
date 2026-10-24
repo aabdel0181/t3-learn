@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  isSideChatThread,
   MessageId,
   NodeId,
   ProviderDriverKind,
@@ -7,6 +8,8 @@ import {
   ProviderThreadId,
   RunId,
   RuntimeRequestId,
+  type OrchestrationV2ThreadShellSideChat,
+  ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -573,5 +576,31 @@ describe("V2 client presentation", () => {
       { requestId: multiRequestId, multiSelect: true },
       { requestId: legacyRequestId, multiSelect: false },
     ]);
+  });
+
+  it("presents the slim side chat as is and none for ordinary threads", () => {
+    const sideChat: OrchestrationV2ThreadShellSideChat = {
+      lessonThreadId: ThreadId.make("thread-lesson"),
+      anchor: {
+        threadId: ThreadId.make("thread-lesson"),
+        messageId: MessageId.make("message-lesson-reply"),
+        start: 12,
+        end: 29,
+        prefix: "the ",
+        suffix: " is what",
+      },
+      label: "observation space",
+      state: "done",
+      noteStatus: "ready",
+      excerptLength: 17,
+    };
+
+    const presented = presentThreadShell(environmentId, { ...v2ThreadShell, sideChat });
+    expect(presented.sideChat).toBe(sideChat);
+    expect(isSideChatThread(presented)).toBe(true);
+
+    const ordinary = presentThreadShell(environmentId, v2ThreadShell);
+    expect(ordinary.sideChat).toBeNull();
+    expect(isSideChatThread(ordinary)).toBe(false);
   });
 });

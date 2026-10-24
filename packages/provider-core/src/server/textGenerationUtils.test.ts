@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { sanitizeCommitSubject } from "./textGenerationUtils.ts";
+import { sanitizeCommitSubject, sanitizeSideChatText } from "./textGenerationUtils.ts";
 
 describe("sanitizeCommitSubject", () => {
   // regression: #19181 truncation split grapheme clusters at the subject limit
@@ -12,5 +12,27 @@ describe("sanitizeCommitSubject", () => {
     const prefix = "a".repeat(prefixLength);
 
     expect(sanitizeCommitSubject(`${prefix}${character} more`)).toBe(prefix);
+  });
+});
+
+describe("sanitizeSideChatText", () => {
+  it("trims the text", () => {
+    expect(sanitizeSideChatText("  They never met Box spaces.  ", 300)).toBe(
+      "They never met Box spaces.",
+    );
+  });
+
+  it.each([
+    { name: "blank text", raw: "   " },
+    { name: "a null placeholder", raw: "null" },
+    { name: "a none placeholder with a period", raw: "None." },
+    { name: "an n/a placeholder", raw: "n/a" },
+    { name: "a null value", raw: null },
+  ])("treats $name as no text", ({ raw }) => {
+    expect(sanitizeSideChatText(raw, 300)).toBeNull();
+  });
+
+  it("cuts at a whole grapheme and marks the cut with an ellipsis", () => {
+    expect(sanitizeSideChatText(`${"a".repeat(298)}🚀 more`, 300)).toBe(`${"a".repeat(298)}…`);
   });
 });

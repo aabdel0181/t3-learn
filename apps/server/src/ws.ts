@@ -43,6 +43,7 @@ import {
   type OrchestrationV2Command,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  isSideChatThread,
   type MessageId,
   type AcpRegistryImportSessionInput,
   type AcpRegistryDeleteSessionInput,
@@ -985,9 +986,9 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
     const projects = yield* ProjectStore.ProjectStoreV2;
     const projectService = yield* ProjectService.ProjectService;
     const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
-    let subagentThreadIds = new Set<string>();
-    const filterSubagentTranscript = (stored: ApplicationStoredEvent) =>
-      shouldPublishShellApplicationEvent(stored, subagentThreadIds);
+    let transcriptQuietThreadIds = new Set<string>();
+    const filterQuietTranscript = (stored: ApplicationStoredEvent) =>
+      shouldPublishShellApplicationEvent(stored, transcriptQuietThreadIds);
 
     const enrichmentChanges = yield* projectEnrichment.subscribeChanges;
     const loadProjectMetadataSnapshot = Effect.fn("ws.orchestrationV2.loadProjectMetadataSnapshot")(
@@ -1014,9 +1015,12 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           latestSequence: applicationEvents.latestApplicationSequence,
         }),
       );
-      subagentThreadIds = new Set(
+      transcriptQuietThreadIds = new Set(
         base.threads
-          .filter((thread) => thread.lineage.relationshipToParent === "subagent")
+          .filter(
+            (thread) =>
+              thread.lineage.relationshipToParent === "subagent" || isSideChatThread(thread),
+          )
           .map((thread) => thread.id),
       );
       const enriched = yield* enrichProjectShells(base.projects);
@@ -1081,7 +1085,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           applicationEvents.streamProjectedApplicationEvents({
             afterSequence,
             project: toShellApplicationEvent,
-            filter: filterSubagentTranscript,
+            filter: filterQuietTranscript,
           }),
         ),
       );
@@ -1172,7 +1176,10 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         });
       }
 
-      subagentThreadIds = new Set(yield* threadManagement.listActiveSubagentThreadIds());
+      transcriptQuietThreadIds = new Set([
+        ...(yield* threadManagement.listActiveSubagentThreadIds()),
+        ...(yield* threadManagement.listActiveSideChatThreadIds()),
+      ]);
 
       const loaded = yield* loadProjectMetadataSnapshot(highWater);
       const replay = toShellStream(
@@ -1185,7 +1192,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
             // highWater, so a dropped row never hides later events.
             skipUnknownEventTypes: true,
           })
-          .pipe(Stream.filter(filterSubagentTranscript)),
+          .pipe(Stream.filter(filterQuietTranscript)),
       );
       return composeShellStreamWithEnrichment({
         initial: initialEnrichmentItems(loaded),
@@ -1871,7 +1878,9 @@ export const layerWsRpc = (
                   : command.threadId,
             ...(command.type === "thread.fork" || command.type === "thread.merge_back"
               ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
-              : {}),
+              : command.type === "thread.side_chat.open"
+                ? { "orchestration_v2.source_thread_id": command.anchorThreadId }
+                : {}),
           }).pipe(
             Effect.andThen(
               startup

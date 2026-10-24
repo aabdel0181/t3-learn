@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ThreadId } from "@t3tools/contracts";
+import { MessageId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
+import type { EnvironmentThreadShell } from "./models.ts";
 import {
+  deriveSideChatTree,
   deriveThreadRelationshipGraph,
   immediateThreadRelationships,
   orderWebThreadLineageRows,
@@ -276,6 +278,39 @@ describe("thread relationships", () => {
       } as never),
     ).toBeNull();
   });
+
+  it("offers no merge-back target for a side chat", () => {
+    const lesson = ThreadId.make("thread-lesson");
+    const sideChat = ThreadId.make("thread-side-chat");
+
+    expect(
+      resolveMergeBackTargetThreadId({
+        thread: {
+          id: sideChat,
+          forkedFrom: { type: "run", threadId: lesson, runId: "run-lesson" },
+          lineage: {
+            rootThreadId: lesson,
+            parentThreadId: lesson,
+            relationshipToParent: "fork",
+          },
+          sideChat: {
+            lessonThreadId: lesson,
+            anchor: {
+              threadId: lesson,
+              messageId: MessageId.make("message-1"),
+              start: 0,
+              end: 5,
+              prefix: "",
+              suffix: "",
+            },
+            label: "observation space",
+            excerpt: "hello",
+            done: null,
+          },
+        },
+      } as never),
+    ).toBeNull();
+  });
 });
 
 const current = ThreadId.make("thread-current");
@@ -413,5 +448,218 @@ describe("web thread lineage ordering", () => {
         },
       }),
     ).toEqual([dated, missingTransfer, undated]);
+  });
+});
+
+describe("side chat tree", () => {
+  type SideChatTreeShell = Pick<EnvironmentThreadShell, "id" | "title" | "createdAt" | "sideChat">;
+
+  const lessonId = ThreadId.make("thread-lesson");
+  const lesson: SideChatTreeShell = {
+    id: lessonId,
+    title: "RL environments",
+    createdAt: "2026-10-22T09:00:00.000Z",
+    sideChat: null,
+  };
+
+  // A side chat is open until a note status is given, which makes it done.
+  function sideChat(input: {
+    readonly id: string;
+    readonly parentId: ThreadId;
+    readonly label: string;
+    readonly createdAt: string;
+    readonly lessonThreadId?: ThreadId;
+    readonly noteStatus?: "generating" | "ready" | "none" | "failed";
+  }): SideChatTreeShell {
+    return {
+      id: ThreadId.make(input.id),
+      title: input.label,
+      createdAt: input.createdAt,
+      sideChat: {
+        lessonThreadId: input.lessonThreadId ?? lessonId,
+        anchor: {
+          threadId: input.parentId,
+          messageId: MessageId.make("message-1"),
+          start: 0,
+          end: input.label.length,
+          prefix: "",
+          suffix: "",
+        },
+        label: input.label,
+        state: input.noteStatus === undefined ? "open" : "done",
+        noteStatus: input.noteStatus ?? null,
+        excerptLength: input.label.length,
+      },
+    };
+  }
+
+  const observationSpace = sideChat({
+    id: "thread-observation-space",
+    parentId: lessonId,
+    label: "observation space",
+    createdAt: "2026-10-22T09:10:00.000Z",
+  });
+  const box = sideChat({
+    id: "thread-box",
+    parentId: observationSpace.id,
+    label: "Box",
+    createdAt: "2026-10-22T09:20:00.000Z",
+    noteStatus: "ready",
+  });
+  const reward = sideChat({
+    id: "thread-reward-shaping",
+    parentId: lessonId,
+    label: "reward shaping",
+    createdAt: "2026-10-22T09:15:00.000Z",
+    noteStatus: "none",
+  });
+
+  it("lists the lesson first, then side chats depth-first in creation order", () => {
+    expect(deriveSideChatTree([reward, box, lesson, observationSpace], lessonId)).toEqual([
+      {
+        threadId: lessonId,
+        parentId: null,
+        depth: 0,
+        label: "RL environments",
+        state: "lesson",
+        noteStatus: null,
+      },
+      {
+        threadId: observationSpace.id,
+        parentId: lessonId,
+        depth: 1,
+        label: "observation space",
+        state: "open",
+        noteStatus: null,
+      },
+      {
+        threadId: box.id,
+        parentId: observationSpace.id,
+        depth: 2,
+        label: "Box",
+        state: "done",
+        noteStatus: "ready",
+      },
+      {
+        threadId: reward.id,
+        parentId: lessonId,
+        depth: 1,
+        label: "reward shaping",
+        state: "done",
+        noteStatus: "none",
+      },
+    ]);
+  });
+
+  it("leaves out other lessons' side chats and ordinary forks", () => {
+    const otherLesson = sideChat({
+      id: "thread-other-lesson-chat",
+      parentId: lessonId,
+      label: "elsewhere",
+      createdAt: "2026-10-22T09:12:00.000Z",
+      lessonThreadId: ThreadId.make("thread-other-lesson"),
+    });
+    const ordinaryFork: SideChatTreeShell = {
+      id: ThreadId.make("thread-fork"),
+      title: "A fork",
+      createdAt: "2026-10-22T09:13:00.000Z",
+      sideChat: null,
+    };
+
+    expect(
+      deriveSideChatTree([lesson, otherLesson, ordinaryFork, reward], lessonId).map(
+        (row) => row.threadId,
+      ),
+    ).toEqual([lessonId, reward.id]);
+  });
+
+  it("hangs a side chat whose parent is gone under the lesson, even without the lesson shell", () => {
+    const orphan = sideChat({
+      id: "thread-orphan",
+      parentId: ThreadId.make("thread-deleted"),
+      label: "orphan",
+      createdAt: "2026-10-22T09:10:00.000Z",
+    });
+
+    expect(deriveSideChatTree([orphan], lessonId)).toEqual([
+      {
+        threadId: lessonId,
+        parentId: null,
+        depth: 0,
+        label: "Lesson",
+        state: "lesson",
+        noteStatus: null,
+      },
+      {
+        threadId: orphan.id,
+        parentId: lessonId,
+        depth: 1,
+        label: "orphan",
+        state: "open",
+        noteStatus: null,
+      },
+    ]);
+  });
+
+  it("stops on a parent cycle and keeps both side chats reachable", () => {
+    const firstId = ThreadId.make("thread-first");
+    const secondId = ThreadId.make("thread-second");
+    const first = sideChat({
+      id: firstId,
+      parentId: secondId,
+      label: "first",
+      createdAt: "2026-10-22T09:10:00.000Z",
+    });
+    const second = sideChat({
+      id: secondId,
+      parentId: firstId,
+      label: "second",
+      createdAt: "2026-10-22T09:11:00.000Z",
+    });
+
+    expect(
+      deriveSideChatTree([lesson, second, first], lessonId).map((row) => [
+        row.threadId,
+        row.parentId,
+        row.depth,
+      ]),
+    ).toEqual([
+      [lessonId, null, 0],
+      [firstId, lessonId, 1],
+      [secondId, firstId, 2],
+    ]);
+  });
+
+  it("treats a side chat anchored on itself as a cycle", () => {
+    const selfId = ThreadId.make("thread-self");
+    const self = sideChat({
+      id: selfId,
+      parentId: selfId,
+      label: "self",
+      createdAt: "2026-10-22T09:10:00.000Z",
+    });
+
+    expect(
+      deriveSideChatTree([lesson, self], lessonId).map((row) => [
+        row.threadId,
+        row.parentId,
+        row.depth,
+      ]),
+    ).toEqual([
+      [lessonId, null, 0],
+      [selfId, lessonId, 1],
+    ]);
+  });
+
+  it("keeps the first shell when a thread id repeats", () => {
+    const staleCopy = {
+      ...reward,
+      title: "stale",
+      sideChat: { ...reward.sideChat!, label: "stale" },
+    };
+
+    expect(
+      deriveSideChatTree([lesson, reward, staleCopy], lessonId).map((row) => row.label),
+    ).toEqual(["RL environments", "reward shaping"]);
   });
 });

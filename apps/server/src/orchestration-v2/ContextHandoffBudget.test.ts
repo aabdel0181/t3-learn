@@ -26,6 +26,11 @@ import {
 } from "@t3tools/provider-core/server/handoffBudget";
 import { projectContextHandoffForWire } from "./WireProjection.ts";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
+import {
+  SIDE_CHAT_NOTES_HEADER,
+  buildSideChatNotesSummaryText,
+  isSideChatNotesHandoff,
+} from "./sideChat/notes.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeHandoff = Schema.decodeUnknownSync(OrchestrationV2ContextHandoff);
@@ -91,6 +96,13 @@ const handoff: OrchestrationV2ContextHandoff = {
   createdAt: now,
   updatedAt: now,
 };
+const { history: _history, ...handoffWithoutHistory } = handoff;
+const notesHandoff = (note: string): OrchestrationV2ContextHandoff => ({
+  ...handoffWithoutHistory,
+  id: ContextHandoffId.make("handoff:side-chat-notes"),
+  strategy: "manual_context",
+  summaryText: buildSideChatNotesSummaryText([{ label: "observation space", note }]),
+});
 
 describe("handoff budget", () => {
   it("keeps old preview handoffs readable and delivery history off the wire", () => {
@@ -638,6 +650,47 @@ describe("handoff delivery", () => {
       }).pipe(Effect.result);
       assert.equal(result._tag, "Failure");
       assert.equal(calls, 0);
+    }),
+  );
+
+  it.effect("drops side-chat notes that do not fit instead of failing the turn", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const result = yield* deliverContextHandoffs({
+        handoffs: [notesHandoff("They had not met observation spaces before.")],
+        providerThread,
+        budget: 0,
+        optional: isSideChatNotesHandoff,
+        alreadyDeliveredItemIds: new Set(),
+        persist: () =>
+          Effect.sync(() => {
+            calls++;
+          }),
+      });
+      assert.equal(result.context, "");
+      assert.equal(calls, 0);
+    }),
+  );
+
+  it.effect("keeps required history when only the side-chat notes are dropped", () =>
+    Effect.gen(function* () {
+      const persisted: Array<string> = [];
+      const result = yield* deliverContextHandoffs({
+        handoffs: [handoff, notesHandoff("y".repeat(20_000))],
+        providerThread,
+        budget: 16_000,
+        optional: isSideChatNotesHandoff,
+        alreadyDeliveredItemIds: new Set(),
+        persist: (value) =>
+          Effect.sync(() => {
+            persisted.push(value.id);
+          }),
+      });
+      yield* result.delivered;
+      assert.include(result.context, messages[0]!.text);
+      assert.notInclude(result.context, SIDE_CHAT_NOTES_HEADER);
+      assert.notInclude(result.context, "manual_context");
+      assert.deepEqual([...new Set(persisted)], [handoff.id]);
     }),
   );
 });

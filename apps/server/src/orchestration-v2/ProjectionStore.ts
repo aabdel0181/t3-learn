@@ -58,7 +58,9 @@ import {
   OrchestrationV2RuntimeRequestJson as OrchestrationV2RuntimeRequestJsonSchema,
   OrchestrationV2SubagentJson as OrchestrationV2SubagentJsonSchema,
   OrchestrationV2TurnItemJson as OrchestrationV2TurnItemJsonSchema,
+  isSideChatThread,
   orchestrationV2RunWorkStartedAt,
+  threadShellSideChatOf,
   RunId,
   MessageId,
   RuntimeRequestId,
@@ -428,6 +430,10 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<ThreadId>,
     ProjectionStoreV2Error
   >;
+  readonly listActiveSideChatThreadIds: () => Effect.Effect<
+    ReadonlyArray<ThreadId>,
+    ProjectionStoreV2Error
+  >;
   /**
    * Callers that combine the shell with other reads run this inside their own
    * transaction and the returned decode after it commits, so the shared
@@ -462,6 +468,29 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly threadId: ThreadId; readonly worktreePath: string }>,
     ProjectionStoreV2Error
   >;
+  /**
+   * Every non-deleted side chat of a lesson, archived ones included, oldest
+   * first. The text stays on the thread, so callers read the whole payload.
+   */
+  readonly getSideChatThreads: (input: {
+    readonly projectId: ProjectId;
+    readonly lessonThreadId: ThreadId;
+  }) => Effect.Effect<ReadonlyArray<OrchestrationV2AppThread>, ProjectionStoreV2Error>;
+  /**
+   * Whether some non-deleted side chat is anchored in this thread. It decodes no
+   * payload, so a send on a thread without side chats never loads the project's.
+   */
+  readonly hasSideChatChildren: (input: {
+    readonly projectId: ProjectId;
+    readonly parentThreadId: ThreadId;
+  }) => Effect.Effect<boolean, ProjectionStoreV2Error>;
+  /**
+   * The lesson of a side chat, deleted ones included, or null for any other
+   * thread and an unknown id. It reads one column, so every dispatch can afford it.
+   */
+  readonly getSideChatLessonThreadId: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -1605,6 +1634,9 @@ export function threadShellFromProjection(
     ...(projection.thread.historyOrigin === undefined
       ? {}
       : { historyOrigin: projection.thread.historyOrigin }),
+    ...(projection.thread.sideChat === undefined
+      ? {}
+      : { sideChat: threadShellSideChatOf(projection.thread.sideChat) }),
     latestRunId: latestRun?.id ?? null,
     latestRunRequestedAt: latestRun?.requestedAt ?? null,
     latestRunStartedAt: latestRun?.startedAt ?? null,
@@ -1864,6 +1896,9 @@ function shellFromState(input: {
     ...(input.state.thread.historyOrigin === undefined
       ? {}
       : { historyOrigin: input.state.thread.historyOrigin }),
+    ...(input.state.thread.sideChat === undefined
+      ? {}
+      : { sideChat: threadShellSideChatOf(input.state.thread.sideChat) }),
     latestRunId: input.state.latestRunId,
     latestRunRequestedAt: input.state.latestRunRequestedAt,
     latestRunStartedAt: input.state.latestRunStartedAt,
@@ -6135,6 +6170,63 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
+    const getSideChatThreads: ProjectionStoreV2Shape["getSideChatThreads"] = Effect.fn(
+      "ProjectionStore.getSideChatThreads",
+    )(
+      function* (input) {
+        const rows = yield* sql<PayloadRow>`
+          SELECT payload_json FROM orchestration_v2_projection_threads
+          WHERE project_id = ${input.projectId} AND deleted_at IS NULL
+            AND json_extract(payload_json, '$.sideChat.lessonThreadId') = ${input.lessonThreadId}
+          ORDER BY created_at ASC, thread_id ASC
+        `;
+        return yield* Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json));
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) => new ProjectionStoreReadError({ threadId: input.lessonThreadId, cause }),
+          ),
+        ),
+    );
+
+    const hasSideChatChildren: ProjectionStoreV2Shape["hasSideChatChildren"] = Effect.fn(
+      "ProjectionStore.hasSideChatChildren",
+    )(
+      function* (input) {
+        const rows = yield* sql<{ readonly found: number }>`
+          SELECT EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_threads
+            WHERE project_id = ${input.projectId} AND deleted_at IS NULL
+              AND json_extract(payload_json, '$.sideChat.anchor.threadId') = ${input.parentThreadId}
+          ) AS found
+        `;
+        return rows[0]?.found === 1;
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) => new ProjectionStoreReadError({ threadId: input.parentThreadId, cause }),
+          ),
+        ),
+    );
+
+    const getSideChatLessonThreadId: ProjectionStoreV2Shape["getSideChatLessonThreadId"] = (
+      threadId,
+    ) =>
+      /* Every dispatch reads this before taking its locks; the dispatch owns the span. */
+      sql<{ readonly lesson_thread_id: string | null }>`
+        SELECT json_extract(payload_json, '$.sideChat.lessonThreadId') AS lesson_thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE thread_id = ${threadId}
+      `.pipe(
+        Effect.map((rows) => {
+          const lessonThreadId = rows[0]?.lesson_thread_id ?? null;
+          return lessonThreadId === null ? null : ThreadId.make(lessonThreadId);
+        }),
+        Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
+      );
+
     const shellThreadStateFromRow =
       /* Runs once per shell row; the enclosing snapshot or thread read owns the span. */
       Effect.fnUntraced(function* (input: {
@@ -6448,6 +6540,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.mapError(shellSnapshotReadError),
     );
 
+    const listActiveSideChatThreadIds = Effect.fn("ProjectionStore.listActiveSideChatThreadIds")(
+      function* () {
+        const rows = yield* sql<{ readonly thread_id: string }>`
+        SELECT thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND json_extract(payload_json, '$.archivedAt') IS NULL
+          AND json_extract(payload_json, '$.sideChat') IS NOT NULL
+      `;
+        return rows.map((row) => ThreadId.make(row.thread_id));
+      },
+      Effect.mapError(shellSnapshotReadError),
+    );
+
     const getThreadShell: ProjectionStoreV2Shape["getThreadShell"] = (threadId) =>
       sql
         .withTransaction(
@@ -6541,12 +6647,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       apply,
       getShellSnapshot: readOnReader(getShellSnapshot),
       listActiveSubagentThreadIds: readOnReader(listActiveSubagentThreadIds),
+      listActiveSideChatThreadIds: readOnReader(listActiveSideChatThreadIds),
       readShellSnapshot: readOnReader(readShellSnapshot),
       getThreadShell: readOnReader(getThreadShell),
       getThread: readOnReader(getThread),
       getSettlementCandidates: readOnReader(getSettlementCandidates),
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),
+      getSideChatThreads: readOnReader(getSideChatThreads),
+      hasSideChatChildren: readOnReader(hasSideChatChildren),
+      getSideChatLessonThreadId: readOnReader(getSideChatLessonThreadId),
       getThreadProjection,
       getTurnStartContext: readOnReader(getTurnStartContext),
       getTurnStartHistory: readOnReader(getTurnStartHistory),
@@ -6662,6 +6772,17 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             .map(({ thread }) => thread.id);
         },
       ),
+      listActiveSideChatThreadIds: Effect.fn("ProjectionStore.listActiveSideChatThreadIds")(
+        function* () {
+          const existing = (yield* Ref.get(replayState)).projections;
+          return [...existing.values()]
+            .filter(
+              ({ thread }) =>
+                thread.deletedAt === null && thread.archivedAt === null && isSideChatThread(thread),
+            )
+            .map(({ thread }) => thread.id);
+        },
+      ),
       readShellSnapshot: (options) =>
         service.getShellSnapshot(options).pipe(Effect.map(Effect.succeed)),
       getThreadShell: Effect.fn("ProjectionStore.getThreadShell")(function* (threadId) {
@@ -6721,6 +6842,41 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 ? [{ threadId: thread.id, worktreePath: thread.worktreePath }]
                 : [],
             ),
+          ),
+        ),
+      getSideChatThreads: (input) =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()]
+              .map(({ thread }) => thread)
+              .filter(
+                (thread) =>
+                  thread.projectId === input.projectId &&
+                  thread.deletedAt === null &&
+                  thread.sideChat?.lessonThreadId === input.lessonThreadId,
+              )
+              .toSorted(
+                (left, right) =>
+                  DateTime.toEpochMillis(left.createdAt) -
+                    DateTime.toEpochMillis(right.createdAt) || left.id.localeCompare(right.id),
+              ),
+          ),
+        ),
+      hasSideChatChildren: (input) =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()].some(
+              ({ thread }) =>
+                thread.projectId === input.projectId &&
+                thread.deletedAt === null &&
+                thread.sideChat?.anchor.threadId === input.parentThreadId,
+            ),
+          ),
+        ),
+      getSideChatLessonThreadId: (threadId) =>
+        Ref.get(replayState).pipe(
+          Effect.map(
+            (state) => state.projections.get(threadId)?.thread.sideChat?.lessonThreadId ?? null,
           ),
         ),
       getThreadsWithPullRequests: (threadId) =>

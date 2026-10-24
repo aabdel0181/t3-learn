@@ -2,13 +2,17 @@ import { assert, describe, expect, it } from "vite-plus/test";
 import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import {
   compileResolvedKeybindingsConfig,
+  DEFAULT_RESOLVED_KEYBINDINGS,
   parseKeybindingShortcut,
 } from "@t3tools/shared/keybindings";
 
 import { resolveShortcutCommand } from "../../keybindings";
 
 import {
+  buildKeybindingCommandOptions,
   buildKeybindingRows,
+  commandLabel,
+  groupKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
@@ -221,6 +225,30 @@ describe("KeybindingsSettings.logic", () => {
         },
       },
     });
+  });
+
+  it("labels the side-chat shortcut, files it under Threads and keeps its default chord free", () => {
+    const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, true);
+    const row = rows.find((candidate) => candidate.command === "sideChat.askSelection");
+    expect(row?.key).toBe("mod+alt+s");
+    expect(row?.conflicts).toEqual([]);
+    expect(commandLabel("sideChat.askSelection")).toBe("Side Chat: Ask About Selection");
+    expect(
+      groupKeybindingRows(rows).find((group) => group.rows.some((candidate) => candidate === row))
+        ?.id,
+    ).toBe("threads");
+    expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, true)).toContain(
+      "sideChat.askSelection",
+    );
+
+    expect(
+      buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, false).map(
+        (candidate) => candidate.command,
+      ),
+    ).not.toContain("sideChat.askSelection");
+    expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, false)).not.toContain(
+      "sideChat.askSelection",
+    );
   });
 
   it("reports conflicting shortcuts that share an active when context", () => {

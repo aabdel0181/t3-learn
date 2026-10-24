@@ -650,6 +650,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   ::highlight(t3-assistant-citation-comment) {
     background-color: color-mix(in oklab, var(--primary) 45%, transparent);
   }
+  ::highlight(t3-side-chat-mark) {
+    text-decoration: underline dotted 1.5px color-mix(in oklab, var(--primary) 70%, transparent);
+    background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+  }
   :root {
     /* Keep the original T3 Code artwork palettes as the defaults. Built-in
        themes override them with their own pigments in the components layer. */
@@ -2454,6 +2458,9 @@ code {
     padding-inline-end: calc(
       0.75rem + var(--chat-lane-inset-end, 0px) - var(--chat-timeline-gutter, 0px)
     );
+  }
+  [data-side-chat-panel] .messages-timeline-scroll {
+    padding-inline: 0.75rem;
   }
   .chat-scroll-to-bottom,
   .chat-banner-lane {

@@ -22,6 +22,8 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { SideChatMapSurface } from "../sideChat/SideChatMap";
+import { SideChatPanel } from "../sideChat/SideChatPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -57,6 +59,10 @@ export interface RightPanelFileProps {
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
 }
 
+export interface RightPanelSideChatProps {
+  readonly onFocusLesson: () => void;
+}
+
 /** The body of the thread's right panel for the surface it is showing. */
 export function RightPanelSurfaceContent(props: {
   readonly surface: RightPanelSurface | null;
@@ -77,6 +83,7 @@ export function RightPanelSurfaceContent(props: {
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;
   readonly files: RightPanelFileProps;
+  readonly sideChat: RightPanelSideChatProps;
 }) {
   const { surface, threadRef, visible } = props;
   if (surface === null) return null;
@@ -220,5 +227,23 @@ export function RightPanelSurfaceContent(props: {
         </Suspense>
       );
     }
+    case "side-chat":
+      return (
+        <SideChatPanel
+          key={`${scopedThreadKey(threadRef)}:${surface.id}`}
+          lessonRef={threadRef}
+          surface={surface}
+          visible={visible}
+          onFocusLesson={props.sideChat.onFocusLesson}
+        />
+      );
+    case "thread-map":
+      return (
+        <SideChatMapSurface
+          key={scopedThreadKey(threadRef)}
+          threadRef={threadRef}
+          onFocusLesson={props.sideChat.onFocusLesson}
+        />
+      );
   }
 }

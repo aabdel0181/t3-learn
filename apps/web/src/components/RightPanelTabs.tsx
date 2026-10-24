@@ -33,6 +33,8 @@ import {
   FileDiff,
   Files,
   Globe2,
+  MessageCircleQuestion,
+  NetworkIcon,
   Plus,
   TerminalSquare,
 } from "lucide-react";
@@ -116,6 +118,8 @@ export interface RightPanelTabsProps {
    */
   previewRuntimeTabId?: ((tabId: string) => string) | undefined;
   terminalLabelsById: ReadonlyMap<string, string>;
+  /** Side-chat labels by thread id, for the titles of side-chat tabs. */
+  sideChatLabelsById?: ReadonlyMap<string, string>;
   onActivate: (surface: RightPanelSurface) => void;
   onRenameDevice?: (surfaceId: string, title: string) => void;
   onCloseSurface: (surface: RightPanelSurface) => void;
@@ -137,6 +141,8 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  /** Omitted where side chats are unsupported, which hides the Map entry. */
+  onAddThreadMap?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -144,6 +150,7 @@ export interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  threadMapAvailable?: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -170,6 +177,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
   device: "Devices are only available from a thread.",
+  threadMap: "This thread has no side chats yet.",
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -194,6 +202,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
   device: "Available from a thread.",
+  threadMap: "Available once this thread has side chats.",
 } as const;
 
 type TabContextMenuAction =
@@ -315,6 +324,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddThreadMap: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -322,6 +332,7 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  threadMapAvailable: boolean;
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -383,6 +394,18 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
       onClick: props.onAddDevice,
     },
+    ...(props.onAddThreadMap === undefined
+      ? []
+      : ([
+          {
+            label: "Side-chat map",
+            icon: NetworkIcon,
+            shortcut: "G",
+            available: props.threadMapAvailable,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.threadMap,
+            onClick: props.onAddThreadMap,
+          },
+        ] as const)),
   ] as const;
 
   type SurfaceAction = (typeof actions)[number];
@@ -546,6 +569,7 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  sideChatLabelsById: ReadonlyMap<string, string> | undefined,
 ): string {
   switch (surface.kind) {
     case "diff":
@@ -567,6 +591,10 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "side-chat":
+      return sideChatLabelsById?.get(surface.threadId) ?? "Side chat";
+    case "thread-map":
+      return "Map";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -663,6 +691,10 @@ function SurfaceIcon({
       ) : (
         <Smartphone className="size-3 shrink-0" />
       );
+    case "side-chat":
+      return <MessageCircleQuestion className="size-3 shrink-0" />;
+    case "thread-map":
+      return <NetworkIcon className="size-3 shrink-0" />;
   }
 }
 
@@ -1084,6 +1116,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
     },
+    ...(props.onAddThreadMap === undefined
+      ? []
+      : ([
+          {
+            label: "Side-chat map",
+            icon: NetworkIcon,
+            shortcut: "G",
+            available: props.threadMapAvailable === true,
+            disabledReason: SURFACE_DISABLED_REASONS.threadMap,
+            onClick: props.onAddThreadMap,
+          },
+        ] as const)),
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1289,7 +1333,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
                     active={surface.id === props.activeSurfaceId}
                     pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                    title={surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      props.sideChatLabelsById,
+                    )}
                     audio={tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
                     )}
@@ -1457,6 +1506,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddThreadMap={props.onAddThreadMap}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1464,6 +1514,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestAvailable={props.pullRequestAvailable}
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
+            threadMapAvailable={props.threadMapAvailable === true}
           />
         ) : (
           props.children

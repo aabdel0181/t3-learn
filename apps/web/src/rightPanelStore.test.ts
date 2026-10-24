@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { useClosedViewStore } from "./closedViewStore";
 import { reopenClosedView } from "./reopenClosedView";
 import {
+  hasSideChatSurfaces,
   migratePersistedRightPanelState,
   pullRequestSurface,
   pullRequestSurfaceId,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
+  selectLastSideChatSurface,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
   useRightPanelStore,
@@ -1204,5 +1206,212 @@ describe("rightPanelStore", () => {
     store.reconcileBrowserSurfaces(refA, ["tab-a", "tab-b"]);
     expect(surfaceIds()).toEqual(["browser:tab-a", "terminal:term-1", "diff", "browser:tab-b"]);
     expect(store.getUserActionRevision(refA)).toBe(revision);
+  });
+});
+
+describe("side chat surfaces", () => {
+  const state = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+  const openSideChat = (topThreadId: string, threadId = topThreadId) =>
+    useRightPanelStore.getState().openSideChat(refA, { topThreadId, threadId });
+  const deepest = ["side-1", "nested-1", "nested-2"];
+
+  it("opens one tab per top-level side chat and shows nested ones in place", () => {
+    useRightPanelStore.getState().open(refA, "diff");
+    openSideChat("side-1");
+    openSideChat("side-1", "nested-1");
+
+    expect(state()).toEqual({
+      isOpen: true,
+      activeSurfaceId: "side-chat:side-1",
+      surfaces: [
+        { id: "diff", kind: "diff" },
+        { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" },
+      ],
+      lastSideChatSurfaceId: "side-chat:side-1",
+    });
+  });
+
+  it("remembers the side-chat tab last made active until it closes", () => {
+    const store = useRightPanelStore.getState();
+    const last = () => selectLastSideChatSurface(state())?.id ?? null;
+    expect(last()).toBeNull();
+    openSideChat("side-1");
+    openSideChat("side-2");
+    openSideChat("side-3");
+    store.activateSurface(refA, "side-chat:side-2");
+    store.open(refA, "thread-map");
+    expect(last()).toBe("side-chat:side-2");
+
+    store.navigateSideChat(refA, "side-chat:side-3", ["side-3", "nested-3"], ["side-3"]);
+    store.open(refA, "thread-map");
+    expect(last()).toBe("side-chat:side-3");
+
+    store.closeSurface(refA, "side-chat:side-3");
+    expect(state().lastSideChatSurfaceId).toBeUndefined();
+    expect(last()).toBe("side-chat:side-1");
+  });
+
+  it("remembers the side chat a saved panel showed when the Map opens", () => {
+    useRightPanelStore.setState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "side-chat:side-2",
+          surfaces: [
+            { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+            { id: "side-chat:side-2", kind: "side-chat", threadId: "side-2" },
+          ],
+        },
+      },
+    });
+    useRightPanelStore.getState().open(refA, "thread-map");
+    expect(selectLastSideChatSurface(state())?.id).toBe("side-chat:side-2");
+  });
+
+  it("walks the breadcrumb up and back down in one tab", () => {
+    const store = useRightPanelStore.getState();
+    openSideChat("side-1", "nested-2");
+
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1"], deepest);
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", trail: deepest },
+    ]);
+
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1", "nested-1"], ["side-1"]);
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1", trail: deepest },
+    ]);
+
+    // Reaching the end of the trail leaves no trail behind.
+    store.navigateSideChat(refA, "side-chat:side-1", deepest, ["side-1", "nested-1"]);
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-2" },
+    ]);
+
+    // Another branch leaves the trail too.
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1"], deepest);
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1", "other"], ["side-1"]);
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "other" },
+    ]);
+
+    const before = state();
+    store.navigateSideChat(refA, "side-chat:gone", ["gone"], ["gone"]);
+    expect(state()).toBe(before);
+  });
+
+  it("sends a failed nested open back to its parent and drops a failed top-level open without recording it", () => {
+    const store = useRightPanelStore.getState();
+    openSideChat("side-1");
+    openSideChat("side-1", "nested-1");
+    store.closeFailedSideChat(refA, "nested-1", "side-1");
+    openSideChat("side-2");
+    store.closeFailedSideChat(refA, "side-2", null);
+
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "side-chat:side-1",
+      kind: "side-chat",
+      threadId: "side-1",
+    });
+    expect(state().surfaces).toHaveLength(1);
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+  });
+
+  it("keeps only tabs whose side chats still exist and drops the Map without side chats", () => {
+    const store = useRightPanelStore.getState();
+    openSideChat("side-1", "nested-1");
+    openSideChat("side-2");
+    store.open(refA, "thread-map");
+
+    store.reconcileSideChatSurfaces(refA, new Set(["side-1"]), true);
+    expect(state()).toEqual({
+      isOpen: true,
+      activeSurfaceId: "thread-map",
+      surfaces: [
+        { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+        { id: "thread-map", kind: "thread-map" },
+      ],
+    });
+
+    store.reconcileSideChatSurfaces(refA, new Set(), false);
+    expect(state()).toEqual({ isOpen: false, activeSurfaceId: null, surfaces: [] });
+  });
+
+  it("cuts the breadcrumb trail where a side chat is gone", () => {
+    const store = useRightPanelStore.getState();
+    openSideChat("side-1", "nested-2");
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1"], deepest);
+    const revision = store.getUserActionRevision(refA);
+
+    const before = state();
+    store.reconcileSideChatSurfaces(refA, new Set(deepest), true);
+    expect(state()).toBe(before);
+
+    store.reconcileSideChatSurfaces(refA, new Set(["side-1", "nested-1"]), true);
+    expect(state().surfaces).toEqual([
+      {
+        id: "side-chat:side-1",
+        kind: "side-chat",
+        threadId: "side-1",
+        trail: ["side-1", "nested-1"],
+      },
+    ]);
+
+    store.reconcileSideChatSurfaces(refA, new Set(["side-1"]), true);
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+    ]);
+    expect(store.getUserActionRevision(refA)).toBe(revision);
+  });
+
+  it("counts side-chat and Map tabs as side-chat surfaces", () => {
+    expect(hasSideChatSurfaces([{ id: "diff", kind: "diff" }])).toBe(false);
+    expect(
+      hasSideChatSurfaces([
+        { id: "diff", kind: "diff" },
+        { id: "thread-map", kind: "thread-map" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasSideChatSurfaces([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]),
+    ).toBe(true);
+  });
+
+  it("keeps saved side-chat and Map tabs and drops malformed ones when upgrading to version 15", () => {
+    expect(useRightPanelStore.persist.getOptions().version).toBe(15);
+    const sideChat = {
+      id: "side-chat:side-1",
+      kind: "side-chat",
+      threadId: "nested-1",
+      trail: deepest,
+    } as const;
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "side-chat:side-1",
+            lastSideChatSurfaceId: "side-chat:side-1",
+            surfaces: [
+              sideChat,
+              { id: "side-chat:side-2", kind: "side-chat", threadId: 5 },
+              { id: "side-chat:side-3", kind: "side-chat", threadId: "side-3", trail: [1] },
+              { id: "map", kind: "thread-map" },
+              { id: "thread-map", kind: "thread-map" },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "side-chat:side-1",
+          surfaces: [sideChat, { id: "thread-map", kind: "thread-map" }],
+          lastSideChatSurfaceId: "side-chat:side-1",
+        },
+      },
+      threadPanelVisibilityByThreadKey: {},
+    });
   });
 });

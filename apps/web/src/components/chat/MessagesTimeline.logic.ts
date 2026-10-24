@@ -2400,3 +2400,16 @@ export function sameRowsInput(
   }
   return Object.keys(left).length === Object.keys(right).length;
 }
+
+/** The assistant reply still being written, which a side chat cannot quote yet. */
+export function streamingAssistantMessageId(
+  entries: ReadonlyArray<TimelineEntry>,
+): MessageId | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    if (entry.kind === "message" && entry.message.role === "assistant" && entry.message.streaming) {
+      return entry.message.id;
+    }
+  }
+  return null;
+}

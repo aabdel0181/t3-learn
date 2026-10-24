@@ -188,6 +188,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
         return { schemaVersion: 2, snapshotSequence: 1, threads: [], archivedThreads: [] };
       }),
     listActiveSubagentThreadIds: unused,
+    listActiveSideChatThreadIds: unused,
     readShellSnapshot: unused,
     ensureLegacyTranscript: unused,
     dispatch: unused,
@@ -406,7 +407,7 @@ describe("AgentAwarenessRelay", () => {
           type: "thread.settled",
           threadId: THREAD_ID,
           occurredAt: now,
-          payload: settled,
+          payload: { ...settled, sideChat: undefined },
         });
         yield* Queue.take(pulls);
         yield* relay.drain;

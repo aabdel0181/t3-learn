@@ -8,6 +8,7 @@ import {
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderTurnTokenUsage,
   OrchestrationV2Run,
+  OrchestrationV2SideChat,
   OrchestrationV2ThreadProjection,
   ThreadId,
 } from "@t3tools/contracts";
@@ -50,6 +51,89 @@ export function forkableSourceRunStatusError(
   return `Fork source run ${run.id} is ${run.status}; in-progress and rolled-back runs cannot be forked.`;
 }
 
+/**
+ * The settings-copy half of planning a thread from another one: provider, model, modes, worktree,
+ * branch and lineage under the source. Side-chat state belongs to the source alone, so it never
+ * follows into the target.
+ */
+function planForkTargetThread(input: {
+  readonly sourceThread: OrchestrationV2AppThread;
+  readonly targetThreadId: ThreadId;
+  readonly title: string;
+  readonly forkedFrom: OrchestrationV2AppThread["forkedFrom"];
+  readonly createdBy: OrchestrationV2Actor;
+  readonly creationSource: OrchestrationV2CreationSource;
+  readonly createdAt: DateTime.Utc;
+}): OrchestrationV2AppThread {
+  const {
+    sideChat: _sideChat,
+    sideChatNoteDeliveries: _sideChatNoteDeliveries,
+    ...sourceThread
+  } = input.sourceThread;
+  return {
+    ...sourceThread,
+    // PR context follows the conversation; watching remains the source thread's responsibility.
+    pullRequests: sourceThread.pullRequests?.map(({ watch: _watch, ...link }) => link),
+    createdBy: input.createdBy,
+    creationSource: input.creationSource,
+    id: input.targetThreadId,
+    title: input.title,
+    activeProviderThreadId: null,
+    lineage: {
+      parentThreadId: sourceThread.id,
+      relationshipToParent: "fork",
+      rootThreadId: sourceThread.lineage.rootThreadId,
+    },
+    forkedFrom: input.forkedFrom,
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+}
+
+/**
+ * Plans a side chat as a child of its anchor thread. It reuses the fork settings copy but is not a
+ * fork: no source run, no context transfer, and nothing of the anchor's own pins, title
+ * regeneration, limit recovery, history origin, pull requests or rollback state.
+ */
+export function planSideChatThread(input: {
+  readonly anchorThread: OrchestrationV2AppThread;
+  readonly threadId: ThreadId;
+  readonly sideChat: OrchestrationV2SideChat;
+  readonly createdBy: OrchestrationV2Actor;
+  readonly creationSource: OrchestrationV2CreationSource;
+  readonly createdAt: DateTime.Utc;
+}): OrchestrationV2AppThread {
+  const {
+    pinnedAt: _pinnedAt,
+    pinOrderKey: _pinOrderKey,
+    titleRegeneration: _titleRegeneration,
+    limitRecovery: _limitRecovery,
+    historyOrigin: _historyOrigin,
+    pullRequests: _pullRequests,
+    linkedPullRequest: _linkedPullRequest,
+    branchPullRequest: _branchPullRequest,
+    rollbackRequestId: _rollbackRequestId,
+    rollbackFailure: _rollbackFailure,
+    ...thread
+  } = planForkTargetThread({
+    sourceThread: input.anchorThread,
+    targetThreadId: input.threadId,
+    title: input.sideChat.label,
+    forkedFrom: null,
+    createdBy: input.createdBy,
+    creationSource: input.creationSource,
+    createdAt: input.createdAt,
+  });
+  return { ...thread, sideChat: input.sideChat };
+}
+
 export interface ThreadForkServiceV2Shape {
   readonly plan: (input: {
     readonly sourceProjection: Pick<OrchestrationV2ThreadProjection, "thread">;
@@ -82,37 +166,19 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           cause: forkableSourceRunStatusError(input.sourceRun),
         });
       }
-      const targetThread: OrchestrationV2AppThread = {
-        ...input.sourceProjection.thread,
-        // PR context follows the conversation; watching remains the source thread's responsibility.
-        pullRequests: input.sourceProjection.thread.pullRequests?.map(
-          ({ watch: _watch, ...link }) => link,
-        ),
-        createdBy: input.createdBy,
-        creationSource: input.creationSource,
-        id: input.targetThreadId,
+      const targetThread = planForkTargetThread({
+        sourceThread: input.sourceProjection.thread,
+        targetThreadId: input.targetThreadId,
         title: input.title ?? `${input.sourceProjection.thread.title} fork`,
-        activeProviderThreadId: null,
-        lineage: {
-          parentThreadId: input.sourceProjection.thread.id,
-          relationshipToParent: "fork",
-          rootThreadId: input.sourceProjection.thread.lineage.rootThreadId,
-        },
         forkedFrom: {
           type: "run",
           threadId: input.sourceProjection.thread.id,
           runId: input.sourceRun.id,
         },
+        createdBy: input.createdBy,
+        creationSource: input.creationSource,
         createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-        archivedAt: null,
-        settledOverride: null,
-        settledAt: null,
-        snoozedUntil: null,
-        snoozedAt: null,
-        lastVisitedAt: null,
-        deletedAt: null,
-      };
+      });
       const transfer: OrchestrationV2ContextTransfer = {
         id: input.transferId,
         type: "fork",

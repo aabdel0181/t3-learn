@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  MessageId,
   ProjectId,
   RunId,
   RuntimeRequestId,
@@ -213,6 +214,105 @@ describe("v2 thread shell lists", () => {
     disposeInputs();
     disposeParent();
     registry.dispose();
+  });
+
+  it("leaves side chats out of navigation and raises their questions on the lesson's banner only", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const lesson = v2ThreadShell;
+    const running = {
+      status: "running" as const,
+      activityRunStatus: "running" as const,
+    };
+    const sideChatOf = (id: string, parent: OrchestrationV2ThreadShell) => ({
+      ...lesson,
+      ...running,
+      id: ThreadId.make(id),
+      lineage: {
+        rootThreadId: lesson.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "fork" as const,
+      },
+      sideChat: {
+        lessonThreadId: lesson.id,
+        anchor: {
+          threadId: parent.id,
+          messageId: MessageId.make("message-1"),
+          start: 0,
+          end: 5,
+          prefix: "",
+          suffix: "",
+        },
+        label: id,
+        state: "open" as const,
+        noteStatus: null,
+        excerptLength: 5,
+      },
+    });
+    const asking = (kind: "command" | "user_input") => ({
+      id: RuntimeRequestId.make(`${kind}-request`),
+      kind,
+      createdAt: v2Now,
+    });
+    const sideChat = sideChatOf("side-chat", lesson);
+    const nested = sideChatOf("nested", sideChat);
+    const setThreads = (shells: ReadonlyArray<OrchestrationV2ThreadShell>, sequence: number) =>
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        snapshotSequence: sequence,
+        threads: shells,
+      });
+    const navigation = threads.navigationThreadShellsAtom;
+    const lessonShell = threads.threadShellAtom({ environmentId, threadId: lesson.id });
+    const inputs = threads.childThreadInputsAtom({ environmentId, threadId: lesson.id });
+    const disposeNavigation = registry.mount(navigation);
+    const disposeLesson = registry.mount(lessonShell);
+    const disposeInputs = registry.mount(inputs);
+    try {
+      setThreads([lesson, { ...sideChat, pendingRuntimeRequest: asking("command") }, nested], 1);
+      expect(registry.get(navigation).map((thread) => thread.id)).toEqual([lesson.id]);
+      expect(registry.get(inputs).map((thread) => thread.id)).toEqual([sideChat.id]);
+      expect(childThreadInputsTitle(registry.get(inputs))).toBe("Side chat needs approval");
+      expect(registry.get(lessonShell)?.pendingSubagentRequest).toBeNull();
+
+      setThreads([lesson, sideChat, { ...nested, pendingRuntimeRequest: asking("user_input") }], 2);
+      expect(registry.get(inputs).map((thread) => thread.id)).toEqual([nested.id]);
+      expect(childThreadInputsTitle(registry.get(inputs))).toBe("Side chat needs input");
+      expect(registry.get(lessonShell)?.pendingSubagentRequest).toBeNull();
+
+      setThreads(
+        [
+          lesson,
+          { ...sideChat, pendingRuntimeRequest: asking("user_input") },
+          { ...nested, pendingRuntimeRequest: asking("user_input") },
+        ],
+        3,
+      );
+      expect(childThreadInputsTitle(registry.get(inputs))).toBe("2 side chats need input");
+
+      const subagent = {
+        ...lesson,
+        ...running,
+        id: ThreadId.make("subagent"),
+        creationSource: "mcp" as const,
+        lineage: {
+          rootThreadId: lesson.id,
+          parentThreadId: lesson.id,
+          relationshipToParent: "subagent" as const,
+        },
+        pendingRuntimeRequest: asking("user_input"),
+      };
+      setThreads(
+        [lesson, { ...sideChat, pendingRuntimeRequest: asking("user_input") }, subagent],
+        4,
+      );
+      expect(registry.get(inputs).map((thread) => thread.id)).toEqual([sideChat.id, subagent.id]);
+      expect(childThreadInputsTitle(registry.get(inputs))).toBe("2 threads need input");
+    } finally {
+      disposeInputs();
+      disposeLesson();
+      disposeNavigation();
+      registry.dispose();
+    }
   });
 
   it.each([

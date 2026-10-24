@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
-import { makeThreadFixture } from "../test-fixtures";
+import { makeSideChatThreadFixture, makeThreadFixture } from "../test-fixtures";
 import {
+  buildRecentThreadActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
   filterPinnedBrowseEntries,
@@ -10,6 +11,7 @@ import {
   reduceCommandPaletteUiState,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
+  resolveProjectLatestThread,
   type CommandPaletteUiState,
 } from "./CommandPalette.logic";
 
@@ -438,5 +440,65 @@ describe("returning from file and content search", () => {
     expect(closed).toEqual({ open: false, mode: "files", openIntent: null });
     expect(reduceCommandPaletteUiState(closed, { _tag: "BackToCommand" })).toEqual(closed);
     expect(reduceCommandPaletteUiState(closed, { _tag: "SetOpen", open: true })).toEqual(root);
+  });
+});
+
+describe("buildRecentThreadActionItems", () => {
+  it("leaves side chats out of the recent threads, while search still finds them", () => {
+    const lesson = makeThread({ id: ThreadId.make("lesson"), title: "Reinforcement learning" });
+    const sideChat = {
+      ...makeSideChatThreadFixture({
+        id: ThreadId.make("side"),
+        lessonId: lesson.id,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+      }),
+      projectId: PROJECT_ID,
+      createdAt: "2026-03-05T00:00:00.000Z",
+      updatedAt: "2026-03-05T00:00:00.000Z",
+    };
+    const input = {
+      threads: [lesson, sideChat],
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async () => undefined,
+    } as const;
+
+    expect(buildRecentThreadActionItems(input).map((item) => item.value)).toEqual([
+      "thread:lesson",
+    ]);
+    expect(buildThreadActionItems(input).map((item) => item.value)).toEqual([
+      "thread:side",
+      "thread:lesson",
+    ]);
+  });
+});
+
+describe("resolveProjectLatestThread", () => {
+  it("opens a project on its latest thread, never on a side chat", () => {
+    const lesson = makeThread({ id: ThreadId.make("lesson") });
+    const sideChat = {
+      ...makeSideChatThreadFixture({
+        id: ThreadId.make("side"),
+        lessonId: lesson.id,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+      }),
+      projectId: PROJECT_ID,
+      createdAt: "2026-03-05T00:00:00.000Z",
+      updatedAt: "2026-03-05T00:00:00.000Z",
+    };
+    const input = {
+      threads: [lesson, sideChat],
+      project: { environmentId: LOCAL_ENVIRONMENT_ID, id: PROJECT_ID },
+      sortOrder: "updated_at",
+    } as const;
+
+    expect(resolveProjectLatestThread({ ...input, groupedProjectKeys: null })?.id).toBe(lesson.id);
+    expect(
+      resolveProjectLatestThread({
+        ...input,
+        groupedProjectKeys: new Set([`${LOCAL_ENVIRONMENT_ID}:${PROJECT_ID}`]),
+      })?.id,
+    ).toBe(lesson.id);
   });
 });

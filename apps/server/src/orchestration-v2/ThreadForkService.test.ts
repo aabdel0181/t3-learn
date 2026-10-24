@@ -1,10 +1,12 @@
 import { assert, it } from "@effect/vitest";
 import {
+  CommandId,
   ContextTransferId,
   MessageId,
   type ModelSelection,
   type OrchestrationV2AppThread,
   type OrchestrationV2Run,
+  type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderInstanceId,
@@ -242,3 +244,122 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
     }
   }),
 );
+
+const lessonMessageId = MessageId.make("message:side-chat-lesson-reply");
+const sideChatThreadId = ThreadId.make("thread:side-chat");
+
+function makeSideChat(lessonThreadId: ThreadId = sourceThreadId): OrchestrationV2SideChat {
+  return {
+    lessonThreadId,
+    anchor: {
+      threadId: sourceThreadId,
+      messageId: lessonMessageId,
+      start: 12,
+      end: 29,
+      prefix: "the ",
+      suffix: " is",
+    },
+    excerpt: "observation space",
+    excerptContext: "In RL, the observation space is what the agent sees.",
+    label: "observation space",
+    opening: { status: "pending", text: null, requestId: "request:side-chat-opening" },
+    done: null,
+  };
+}
+
+const staleSideChat = makeSideChat(ThreadId.make("thread:stale-lesson"));
+const sideChatNoteDeliveries = { [ThreadId.make("thread:side-chat-child")]: "request:note" };
+
+it.effect("does not carry side-chat state into an ordinary fork", () =>
+  Effect.gen(function* () {
+    const sourceRun = makeSourceRun("completed");
+    const result = yield* planFork(sourceRun, {
+      ...makeSourceProjection(sourceRun),
+      thread: { ...makeSourceThread(), sideChat: staleSideChat, sideChatNoteDeliveries },
+    });
+
+    assert.isFalse("sideChat" in result.targetThread);
+    assert.isFalse("sideChatNoteDeliveries" in result.targetThread);
+  }),
+);
+
+it("plans a side chat from its anchor without pins, title regeneration, limit recovery or history origin", () => {
+  const pullRequest = {
+    host: "github.com",
+    repository: "example/repo",
+    number: 1,
+    url: "https://github.com/example/repo/pull/1",
+    source: "agent",
+    linkedAt: DateTime.formatIso(sourceCreatedAt),
+    snapshot: null,
+    stack: null,
+  } satisfies ThreadPullRequestLink;
+  const legacyLink = {
+    projectId: makeSourceThread().projectId,
+    repository: "example/repo",
+    number: 1,
+    url: pullRequest.url,
+  };
+  const anchorThread: OrchestrationV2AppThread = {
+    ...makeSourceThread(),
+    pinnedAt: snoozedAt,
+    pinOrderKey: "a0",
+    titleRegeneration: { requestId: CommandId.make("command:title"), startedAt: snoozedAt },
+    limitRecovery: null,
+    historyOrigin: "v1_import",
+    pullRequests: [pullRequest],
+    linkedPullRequest: legacyLink,
+    branchPullRequest: legacyLink,
+    rollbackRequestId: CommandId.make("command:rollback"),
+    rollbackFailure: { requestId: CommandId.make("command:rollback"), message: "failed" },
+    sideChat: staleSideChat,
+    sideChatNoteDeliveries,
+  };
+  const sideChat = makeSideChat();
+
+  const thread = ThreadForkService.planSideChatThread({
+    anchorThread,
+    threadId: sideChatThreadId,
+    sideChat,
+    createdBy: "user",
+    creationSource: "web",
+    createdAt: forkCreatedAt,
+  });
+
+  assert.equal(thread.id, sideChatThreadId);
+  assert.equal(thread.title, "observation space");
+  assert.deepEqual(thread.lineage, {
+    parentThreadId: sourceThreadId,
+    relationshipToParent: "fork",
+    rootThreadId: sourceThreadId,
+  });
+  assert.isNull(thread.forkedFrom);
+  assert.isNull(thread.activeProviderThreadId);
+  for (const key of [
+    "pinnedAt",
+    "pinOrderKey",
+    "titleRegeneration",
+    "limitRecovery",
+    "historyOrigin",
+    "pullRequests",
+    "linkedPullRequest",
+    "branchPullRequest",
+    "rollbackRequestId",
+    "rollbackFailure",
+    "sideChatNoteDeliveries",
+  ]) {
+    assert.isFalse(key in thread, `${key} must not be copied onto a side chat`);
+  }
+  assert.deepEqual(thread.sideChat, sideChat);
+  assert.deepEqual(thread.modelSelection, anchorThread.modelSelection);
+  assert.equal(thread.runtimeMode, anchorThread.runtimeMode);
+  assert.equal(thread.interactionMode, anchorThread.interactionMode);
+  assert.equal(thread.worktreePath, anchorThread.worktreePath);
+  assert.equal(thread.branch, anchorThread.branch);
+  assert.equal(thread.createdBy, "user");
+  assert.equal(thread.creationSource, "web");
+  assert.isNull(thread.archivedAt);
+  assert.isNull(thread.deletedAt);
+  assert.isTrue(DateTime.Equivalence(thread.createdAt, forkCreatedAt));
+  assert.isTrue(DateTime.Equivalence(thread.updatedAt, forkCreatedAt));
+});

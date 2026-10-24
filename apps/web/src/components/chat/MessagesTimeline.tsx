@@ -65,6 +65,7 @@ import {
   isTimelineMinimapRowVisible,
   resolveTimelineMinimapVisibleRange,
   resolveTimelineMinimapHitStripWidth,
+  streamingAssistantMessageId,
   timelineTurnFoldRunIdsByEntryId,
   worktreeSetupAgentStarted,
   type MessagesTimelineRow,
@@ -88,6 +89,7 @@ import { TimelineMinimap } from "./TimelineMinimap";
 import {
   type TimelineRowSharedState,
   type TimelineRowActivityState,
+  type SideChatWaitLabel,
   TimelineRowCtx,
   TimelineRowActivityCtx,
   type WorkGroupViewState,
@@ -180,6 +182,14 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  /**
+   * Offers Ask in side chat next to Cite; omitted when the environment has no side chats
+   * or the connection cannot operate the thread.
+   */
+  onAskInSideChat?:
+    | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
+    | undefined;
+  askInSideChatPending?: boolean;
   isWorking: boolean;
   runlessWorkActive?: boolean;
   activeTurnInProgress: boolean;
@@ -192,6 +202,7 @@ interface MessagesTimelineProps {
   onOpenWorktreeSetupTerminal?: (terminalId: string) => void;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
+  sideChatWaitLabel?: SideChatWaitLabel | null;
   awaitingUser?: boolean;
   footer?: ReactNode;
 
@@ -205,13 +216,16 @@ interface MessagesTimelineProps {
   paintOnly?: boolean;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
+  /** Marks the side chats anchored in assistant replies and opens them; omitted, none are marked. */
+  onOpenSideChat?: (threadId: ThreadId) => void;
   parentThreadLink?: {
     readonly threadId: ThreadId;
     readonly title: string;
   } | null;
   /** Set on a workflow coordinator's thread: its script message renders as this opening. */
   workflowOpening?: WorkflowOpening | null;
-  onForkFromRun: (input: {
+  /** Omitted where forking isn't offered, as in a side chat. */
+  onForkFromRun?: (input: {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;
@@ -286,6 +300,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,
+  onAskInSideChat,
+  askInSideChatPending = false,
   isWorking,
   runlessWorkActive = false,
   activeTurnInProgress,
@@ -299,6 +315,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenWorktreeSetupTerminal,
   isPreparingWorktree = false,
   isCompacting = false,
+  sideChatWaitLabel = null,
   awaitingUser = false,
   listRef,
   timelineEntries,
@@ -315,6 +332,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   paintOnly = false,
   onOpenTurnDiff,
   onOpenThread,
+  onOpenSideChat,
   parentThreadLink = null,
   workflowOpening = null,
   onForkFromRun,
@@ -918,6 +936,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     openPullRequest,
     onOpenTurnDiff,
     onOpenThread,
+    onOpenSideChat,
     workflowOpening,
     onForkFromRun,
     onRollbackCheckpoint,
@@ -949,6 +968,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     activeTurnInProgress,
     awaitingUser,
     isPreparingWorktree,
+    sideChatWaitLabel,
     latestRunId: latestRun?.runId ?? null,
   };
   const listHeaderLeadingContent =
@@ -1071,6 +1091,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}
+              {...(onAskInSideChat
+                ? {
+                    onAskInSideChat,
+                    askPending: askInSideChatPending,
+                    streamingMessageId: streamingAssistantMessageId(timelineEntries),
+                  }
+                : {})}
             />
           ) : null}
           <LegendList<MessagesTimelineRow>

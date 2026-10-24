@@ -1,5 +1,6 @@
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
+import { isLessonComposerFocused } from "./chat/composerFocusRedirect";
 import {
   deriveAvailableRevertTurnCounts,
   deriveThreadPendingBackgroundTasks,
@@ -56,6 +57,7 @@ import {
   type AssistantCitation,
   type ChatFileAttachment,
   isProviderNativeSubagentThread,
+  isSideChatThread,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -145,6 +147,7 @@ import {
 } from "../rightPanelLayout";
 import { PopoverCreateHandle } from "./ui/popover";
 import {
+  hasSideChatSurfaces,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectThreadPanelOpen,
@@ -345,6 +348,9 @@ import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
+import { useLessonSideChats } from "./sideChat/useLessonSideChats";
+import { askSelectionInSideChat } from "./sideChat/sideChatSelectionRegistry";
+import { returnToLesson } from "./sideChat/sideChatNavigation";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { useTimelineFollow } from "./chat/useTimelineFollow";
@@ -1184,6 +1190,14 @@ export default function ChatView(props: ChatViewProps) {
   const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
+  const supportsSideChats = serverConfig?.environment.capabilities.sideChats === true;
+  const lessonSideChats = useLessonSideChats({
+    lessonRef:
+      activeThreadShell !== null && !isSideChatThread(activeThreadShell) ? activeThreadRef : null,
+    supported: supportsSideChats,
+    capabilityKnown: serverConfig !== null,
+    activityRunStatus: activeActivityRun?.status ?? null,
+  });
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
   const attachmentUploadsCapabilityKnown = attachmentEnvironmentConfig !== null;
   const supportsQuestionAttachments =
@@ -1775,6 +1789,10 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.focusAtEnd();
   };
   const focusComposerStable = useStableCallback(focusComposer);
+  const returnToLessonFromSideChat = () => {
+    if (activeThreadRef) returnToLesson(activeThreadRef, shouldUsePlanSidebarSheet, focusComposer);
+  };
+  const returnToLessonFromSideChatStable = useStableCallback(returnToLessonFromSideChat);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
   const onInterrupt = async () => {
@@ -2071,6 +2089,8 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
+      // A side chat opened together with the lesson, by its URL, has taken the cursor.
+      if (document.activeElement?.closest("[data-side-chat-panel]")) return;
       focusComposerStable();
     });
     return () => {
@@ -2393,6 +2413,7 @@ export default function ChatView(props: ChatViewProps) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
+    addThreadMapSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -2401,6 +2422,7 @@ export default function ChatView(props: ChatViewProps) {
     onOpenTurnDiffStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
+    openSideChatSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
@@ -2683,7 +2705,7 @@ export default function ChatView(props: ChatViewProps) {
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
     modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
-    composerFocus: document.activeElement?.getAttribute("data-testid") === "composer-editor",
+    composerFocus: isLessonComposerFocused(document.activeElement),
     draftThreadRoute: routeKind === "draft",
     turnRunning: phase === "running",
     composerRequiresModifier: composerRequiresModifier(settings.sendShortcut, promptRef.current),
@@ -2722,6 +2744,7 @@ export default function ChatView(props: ChatViewProps) {
         if (!isServerThread || serverConfig?.threadFind !== true) return false;
         openThreadFind();
       },
+      "sideChat.askSelection": () => askSelectionInSideChat(window.getSelection()),
       "composer.cycleHost": ({ event }) => {
         if (!canChangeEnvironment) return false;
         if (event.repeat) return;
@@ -3112,6 +3135,7 @@ export default function ChatView(props: ChatViewProps) {
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
       }}
+      sideChat={{ onFocusLesson: returnToLessonFromSideChatStable }}
     />
   ) : null;
   const panelToggleControlProps = {
@@ -3122,7 +3146,7 @@ export default function ChatView(props: ChatViewProps) {
     threadPanelPresentation,
     threadPanelPopoverHandle,
     threadPanelShortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
-    rightPanelAvailable: activeProject !== null,
+    rightPanelAvailable: activeProject !== null || hasSideChatSurfaces(rightPanelState.surfaces),
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
     onToggleTerminal: toggleTerminalVisibilityStable,
@@ -3265,6 +3289,11 @@ export default function ChatView(props: ChatViewProps) {
                 {...(!paintOnlyDisplayedTimeline
                   ? {
                       onCiteAssistantText: citeAssistantTextStable,
+                      onAskInSideChat: canOperateThread
+                        ? lessonSideChats.onAskInSideChat
+                        : undefined,
+                      askInSideChatPending: lessonSideChats.askPending,
+                      ...(supportsSideChats ? { onOpenSideChat: openSideChatSurfaceStable } : {}),
                       ...(activeProject ? { onRunShellCommand: runShellCommandStable } : {}),
                     }
                   : {})}
@@ -3274,6 +3303,9 @@ export default function ChatView(props: ChatViewProps) {
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
                 }
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                sideChatWaitLabel={
+                  paintOnlyDisplayedTimeline ? null : lessonSideChats.noteWaitLabel
+                }
                 awaitingUser={
                   !paintOnlyDisplayedTimeline &&
                   (activePendingApproval !== null ||
@@ -3853,6 +3885,7 @@ export default function ChatView(props: ChatViewProps) {
           desktopByTabId={activePreviewState.desktopByTabId}
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
           terminalLabelsById={activeTerminalLabelsById}
+          sideChatLabelsById={lessonSideChats.labelsById}
           onActivate={activateRightPanelSurfaceStable}
           onCloseSurface={closeRightPanelSurfaceStable}
           onRenameDevice={(surfaceId, title) => {
@@ -3872,6 +3905,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddThreadMap={supportsSideChats ? addThreadMapSurfaceStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -3879,6 +3913,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
+          threadMapAvailable={lessonSideChats.shells.length > 1}
         >
           {rightPanelContent}
         </ChatRightPanel>

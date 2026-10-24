@@ -13,6 +13,7 @@ import {
   type NodeId,
   type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2SideChatAnchor,
   type PlanId,
   type ProjectId,
   type ProjectIconOverride,
@@ -218,6 +219,16 @@ export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
   readonly runId: RunId;
+}
+
+export interface OpenSideChatInput extends ThreadCommandInput {
+  readonly anchorThreadId: ThreadId;
+  readonly anchor: OrchestrationV2SideChatAnchor;
+  readonly excerpt: string;
+}
+
+export interface FinishSideChatInput extends ThreadCommandInput {
+  readonly discard?: boolean;
 }
 
 export interface ResumeThreadQueueInput extends ThreadCommandInput {
@@ -996,6 +1007,34 @@ export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
+  });
+});
+
+export const openSideChat = Effect.fn("EnvironmentCommands.openSideChat")(function* (
+  input: OpenSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.side_chat.open",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    threadId: input.threadId,
+    anchorThreadId: input.anchorThreadId,
+    anchor: input.anchor,
+    excerpt: input.excerpt,
+  });
+});
+
+export const finishSideChat = Effect.fn("EnvironmentCommands.finishSideChat")(function* (
+  input: FinishSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.side_chat.done",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    threadId: input.threadId,
+    ...(input.discard === true ? { discard: true } : {}),
   });
 });
 

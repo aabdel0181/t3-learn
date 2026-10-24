@@ -7,6 +7,7 @@ import { AsyncResult } from "effect/reactivity";
 import {
   archiveSelectedThreadEntries,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
@@ -43,7 +44,11 @@ import {
   type Project,
   type Thread,
 } from "../types";
-import { makeThreadFixture, type ThreadFixtureOverrides } from "../test-fixtures";
+import {
+  makeSideChatThreadFixture,
+  makeThreadFixture,
+  type ThreadFixtureOverrides,
+} from "../test-fixtures";
 import { completeSidebarRouteReveal, pendingSidebarRouteReveal } from "./sidebar/routeReveal";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
@@ -200,6 +205,29 @@ describe("sidebar thread lineage helpers", () => {
     const loopA = subagentOf("thread-loop-a", ThreadId.make("thread-loop-b"));
     const loopB = subagentOf("thread-loop-b", loopA.id);
     expect(resolveSidebarRowThreadId(loopA.id, environmentId, [loopA, loopB])).toBe(loopA.id);
+  });
+
+  it("hides side chats and maps an open one, however nested, to its lesson's row", () => {
+    const lesson = makeThreadFixture({ id: ThreadId.make("lesson") });
+    const fork = makeThreadFixture({
+      id: ThreadId.make("fork"),
+      lineage: { rootThreadId: lesson.id, parentThreadId: lesson.id, relationshipToParent: "fork" },
+    });
+    const side = makeSideChatThreadFixture({ id: ThreadId.make("side"), lessonId: lesson.id });
+    const nested = makeSideChatThreadFixture({
+      id: ThreadId.make("nested"),
+      lessonId: lesson.id,
+      parentId: side.id,
+    });
+    const threads = [lesson, fork, side, nested];
+
+    expect(filterSidebarV2VisibleThreads(threads, null).map((thread) => thread.id)).toEqual([
+      "lesson",
+      "fork",
+    ]);
+    expect(resolveSidebarRowThreadId(side.id, lesson.environmentId, threads)).toBe(lesson.id);
+    expect(resolveSidebarRowThreadId(nested.id, lesson.environmentId, threads)).toBe(lesson.id);
+    expect(resolveSidebarRowThreadId(fork.id, lesson.environmentId, threads)).toBe(fork.id);
   });
 });
 

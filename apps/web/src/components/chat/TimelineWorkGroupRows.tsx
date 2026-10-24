@@ -284,10 +284,13 @@ function ExpandedWorkGroupEntries({
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
 export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, sideChatWaitLabel } =
     use(TimelineRowActivityCtx);
-  const shimmer = isPreparingWorktree || isCompacting;
-  const label = isPreparingWorktree ? (
+  // The side-chat wait is plain text: it can last up to 15s and must not repaint.
+  const shimmer = sideChatWaitLabel === null && (isPreparingWorktree || isCompacting);
+  const label = sideChatWaitLabel ? (
+    sideChatWaitLabel
+  ) : isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />

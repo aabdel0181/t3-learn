@@ -140,7 +140,10 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       });
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      assert.deepEqual(persisted, Keybindings.DEFAULT_KEYBINDINGS);
+      assert.deepEqual(
+        persisted,
+        Keybindings.DEFAULT_KEYBINDINGS.filter((rule) => !rule.command.startsWith("sideChat.")),
+      );
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
@@ -236,6 +239,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         );
 
         for (const defaultRule of Keybindings.DEFAULT_KEYBINDINGS) {
+          if (defaultRule.command.startsWith("sideChat.")) continue;
           assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
         }
         assert.isTrue(byCommand.has("script.run-tests.run"));
@@ -248,6 +252,102 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
       }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("startup sync never writes sideChat.askSelection into keybindings.json", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const persistsAskSelection = Effect.map(
+        readKeybindingsConfig(keybindingsConfigPath),
+        (rules) => rules.some((entry) => entry.command === "sideChat.askSelection"),
+      );
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.isFalse(yield* persistsAskSelection);
+
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+y", command: "terminal.toggle" },
+      ]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(persisted.some((entry) => entry.command === "sidebar.toggle"));
+      assert.isFalse(yield* persistsAskSelection);
+
+      const configState = yield* keybindings.loadConfigState;
+      assert.deepEqual(
+        configState.keybindings.find((entry) => entry.command === "sideChat.askSelection")
+          ?.shortcut,
+        { key: "s", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true, modKey: true },
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("resetting sideChat.askSelection to its default leaves keybindings.json clean", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const askSelection = (key: string) =>
+        ({ key, command: "sideChat.askSelection", when: "!terminalFocus" }) as const;
+      const persistedAskSelection = Effect.map(
+        readKeybindingsConfig(keybindingsConfigPath),
+        (rules) => rules.filter((entry) => entry.command === "sideChat.askSelection"),
+      );
+      const resolvedAskSelection = Effect.map(keybindings.loadConfigState, (state) =>
+        state.keybindings
+          .filter((entry) => entry.command === "sideChat.askSelection")
+          .map((entry) => entry.shortcut.key),
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [askSelection("mod+alt+y")]);
+
+      yield* keybindings.upsertKeybindingRule({
+        ...askSelection("mod+alt+s"),
+        replace: askSelection("mod+alt+y"),
+      });
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+
+      // Beside another binding for the command, the default is a real choice and stays.
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+y"));
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+s"));
+      assert.deepStrictEqual(yield* persistedAskSelection, [
+        askSelection("mod+alt+y"),
+        askSelection("mod+alt+s"),
+      ]);
+
+      yield* keybindings.removeKeybindingRule(askSelection("mod+alt+y"));
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("adding a second shortcut for sideChat.askSelection keeps its default", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const askSelection = (key: string) =>
+        ({ key, command: "sideChat.askSelection", when: "!terminalFocus" }) as const;
+      const persistedAskSelection = Effect.map(
+        readKeybindingsConfig(keybindingsConfigPath),
+        (rules) => rules.filter((entry) => entry.command === "sideChat.askSelection"),
+      );
+      const resolvedAskSelection = Effect.map(keybindings.loadConfigState, (state) =>
+        state.keybindings
+          .filter((entry) => entry.command === "sideChat.askSelection")
+          .map((entry) => entry.shortcut.key),
+      );
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+k"));
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s", "k"]);
+
+      yield* keybindings.upsertKeybindingRule({
+        ...askSelection("mod+alt+s"),
+        replace: askSelection("mod+alt+k"),
+      });
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("adds a late default to an existing command once", () =>

@@ -1,4 +1,8 @@
-import { type OrchestrationV2ProviderTurn, type RunAttemptId } from "@t3tools/contracts";
+import {
+  type OrchestrationV2ProviderTurn,
+  type RunAttemptId,
+  threadShellSideChatOf,
+} from "@t3tools/contracts";
 import {
   deriveLatestThreadRun,
   deriveThreadRuntime,
@@ -1649,6 +1653,10 @@ export function presentThreadShellFromProjection(
   return {
     ...presentThreadShell(environmentId, {
       ...projection.thread,
+      sideChat:
+        projection.thread.sideChat === undefined
+          ? undefined
+          : threadShellSideChatOf(projection.thread.sideChat),
       lastVisitedAt,
       latestRunId: latestRun?.runId ?? null,
       activeRunId: runtime?.activeRunId ?? null,

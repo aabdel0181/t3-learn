@@ -27,6 +27,11 @@ import {
   unlockNotificationAudio,
 } from "../threadNotifications";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
+import {
+  isSideChatNotificationQuiet,
+  openThreadTarget,
+  resolveThreadOpenTarget,
+} from "./sideChat/sideChatNavigation";
 import { toastManager } from "./ui/toast";
 
 export function ThreadNotificationCoordinator() {
@@ -160,6 +165,18 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      if (
+        isSideChatNotificationQuiet({
+          environmentId,
+          thread,
+          activeEnvironmentId,
+          activeThreadId,
+          documentActive: document.visibilityState === "visible" && document.hasFocus(),
+        })
+      )
+        continue;
+      // No currentThreadRef: the route can change before the click, so opening always navigates.
+      const target = resolveThreadOpenTarget(thread);
       const title =
         kind === "completion"
           ? "Thread completed"
@@ -202,10 +219,7 @@ function EnvironmentNotifications({
             children: "Open thread",
             onClick: () => {
               toastManager.close(toastId);
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: { environmentId, threadId: thread.id },
-              });
+              void openThreadTarget({ navigate, environmentId, target });
             },
           },
         });
@@ -229,10 +243,7 @@ function EnvironmentNotifications({
           notification.close();
           window.focus();
           void window.desktopBridge?.revealWindow?.().catch(() => undefined);
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: { environmentId, threadId: thread.id },
-          });
+          void openThreadTarget({ navigate, environmentId, target });
         });
       } catch {
         // Some browsers expose Notification but reject desktop presentation.

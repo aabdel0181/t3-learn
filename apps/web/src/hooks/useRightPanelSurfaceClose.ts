@@ -1,12 +1,16 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   AuthPreviewOperateScope,
   AuthTerminalOperateScope,
   type ScopedThreadRef,
+  ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
 import { closePreviewSession } from "../components/preview/closePreviewSession";
+import { shouldFinishSideChatOnClose } from "../components/sideChat/sideChatPanel.logic";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { readLocalApi } from "../localApi";
 import { setActivePreviewTab, useThreadPreviewState } from "../previewStateStore";
@@ -16,16 +20,20 @@ import {
   useRightPanelStore,
   type RightPanelSurface,
 } from "../rightPanelStore";
+import { readThreadShell } from "../state/entities";
 import { previewEnvironment } from "../state/preview";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
+import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
 
 /**
  * Closes right panel surfaces for a thread. A surface's live resources go with
- * it: a browser's preview session and a terminal tab's sessions. Closing a
- * browser an agent is driving, or a terminal tab, asks first.
+ * it: a browser's preview session, a terminal tab's sessions, and a side chat
+ * nobody wrote to. Closing a browser an agent is driving, or a terminal tab,
+ * asks first.
  */
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
@@ -33,6 +41,9 @@ export function useRightPanelSurfaceClose(input: {
 }) {
   const { threadRef, terminalLabelsById } = input;
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
+  const finishSideChat = useOrchestrationCommand(threadEnvironment.finishSideChat, {
+    reportFailure: false,
+  });
   const canOperatePreview = useEnvironmentScope(
     threadRef?.environmentId ?? null,
     AuthPreviewOperateScope,
@@ -63,6 +74,22 @@ export function useRightPanelSurfaceClose(input: {
       for (const terminalId of surface.terminalIds) {
         storeCloseTerminal(ref, terminalId);
         terminalActions.closeTerminalSession(terminalId);
+      }
+    }
+    if (surface.kind === "side-chat") {
+      const sideChatRef = scopeThreadRef(ref.environmentId, ThreadId.make(surface.threadId));
+      const shell = readThreadShell(sideChatRef);
+      // The server throws the empty side chat away, so it leaves no mark in the lesson,
+      // and nothing can reach its draft again.
+      if (shell !== null && shouldFinishSideChatOnClose(shell)) {
+        void finishSideChat({
+          environmentId: ref.environmentId,
+          input: { threadId: shell.id },
+        }).then((result) => {
+          if (result._tag === "Success") {
+            useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+          }
+        });
       }
     }
   };

@@ -21,6 +21,7 @@ import { runMigrations } from "../persistence/Migrations.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -115,11 +116,12 @@ const unusedEnrichment = {
 };
 
 const layerRuntime = (dbPath: string) => {
-  const layerPlatform = Layer.merge(
+  const layerPlatform = Layer.mergeAll(
     NodeServices.layer,
     Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
       resolveLink: () => Effect.die("unused"),
     }),
+    Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
   );
   const layerServerConfig = ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-project-upgrade-",

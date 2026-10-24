@@ -153,4 +153,38 @@ describe("idleCompactionWindow", () => {
     archived.thread = { ...archived.thread, archivedAt: at() };
     expect(idleCompactionWindow(archived, NOW_MS)).toBeNull();
   });
+
+  it("skips side chats", () => {
+    const fork = records({ cacheExpiresInMs: 60 * MINUTE_MS });
+    fork.thread = {
+      ...fork.thread,
+      lineage: {
+        rootThreadId: threadId,
+        parentThreadId: ThreadId.make("lesson"),
+        relationshipToParent: "fork",
+      },
+    };
+    expect(idleCompactionWindow(fork, NOW_MS)).not.toBeNull();
+    const sideChat = records({ cacheExpiresInMs: 60 * MINUTE_MS });
+    sideChat.thread = {
+      ...fork.thread,
+      sideChat: {
+        lessonThreadId: ThreadId.make("lesson"),
+        anchor: {
+          threadId: ThreadId.make("lesson"),
+          messageId: MessageId.make("message-anchor"),
+          start: 0,
+          end: 3,
+          prefix: "",
+          suffix: "",
+        },
+        excerpt: "Box",
+        excerptContext: "Box",
+        label: "Box",
+        opening: { status: "ready", text: "Summary", requestId: "opening" },
+        done: null,
+      },
+    };
+    expect(idleCompactionWindow(sideChat, NOW_MS)).toBeNull();
+  });
 });

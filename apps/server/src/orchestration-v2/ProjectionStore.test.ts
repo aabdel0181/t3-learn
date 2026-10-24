@@ -8,8 +8,10 @@ import {
   CheckpointScopeId,
   MessageId,
   type ModelSelection,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
+  type OrchestrationV2ThreadShellSideChat,
   type OrchestrationV2ThreadShellSnapshot,
   NodeId,
   PlanId,
@@ -369,6 +371,263 @@ it.effect.each([
     yield* assertBlocked(true);
     yield* updateItem({ ...blockingDelegation, status: "completed", completedAt: at });
     yield* assertBlocked(false);
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect.each([
+  ["memory", ProjectionStore.layerMemory],
+  ["SQL", layerTest],
+] as const)("%s shells carry the slim side chat and none of its text", ([, layer]) =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const lessonThreadId = ThreadId.make("thread:side-chat-shell:lesson");
+    const threadId = ThreadId.make("thread:side-chat-shell:side");
+    const anchor = {
+      threadId: lessonThreadId,
+      messageId: MessageId.make("message:side-chat-shell:reply"),
+      start: 120,
+      end: 137,
+      prefix: "the agent reads the ",
+      suffix: " and picks an action",
+    };
+    const excerptContext = "Each step, the agent reads the observation space and picks an action.";
+    const openingText = "Lesson: RL environments with Gym.";
+    const note = "Define terms before using them.";
+    const thread = {
+      createdBy: "user",
+      creationSource: "web",
+      id: threadId,
+      projectId: ProjectId.make("project:side-chat-shell"),
+      title: "observation space",
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      activeProviderThreadId: null,
+      lineage: {
+        parentThreadId: lessonThreadId,
+        relationshipToParent: "fork",
+        rootThreadId: lessonThreadId,
+      },
+      forkedFrom: null,
+      sideChat: {
+        lessonThreadId,
+        anchor,
+        excerpt: "observation space",
+        excerptContext,
+        label: "observation space",
+        opening: { status: "ready", text: openingText, requestId: "opening-1" },
+        done: null,
+      },
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      lastVisitedAt: null,
+      deletedAt: null,
+    } satisfies OrchestrationV2AppThread;
+    const shellsOf = Effect.fnUntraced(function* (id: ThreadId) {
+      const listed = (yield* store.getShellSnapshot()).threads.find((row) => row.id === id);
+      return [yield* store.getThreadShell(id), listed] as const;
+    });
+    const slim = {
+      lessonThreadId,
+      anchor,
+      label: "observation space",
+      state: "open",
+      noteStatus: null,
+      excerptLength: 17,
+    } satisfies OrchestrationV2ThreadShellSideChat;
+
+    yield* store.apply({
+      id: EventId.make("event:side-chat-shell:created"),
+      type: "thread.created",
+      threadId,
+      occurredAt: now,
+      payload: thread,
+    });
+    for (const shell of yield* shellsOf(threadId)) {
+      assert.deepEqual(shell?.sideChat, slim);
+    }
+
+    yield* store.apply({
+      id: EventId.make("event:side-chat-shell:done"),
+      type: "thread.metadata-updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        sideChat: {
+          ...thread.sideChat,
+          done: {
+            at: DateTime.formatIso(now),
+            outcome: { status: "ready", note, requestId: "outcome-1" },
+          },
+        },
+      },
+    });
+    for (const shell of yield* shellsOf(threadId)) {
+      assert.deepEqual(shell?.sideChat, { ...slim, state: "done", noteStatus: "ready" });
+      const json = JSON.stringify(shell);
+      for (const text of [excerptContext, openingText, note]) {
+        assert.notInclude(json, text);
+      }
+    }
+
+    const plainThreadId = yield* addRolledBackRecoveryCandidate("side-chat-shell-plain");
+    for (const shell of yield* shellsOf(plainThreadId)) {
+      assert.isDefined(shell);
+      assert.notProperty(shell, "sideChat");
+    }
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect.each([
+  ["memory", ProjectionStore.layerMemory],
+  ["SQL", layerTest],
+] as const)("%s lists a lesson's side chats, archived included and deleted excluded", ([, layer]) =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    const projectId = ProjectId.make("project:side-chat-list");
+    const otherProjectId = ProjectId.make("project:side-chat-list:other");
+    const lessonThreadId = ThreadId.make("thread:side-chat-list:lesson");
+    const otherLessonThreadId = ThreadId.make("thread:side-chat-list:other-lesson");
+    const create = Effect.fnUntraced(function* (
+      id: string,
+      input: {
+        readonly projectId?: ProjectId;
+        readonly lessonThreadId?: ThreadId;
+        readonly anchorThreadId?: ThreadId;
+        readonly createdAt?: DateTime.Utc;
+        readonly archived?: boolean;
+      },
+    ) {
+      const threadId = ThreadId.make(id);
+      const createdAt = input.createdAt ?? now;
+      const sideChatLessonThreadId = input.lessonThreadId;
+      const thread = {
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: input.projectId ?? projectId,
+        title: id,
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage:
+          sideChatLessonThreadId === undefined
+            ? { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId }
+            : {
+                parentThreadId: sideChatLessonThreadId,
+                relationshipToParent: "fork" as const,
+                rootThreadId: sideChatLessonThreadId,
+              },
+        forkedFrom: null,
+        ...(sideChatLessonThreadId === undefined
+          ? {}
+          : {
+              sideChat: {
+                lessonThreadId: sideChatLessonThreadId,
+                anchor: {
+                  threadId: input.anchorThreadId ?? sideChatLessonThreadId,
+                  messageId: MessageId.make(`message:${id}`),
+                  start: 0,
+                  end: 4,
+                  prefix: "",
+                  suffix: "",
+                },
+                excerpt: "text",
+                excerptContext: "text",
+                label: id,
+                opening: { status: "ready" as const, text: "Opening.", requestId: `opening:${id}` },
+                done: null,
+              },
+            }),
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: input.archived === true ? createdAt : null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      } satisfies OrchestrationV2AppThread;
+      yield* store.apply({
+        id: EventId.make(`event:${id}:created`),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: thread,
+      });
+      return thread;
+    });
+
+    yield* create(lessonThreadId, {});
+    yield* create(otherLessonThreadId, {});
+    // Created out of order, so the result order can only come from `createdAt`.
+    yield* create("side:b", {
+      lessonThreadId,
+      createdAt: DateTime.add(now, { seconds: 2 }),
+    });
+    yield* create("side:a", {
+      lessonThreadId,
+      createdAt: DateTime.add(now, { seconds: 1 }),
+      archived: true,
+    });
+    const deleted = yield* create("side:deleted", {
+      lessonThreadId,
+      anchorThreadId: ThreadId.make("side:a"),
+      createdAt: DateTime.add(now, { seconds: 3 }),
+    });
+    yield* store.apply({
+      id: EventId.make("event:side:deleted:deleted"),
+      type: "thread.deleted",
+      threadId: deleted.id,
+      occurredAt: now,
+      payload: { ...deleted, deletedAt: now },
+    });
+    yield* create("side:other-lesson", { lessonThreadId: otherLessonThreadId });
+    yield* create("side:other-project", { lessonThreadId, projectId: otherProjectId });
+
+    const listed = yield* store.getSideChatThreads({ projectId, lessonThreadId });
+    assert.deepEqual(
+      listed.map((thread) => thread.id),
+      [ThreadId.make("side:a"), ThreadId.make("side:b")],
+    );
+    assert.isNotNull(listed[0]?.archivedAt);
+    assert.deepEqual(listed[1]?.sideChat?.anchor.threadId, lessonThreadId);
+    assert.deepEqual(
+      yield* store.getSideChatThreads({ projectId, lessonThreadId: ThreadId.make("side:b") }),
+      [],
+    );
+
+    const hasChildren = (parentThreadId: ThreadId, inProject = projectId) =>
+      store.hasSideChatChildren({ projectId: inProject, parentThreadId });
+    assert.isTrue(yield* hasChildren(lessonThreadId));
+    assert.isFalse(yield* hasChildren(ThreadId.make("side:b")));
+    // Its only side chat is deleted.
+    assert.isFalse(yield* hasChildren(ThreadId.make("side:a")));
+    // Another project's side chat anchored on the lesson is not this project's child.
+    assert.isTrue(yield* hasChildren(lessonThreadId, otherProjectId));
+    assert.isFalse(
+      yield* hasChildren(lessonThreadId, ProjectId.make("project:side-chat-list:empty")),
+    );
+    assert.isFalse(yield* hasChildren(ThreadId.make("thread:side-chat-list:unknown")));
+
+    // The dispatch lock's lesson lookup, which reads deleted side chats too.
+    const lessonOf = (id: string) => store.getSideChatLessonThreadId(ThreadId.make(id));
+    assert.equal(yield* lessonOf("side:a"), lessonThreadId);
+    assert.equal(yield* lessonOf("side:deleted"), lessonThreadId);
+    assert.isNull(yield* lessonOf(lessonThreadId));
+    assert.isNull(yield* lessonOf("thread:side-chat-list:unknown"));
   }).pipe(Effect.provide(layer)),
 );
 
@@ -1131,6 +1390,37 @@ it.effect("lists only active subagent IDs without loading shell data", () =>
     assert.sameMembers(
       [...(yield* store.listActiveSubagentThreadIds())],
       [ThreadId.make("active-subagent")],
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("lists only active side chat IDs without loading shell data", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
+    const createdAt = "2026-01-05T00:00:00.000Z";
+    const sideChat = { lessonThreadId: "lesson" };
+    for (const [id, chat, archivedAt, deletedAt] of [
+      ["lesson", null, null, null],
+      ["active-side-chat", sideChat, null, null],
+      ["archived-side-chat", sideChat, createdAt, null],
+      ["deleted-side-chat", sideChat, null, createdAt],
+    ] as const) {
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, archived_at, deleted_at, payload_json
+        ) VALUES (
+          ${id}, 'project:test', ${id}, 'codex', 'full-access', 'default',
+          ${createdAt}, ${createdAt}, ${archivedAt}, ${deletedAt},
+          ${JSON.stringify({ lineage: { relationshipToParent: "fork" }, archivedAt, ...(chat === null ? {} : { sideChat: chat }) })}
+        )
+      `;
+    }
+
+    assert.sameMembers(
+      [...(yield* store.listActiveSideChatThreadIds())],
+      [ThreadId.make("active-side-chat")],
     );
   }).pipe(Effect.provide(layerTest)),
 );

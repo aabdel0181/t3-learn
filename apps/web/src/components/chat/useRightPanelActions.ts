@@ -5,7 +5,7 @@ import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-action
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { resolveExplicitDiffOpenOnActivate } from "../ChatView.logic";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { type ScopedThreadRef, type RunId } from "@t3tools/contracts";
+import { type ScopedThreadRef, type RunId, type ThreadId } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { type SetStateAction, useEffect } from "react";
 import {
@@ -13,7 +13,10 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { useDiffPanelStore } from "../../diffPanelStore";
-import { type ThreadPanelPresentation } from "../../rightPanelLayout";
+import {
+  RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY,
+  type ThreadPanelPresentation,
+} from "../../rightPanelLayout";
 import {
   selectActiveRightPanel,
   type RightPanelSurface,
@@ -29,6 +32,7 @@ import type { useDeviceState } from "../../state/device";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
+import { focusSideChat, revealSideChat } from "../sideChat/sideChatNavigation";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 interface RightPanelActionsInput {
@@ -60,7 +64,7 @@ interface RightPanelActionsInput {
 
 /**
  * Opening, closing, and arranging the right panel's surfaces: browser, diff, files, pull
- * requests, device, and terminal tabs.
+ * requests, device, terminal, side-chat and Map tabs.
  */
 export function useRightPanelActions(input: RightPanelActionsInput) {
   const {
@@ -154,6 +158,21 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "device");
   };
   const addDeviceSurfaceStable = useStableCallback(addDeviceSurface);
+  const addThreadMapSurface = () => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "thread-map");
+  };
+  const addThreadMapSurfaceStable = useStableCallback(addThreadMapSurface);
+  const openSideChatSurface = (threadId: ThreadId) => {
+    if (!activeThreadRef) return;
+    // The sheet is modal, so focus has to go in, and it would otherwise land on a tab's close button.
+    if (window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches) {
+      focusSideChat(activeThreadRef, threadId);
+    } else {
+      revealSideChat(activeThreadRef, threadId);
+    }
+  };
+  const openSideChatSurfaceStable = useStableCallback(openSideChatSurface);
   const openFileSurface = (relativePath: string) => {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
@@ -314,6 +333,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
+    addThreadMapSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -323,6 +343,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     onToggleDiffStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
+    openSideChatSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
