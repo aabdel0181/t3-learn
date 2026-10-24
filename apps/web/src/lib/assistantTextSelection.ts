@@ -220,13 +220,20 @@ function excludedAncestor(node: Node): Element | null {
   return element?.closest(EXCLUDED_SELECTOR) ?? null;
 }
 
+function excludedWithin(root: HTMLElement, node: Node): boolean {
+  const excluded = excludedAncestor(node);
+  return excluded !== null && root.contains(excluded);
+}
+
+// Only exclusions inside the reply count. An open modal sets aria-hidden on the column
+// around it, and side-chat marks must stay painted through that.
 function isUsableRange(root: HTMLElement, range: Range): boolean {
   if (
     range.collapsed ||
     !root.contains(range.startContainer) ||
     !root.contains(range.endContainer) ||
-    excludedAncestor(range.startContainer) !== null ||
-    excludedAncestor(range.endContainer) !== null
+    excludedWithin(root, range.startContainer) ||
+    excludedWithin(root, range.endContainer)
   ) {
     return false;
   }
@@ -281,7 +288,8 @@ export function captureAssistantTextSelection(
   else range.setStart(first, first === range.startContainer ? range.startOffset : 0);
   if (endFormula) range.setEndAfter(endFormula);
   else range.setEnd(last, last === range.endContainer ? range.endOffset : last.length);
-  if (!isUsableRange(source, range)) return null;
+  // Unlike a painted mark, a selection in a reply behind a modal offers no actions.
+  if (excludedAncestor(source) !== null || !isUsableRange(source, range)) return null;
 
   const stream = readAssistantText(source);
   let rawStart: number | null = null;
@@ -349,7 +357,6 @@ export function resolveAssistantAnchorRange(
   root: HTMLElement,
   anchor: AssistantTextAnchor,
 ): Range | null {
-  if (excludedAncestor(root) !== null) return null;
   const stream = readAssistantText(root);
   const match = findAssistantAnchorText(stream.text, anchor);
   return match === null ? null : rangeForMatch(root, stream, match);
