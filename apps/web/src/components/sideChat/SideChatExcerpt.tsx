@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
@@ -12,6 +12,7 @@ export function SideChatExcerpt(props: { readonly text: string; readonly onRevea
   const expanded = expandedText === text;
   const [overflows, setOverflows] = useState(false);
   const [quote, setQuote] = useState<HTMLElement | null>(null);
+  const quoteId = useId();
 
   // Only the clamped text can overflow. Once expanded the toggle keeps its last answer, and
   // collapsing observes again.
@@ -25,6 +26,8 @@ export function SideChatExcerpt(props: { readonly text: string; readonly onRevea
       <button
         type="button"
         aria-label="Show this highlight where it was asked"
+        // The label replaces the quote as the button's name, so the quote is its description.
+        aria-describedby={quoteId}
         className="block w-full min-w-0 cursor-pointer rounded-sm border-border border-l-2 pl-2 text-left text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={props.onReveal}
       >
@@ -32,6 +35,7 @@ export function SideChatExcerpt(props: { readonly text: string; readonly onRevea
             line-clamp-3 sets its own display (-webkit-box), so `block` is only for the expanded box. */}
         <span
           key={text}
+          id={quoteId}
           ref={setQuote}
           className={cn("break-words", expanded ? "block" : "line-clamp-3")}
         >
@@ -43,6 +47,7 @@ export function SideChatExcerpt(props: { readonly text: string; readonly onRevea
           size="xs"
           variant="ghost"
           aria-expanded={expanded}
+          aria-controls={quoteId}
           onClick={() => setExpandedText(expanded ? null : text)}
         >
           {expanded ? "Show less" : "Show more"}
