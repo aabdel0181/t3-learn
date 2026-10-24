@@ -88,6 +88,7 @@ export async function openThreadTarget(input: {
   readonly environmentId: EnvironmentId;
   readonly target: ThreadOpenTarget;
   readonly currentThreadRef?: ScopedThreadRef | null;
+  readonly replace?: boolean;
 }): Promise<void> {
   const routeRef = scopeThreadRef(input.environmentId, input.target.routeThreadId);
   if (input.target.sideChatThreadId !== null) {
@@ -102,6 +103,7 @@ export async function openThreadTarget(input: {
   await input.navigate({
     to: "/$environmentId/$threadId",
     params: buildThreadRouteParams(routeRef),
+    replace: input.replace ?? false,
   });
 }
 
