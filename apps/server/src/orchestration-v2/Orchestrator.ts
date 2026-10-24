@@ -4113,6 +4113,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...existing,
       pendingSideChatOpeningEffect(command.commandId, command.threadId),
     ]);
+    // Its note travels up through the side chat it was opened in, so that one must be open.
+    yield* reopenDoneSideChats(command, anchorThread, events);
   });
 
   const dispatchSideChatOpeningComplete = Effect.fn(
@@ -10742,15 +10744,75 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   /**
-   * A message the user sends in a done side chat reopens it, so a later Done writes a fresh note.
-   * A note its parent received is kept as `deliveredNote`, and that later note says only what is
-   * new. A note the parent never received is dropped and replaced. A note still being written
-   * lands on nothing, because its request is no longer the side chat's.
+   * Reopens `thread` when it is a done side chat, and every done side chat above it, so no side
+   * chat is open below a done one whose note would never be written again. A later Done writes a
+   * fresh note. A note its parent received is kept as `deliveredNote`, and that later note says
+   * only what is new. A note the parent never received is dropped and replaced. A note still being
+   * written lands on nothing, because its request is no longer the side chat's.
+   */
+  const reopenDoneSideChats = Effect.fn("Orchestrator.reopenDoneSideChats")(function* (
+    command: OrchestrationV2ServerCommand,
+    thread: OrchestrationV2AppThread,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    // A broken lineage could loop, and this runs under the lesson's lock.
+    const visited = new Set<ThreadId>();
+    let current = thread;
+    while (current.sideChat !== undefined && !visited.has(current.id)) {
+      visited.add(current.id);
+      const { sideChat } = current;
+      const parentThreadId = current.lineage.parentThreadId;
+      // A lesson is never done, so it is read only for the note of a done side chat right below.
+      const parent =
+        parentThreadId === null ||
+        (sideChat.done === null && parentThreadId === sideChat.lessonThreadId)
+          ? undefined
+          : yield* projectionStore
+              .getThread(parentThreadId)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new OrchestratorProjectionError({ threadId: parentThreadId, cause }),
+                ),
+              );
+      if (sideChat.done !== null) {
+        const { outcome } = sideChat.done;
+        const deliveredNote =
+          outcome.status === "ready" &&
+          outcome.note !== null &&
+          parent?.sideChatNoteDeliveries?.[current.id] === outcome.requestId
+            ? outcome.note
+            : undefined;
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: current.id,
+          providerInstanceId: current.providerInstanceId,
+          occurredAt: yield* DateTime.now,
+          payload: {
+            ...current,
+            sideChat: {
+              ...sideChat,
+              done: null,
+              ...(deliveredNote === undefined ? {} : { deliveredNote }),
+            },
+          },
+        });
+      }
+      if (parent === undefined) return;
+      current = parent;
+    }
+  });
+
+  /**
+   * A message the user sends in a side chat reopens it, and the side chats above it, when done.
    *
    * Any message the user sends also finishes the idle open side chats below its thread, deepest
    * first, as Done does but without stopping a turn. A side chat stays open while it or any side
-   * chat below it is still answering, and so does one nobody has written in. Their notes ride the run this message starts when they are
-   * written within the wait cap, and the user's next message otherwise.
+   * chat below it is still answering, and so does one nobody has written in. Their notes ride the
+   * run this message starts when they are written within the wait cap, and the user's next message
+   * otherwise.
    */
   const applySideChatUserMessage = Effect.fn("Orchestrator.applySideChatUserMessage")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
@@ -10760,45 +10822,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) {
     // Every message passes through here, so the checks that read nothing come first.
     if (!isUserAuthoredSideChatTrigger(command)) return;
-    const sideChat = thread.sideChat;
-    const done = sideChat?.done ?? null;
-    if (sideChat !== undefined && done !== null) {
-      const { outcome } = done;
-      const parentThreadId = thread.lineage.parentThreadId;
-      const parent =
-        parentThreadId === null
-          ? undefined
-          : yield* projectionStore
-              .getThread(parentThreadId)
-              .pipe(
-                Effect.mapError(
-                  (cause) => new OrchestratorProjectionError({ threadId: parentThreadId, cause }),
-                ),
-              );
-      const deliveredNote =
-        outcome.status === "ready" &&
-        outcome.note !== null &&
-        parent?.sideChatNoteDeliveries?.[thread.id] === outcome.requestId
-          ? outcome.note
-          : undefined;
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: thread.id,
-        providerInstanceId: thread.providerInstanceId,
-        occurredAt: yield* DateTime.now,
-        payload: {
-          ...thread,
-          sideChat: {
-            ...sideChat,
-            done: null,
-            ...(deliveredNote === undefined ? {} : { deliveredNote }),
-          },
-        },
-      });
-    }
+    yield* reopenDoneSideChats(command, thread, events);
 
     const hasSideChats = yield* projectionStore
       .hasSideChatChildren({ projectId: thread.projectId, parentThreadId: thread.id })
