@@ -4,15 +4,20 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { selectThreadRelationshipShells } from "./entities";
+import { isLineageThread, selectThreadRelationshipShells } from "./entities";
 
 type Projection = Parameters<typeof selectThreadRelationshipShells>[1];
 
-const shell = (id: string, parentThreadId: string | null = null) =>
+const shell = (
+  id: string,
+  parentThreadId: string | null = null,
+  sideChat?: { readonly lessonThreadId: string },
+) =>
   ({
     id,
     forkedFrom: null,
     lineage: { parentThreadId, relationshipToParent: parentThreadId === null ? null : "fork" },
+    ...(sideChat === undefined ? {} : { sideChat }),
   }) as unknown as OrchestrationV2ThreadShell;
 
 const threadId = "current" as OrchestrationV2ThreadShell["id"];
@@ -63,5 +68,30 @@ describe("selectThreadRelationshipShells", () => {
         (thread) => thread.id,
       ),
     ).toEqual(["current", "parent"]);
+  });
+
+  it("leaves side chats out of the lineage but keeps a side chat that is the current thread", () => {
+    const selected = (threads: ReadonlyArray<OrchestrationV2ThreadShell>) =>
+      selectThreadRelationshipShells(threadId, null as Projection, threads).map(
+        (thread) => thread.id,
+      );
+    // Archived snapshots skip the selector and reach Lineage through the predicate alone.
+    const kept = (threads: ReadonlyArray<OrchestrationV2ThreadShell>) =>
+      threads.filter((thread) => isLineageThread(thread, threadId)).map((thread) => thread.id);
+    const lesson = [
+      shell("current"),
+      shell("fork", "current"),
+      shell("side", "current", { lessonThreadId: "current" }),
+    ];
+    const sideChat = [
+      shell("current", "lesson", { lessonThreadId: "lesson" }),
+      shell("lesson"),
+      shell("nested", "current", { lessonThreadId: "lesson" }),
+    ];
+
+    expect(selected(lesson)).toEqual(["current", "fork"]);
+    expect(selected(sideChat)).toEqual(["current", "lesson"]);
+    expect(kept(lesson)).toEqual(["current", "fork"]);
+    expect(kept(sideChat)).toEqual(["current", "lesson"]);
   });
 });

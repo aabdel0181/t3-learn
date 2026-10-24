@@ -56,6 +56,7 @@ import { useState, type ReactNode } from "react";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import {
+  isLineageThread,
   useProjects,
   useThreadProjection,
   useThreadRelationshipShells,
@@ -282,7 +283,7 @@ export function ThreadRelationshipsPanel(props: {
   const shells: ReadonlyArray<OrchestrationV2ThreadShell> = [
     ...relationshipShells,
     ...(archivedShells ?? []),
-  ];
+  ].filter((thread) => isLineageThread(thread, props.threadId));
   const graph = deriveThreadRelationshipGraph({ threads: shells, projection });
   const currentProject = projects.find((project) => project.id === currentThread?.projectId);
   const latestMergeBackRun = projection === null ? null : resolveLatestMergeBackRun(projection);

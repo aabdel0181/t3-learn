@@ -19,6 +19,7 @@ import {
 } from "@t3tools/client-runtime/state/entities";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import {
+  isSideChatThread,
   MessageId,
   type EnvironmentId,
   type OrchestrationV2ProjectedTurnItem,
@@ -391,6 +392,14 @@ function shellParentThreadId(
     : thread.lineage.parentThreadId;
 }
 
+/** Side chats live in their lesson's panel, so Lineage shows one only as the current thread. */
+export function isLineageThread(
+  thread: Pick<OrchestrationV2ThreadShell, "id" | "sideChat">,
+  currentThreadId: ThreadId,
+): boolean {
+  return thread.id === currentThreadId || !isSideChatThread(thread);
+}
+
 /**
  * The live shells the panel's immediate relationships can reach: the thread,
  * its parent, its children, and the threads its subagents, workflow members and
@@ -425,7 +434,9 @@ export function selectThreadRelationshipShells(
   const currentParentId = current === undefined ? null : shellParentThreadId(current);
   if (currentParentId !== null) named.add(currentParentId);
   return threads.filter(
-    (thread) => named.has(thread.id) || shellParentThreadId(thread) === threadId,
+    (thread) =>
+      (named.has(thread.id) || shellParentThreadId(thread) === threadId) &&
+      isLineageThread(thread, threadId),
   );
 }
 
