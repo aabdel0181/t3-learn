@@ -387,7 +387,9 @@ function ActiveTab() {
     const panel = selectThreadRightPanelState(store.byThreadKey, LESSON_REF);
     return panel.surfaces.find((entry) => entry.id === panel.activeSurfaceId);
   });
-  if (surface?.kind === "thread-map") return <SideChatMapSurface threadRef={LESSON_REF} />;
+  if (surface?.kind === "thread-map") {
+    return <SideChatMapSurface threadRef={LESSON_REF} onFocusLesson={() => {}} />;
+  }
   if (surface?.kind !== "side-chat") return null;
   return (
     <SideChatPanel

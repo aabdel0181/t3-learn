@@ -67,6 +67,19 @@ export function leaveSideChat(
   return "closed";
 }
 
+/**
+ * Puts the cursor in the lesson's composer. In the sheet layout the panel is a modal over
+ * the lesson, so it hides first; its tabs stay for the panel toggle to bring back.
+ */
+export function returnToLesson(
+  lessonRef: ScopedThreadRef,
+  sheet: boolean,
+  focusComposer: () => void,
+): void {
+  if (sheet) useRightPanelStore.getState().close(lessonRef);
+  focusComposer();
+}
+
 /** Where a thread opens: a side chat opens on its lesson's route, in the lesson's panel. */
 export interface ThreadOpenTarget {
   readonly routeThreadId: ThreadId;

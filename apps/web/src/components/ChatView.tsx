@@ -350,6 +350,7 @@ import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
 import { useLessonSideChats } from "./sideChat/useLessonSideChats";
 import { askSelectionInSideChat } from "./sideChat/sideChatSelectionRegistry";
+import { returnToLesson } from "./sideChat/sideChatNavigation";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { useTimelineFollow } from "./chat/useTimelineFollow";
@@ -1789,6 +1790,10 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.focusAtEnd();
   };
   const focusComposerStable = useStableCallback(focusComposer);
+  const returnToLessonFromSideChat = () => {
+    if (activeThreadRef) returnToLesson(activeThreadRef, shouldUsePlanSidebarSheet, focusComposer);
+  };
+  const returnToLessonFromSideChatStable = useStableCallback(returnToLessonFromSideChat);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
   const onInterrupt = async () => {
@@ -3129,7 +3134,7 @@ export default function ChatView(props: ChatViewProps) {
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
       }}
-      sideChat={{ onFocusLesson: focusComposerStable }}
+      sideChat={{ onFocusLesson: returnToLessonFromSideChatStable }}
     />
   ) : null;
   const panelToggleControlProps = {
