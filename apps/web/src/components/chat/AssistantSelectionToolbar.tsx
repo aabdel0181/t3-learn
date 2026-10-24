@@ -22,6 +22,25 @@ import { registerSideChatSelectionOwner } from "../sideChat/sideChatSelectionReg
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
+/** The selection as a citation, when it is text in one of `viewport`'s replies. */
+function captureCitation(viewport: HTMLElement, threadRef: ScopedThreadRef) {
+  const captured = captureAssistantTextSelection(viewport, window.getSelection());
+  const messageId = captured?.source.dataset.assistantCitationSource;
+  if (!captured || !messageId) return null;
+  const citation: AssistantCitation = {
+    version: 1,
+    ...threadRef,
+    messageId: MessageId.make(messageId),
+    ...captured.selector,
+  };
+  const sourceAnchor: AssistantCitationSourceAnchor = {
+    source: captured.source,
+    range: captured.range,
+    viewport,
+  };
+  return { citation, sourceAnchor };
+}
+
 export function AssistantSelectionToolbar({
   viewport,
   threadRef,
@@ -73,13 +92,12 @@ export function AssistantSelectionToolbar({
     if (!viewport) return;
     const clear = () => setSelection(null);
     const update = (pointer: SelectionActionPoint | null) => {
-      const nativeSelection = window.getSelection();
-      const captured = captureAssistantTextSelection(viewport, nativeSelection);
-      const messageId = captured?.source.dataset.assistantCitationSource;
-      if (!captured || !messageId) {
+      const target = captureCitation(viewport, threadRef);
+      if (!target) {
         clear();
         return;
       }
+      const captured = target.sourceAnchor;
       const rect = captured.range.getBoundingClientRect();
       const viewportRect = viewport.getBoundingClientRect();
       if (!isSelectionRectVisible(rect, [viewportRect])) {
@@ -143,13 +161,7 @@ export function AssistantSelectionToolbar({
             pointer.y <= line.bottom + 8,
         );
       setSelection({
-        sourceAnchor: { source: captured.source, range: captured.range, viewport },
-        citation: {
-          version: 1,
-          ...threadRef,
-          messageId: MessageId.make(messageId),
-          ...captured.selector,
-        },
+        ...target,
         position: resolveSelectionActionPosition({
           bounds: viewportRect,
           selectionRect: rects.item(rects.length - 1) ?? rect,
@@ -197,23 +209,23 @@ export function AssistantSelectionToolbar({
     };
   }, [threadRef, viewport]);
 
-  const askTooLong = (selection?.citation.text.length ?? 0) > SIDE_CHAT_EXCERPT_MAX_CHARS;
-  const askBlockedReason = askTooLong
-    ? `Side chats take up to ${SIDE_CHAT_EXCERPT_MAX_CHARS.toLocaleString("en-US")} characters`
-    : streamingMessageId === selection?.citation.messageId
-      ? "Available when this reply finishes"
-      : askPending
-        ? "Starting side chat…"
-        : null;
+  const askBlockedReasonOf = (citation: AssistantCitation) =>
+    citation.text.length > SIDE_CHAT_EXCERPT_MAX_CHARS
+      ? `Side chats take up to ${SIDE_CHAT_EXCERPT_MAX_CHARS.toLocaleString("en-US")} characters`
+      : streamingMessageId === citation.messageId
+        ? "Available when this reply finishes"
+        : askPending
+          ? "Starting side chat…"
+          : null;
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
   };
-  const ask = () => {
+  const askAbout = (target: ReturnType<typeof captureCitation>) => {
     if (
-      !selection ||
-      askBlockedReason !== null ||
-      !onAskInSideChat?.(selection.citation, selection.sourceAnchor)
+      !target ||
+      askBlockedReasonOf(target.citation) !== null ||
+      !onAskInSideChat?.(target.citation, target.sourceAnchor)
     ) {
       return false;
     }
@@ -221,18 +233,25 @@ export function AssistantSelectionToolbar({
     dismiss();
     return true;
   };
-  const askFromShortcut = useEffectEvent(ask);
-  const canAsk = selection !== null && onAskInSideChat !== undefined && askBlockedReason === null;
+  // Escape, a scroll or a resize hides the toolbar but keeps the selection, and the
+  // shortcut still asks about it, so it reads the live selection, not the toolbar's.
+  const askFromShortcut = useEffectEvent(() =>
+    askAbout(viewport ? captureCitation(viewport, threadRef) : null),
+  );
+  const offersAsk = onAskInSideChat !== undefined;
 
   useEffect(() => {
-    if (!viewport || !canAsk) return;
+    if (!viewport || !offersAsk) return;
     return registerSideChatSelectionOwner({
       contains: (node) => viewport.contains(node),
       ask: () => askFromShortcut(),
     });
-  }, [canAsk, viewport]);
+  }, [offersAsk, viewport]);
 
   if (!selection) return null;
+  const askTooLong = selection.citation.text.length > SIDE_CHAT_EXCERPT_MAX_CHARS;
+  const askBlockedReason = askBlockedReasonOf(selection.citation);
+  const ask = () => askAbout(selection);
   const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
   // One action is in the tab order; the arrow keys move between them.
   const rovingAction = onAskInSideChat && (focusedAction === "ask" || citeTooLong) ? "ask" : "cite";
@@ -298,7 +317,9 @@ export function AssistantSelectionToolbar({
                 tabIndex={rovingAction === "ask" ? 0 : -1}
                 aria-disabled={askBlockedReason !== null || undefined}
                 aria-description={askBlockedReason ?? undefined}
-                aria-label={askTooLong ? "Selection is too long to ask about" : "Ask in side chat"}
+                aria-label={
+                  askTooLong ? "Shorten selection to ask in side chat" : "Ask in side chat"
+                }
                 onFocus={() => setFocusedAction("ask")}
                 onClick={ask}
               />

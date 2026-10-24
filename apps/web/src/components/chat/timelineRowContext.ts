@@ -45,10 +45,9 @@ export interface TimelineRowSharedState {
   /** Marks side chats in assistant replies; unset where none are shown, as in held timelines. */
   onOpenSideChat: ((threadId: ThreadId) => void) | undefined;
   workflowOpening: WorkflowOpening | null;
-  onForkFromRun: (input: {
-    readonly sourceThreadId: ThreadId;
-    readonly runId: RunId;
-  }) => Promise<void>;
+  onForkFromRun:
+    | ((input: { readonly sourceThreadId: ThreadId; readonly runId: RunId }) => Promise<void>)
+    | undefined;
   onRollbackCheckpoint: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;

@@ -14,7 +14,10 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
-import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
+import {
+  collectAssistantCitations,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -703,6 +706,66 @@ it("quotes a selection cited inside the panel into the side chat's draft, not th
     ).toEqual([["side-1", "history-assistant", "Done"]]),
   );
   expect(useComposerDraftStore.getState().getComposerDraft(LESSON_REF)).toBeNull();
+});
+
+/** A citation of side-1's own reply, which side-1's loaded history lacks. */
+const SIDE_1_CITATION: AssistantCitation = {
+  version: 1,
+  environmentId: ENVIRONMENT_ID,
+  threadId: SIDE_1.id,
+  messageId: MessageId.make("side-1-reply"),
+  text: "a bounded space",
+  start: 2,
+  end: 17,
+  prefix: "A ",
+  suffix: ".",
+};
+
+/** side-1 with its history loaded; a reply cited from it is missing, so a reveal ends in one warning. */
+function setupSide1History(userText = "Inspect") {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture().visibleTurnItems.map((entry) =>
+    entry.item.type === "user_message" && entry.item.text === "Inspect"
+      ? { ...entry, item: { ...entry.item, text: userText } }
+      : entry,
+  ) satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  showSideChat("side-1", "side-1");
+}
+
+it("reveals a side-chat reply cited in its draft in the panel, not on the side chat's route", async () => {
+  setupSide1History();
+  useComposerDraftStore
+    .getState()
+    .setPrompt(sideChatRef("side-1"), `${serializeAssistantCitation(SIDE_1_CITATION)} `);
+  await using screen = await renderPanel({ router: LESSON_PATH });
+  using toast = vi.spyOn(toastManager, "add");
+  const revealWarnings = () =>
+    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
+
+  await screen.getByRole("link", { name: "View cited assistant text: a bounded space" }).click();
+
+  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+  expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
+});
+
+it("goes to the source of a sent side-chat citation in the panel, not on its route", async () => {
+  setupSide1History(`${serializeAssistantCitation(SIDE_1_CITATION)} what is this?`);
+  await using screen = await renderPanel({ router: LESSON_PATH });
+  using toast = vi.spyOn(toastManager, "add");
+  const revealWarnings = () =>
+    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
+
+  await screen
+    .getByRole("button", { name: "Quoted assistant text: a bounded space. Show details" })
+    .click();
+  await page.getByRole("link", { name: "Go to source" }).click();
+
+  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+  expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
 });
 
 it("types into the side chat when focus is elsewhere in the panel", async () => {

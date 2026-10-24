@@ -6,6 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import { render } from "../../../test/render";
+import { askSelectionInSideChat } from "../sideChat/sideChatSelectionRegistry";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 
 const environmentId = EnvironmentId.make("environment-local");
@@ -154,7 +155,7 @@ describe("AssistantSelectionToolbar", () => {
     );
     select(screen.container, 0, 4001);
 
-    const tooLong = page.getByRole("button", { name: "Selection is too long to ask about" });
+    const tooLong = page.getByRole("button", { name: "Shorten selection to ask in side chat" });
     await expect.element(tooLong).toHaveTextContent("Shorten selection");
     await expect.element(tooLong).toHaveAttribute("aria-disabled", "true");
     await expect
@@ -228,5 +229,38 @@ describe("AssistantSelectionToolbar", () => {
     expect(onAskInSideChat).not.toHaveBeenCalled();
     expect(onCite).not.toHaveBeenCalled();
     expect(window.getSelection()?.toString()).toBe("observation space");
+  });
+
+  it("still asks from the shortcut after Escape hides the toolbar but keeps the selection", async () => {
+    const onAskInSideChat = vi.fn(() => true);
+    await using screen = await render(<Reply onAskInSideChat={onAskInSideChat} />);
+    select(screen.container, 20, 37);
+    await expect.element(askButton()).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(toolbar()).not.toBeInTheDocument();
+
+    expect(askSelectionInSideChat(window.getSelection())).toBe(true);
+    expect(onAskInSideChat).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: "assistant-1", text: "observation space" }),
+      expect.objectContaining({ source: expect.any(HTMLElement) }),
+    );
+    expect(window.getSelection()?.isCollapsed).toBe(true);
+  });
+
+  it("lets the shortcut through when the selection cannot be asked about", async () => {
+    const onAskInSideChat = vi.fn(() => true);
+    await using screen = await render(
+      <Reply
+        onAskInSideChat={onAskInSideChat}
+        streamingMessageId={MessageId.make("assistant-1")}
+      />,
+    );
+    select(screen.container, 20, 37);
+    await expect.element(askButton()).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(toolbar()).not.toBeInTheDocument();
+
+    expect(askSelectionInSideChat(window.getSelection())).toBe(false);
+    expect(onAskInSideChat).not.toHaveBeenCalled();
   });
 });

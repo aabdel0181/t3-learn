@@ -179,7 +179,6 @@ import {
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
-  RECENT_THREAD_LIMIT,
   reduceCommandPaletteUiState,
   createCommandPaletteSearchState,
   type AddProjectCloneFlow,
@@ -914,9 +913,11 @@ function OpenCommandPaletteDialog(props: {
     ];
   })();
 
-  const { threadItems: allThreadItems, isSearchPending: isThreadSearchPending } =
-    useCommandPaletteThreadItems({ activeThreadId, threadSearchQuery });
-  const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const {
+    threadItems: allThreadItems,
+    recentThreadItems,
+    isSearchPending: isThreadSearchPending,
+  } = useCommandPaletteThreadItems({ activeThreadId, threadSearchQuery });
 
   // Stable so the item builders that capture it during render never see the
   // highlight ref it writes.
@@ -1368,7 +1369,8 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:open-side-chat-map",
-      searchTerms: ["side chat", "map", "tree", "diagram", "detours"],
+      // The filter reads only searchTerms, so the title goes first for anyone typing what they see.
+      searchTerms: ["Open side-chat map", "side chat", "map", "tree", "diagram", "detours"],
       title: "Open side-chat map",
       icon: <NetworkIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
@@ -1391,7 +1393,7 @@ function OpenCommandPaletteDialog(props: {
       actionItems.push({
         kind: "action",
         value: "action:finish-side-chat",
-        searchTerms: ["side chat", "done", "finish", finishable.label],
+        searchTerms: ["Finish side chat (Done)", "side chat", "done", "finish", finishable.label],
         title: "Finish side chat (Done)",
         description: finishable.label,
         icon: <CheckIcon className={ITEM_ICON_CLASS} />,

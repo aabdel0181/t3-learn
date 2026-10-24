@@ -32,7 +32,7 @@ import { normalizeSearchText } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
-export const RECENT_THREAD_LIMIT = 12;
+const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
 
@@ -398,6 +398,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "modelSelection"
   | "projectId"
   | "runtime"
+  | "sideChat"
   | "title"
   | "worktreePath"
 > & {
@@ -478,6 +479,25 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         },
       },
     );
+  });
+}
+
+export type ThreadActionItemsInput<TThread extends BuildThreadActionItemsThread> = Omit<
+  Parameters<typeof buildThreadActionItems<TThread>>[0],
+  "limit"
+>;
+
+/**
+ * The empty query's recent threads. Side chats stay out, as in every other thread
+ * list: they open inside their lesson's panel, and search still finds them.
+ */
+export function buildRecentThreadActionItems<TThread extends BuildThreadActionItemsThread>(
+  input: ThreadActionItemsInput<TThread>,
+): CommandPaletteActionItem[] {
+  return buildThreadActionItems({
+    ...input,
+    threads: input.threads.filter((thread) => !isSideChatThread(thread)),
+    limit: RECENT_THREAD_LIMIT,
   });
 }
 

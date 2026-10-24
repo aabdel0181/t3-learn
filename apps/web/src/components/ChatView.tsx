@@ -1195,8 +1195,7 @@ export default function ChatView(props: ChatViewProps) {
     lessonRef:
       activeThreadShell !== null && !isSideChatThread(activeThreadShell) ? activeThreadRef : null,
     supported: supportsSideChats,
-    // The capability comes with the server config, which can arrive after the shells.
-    bootstrapComplete: activeEnvironmentBootstrapComplete && serverConfig !== null,
+    capabilityKnown: serverConfig !== null,
     activityRunStatus: activeActivityRun?.status ?? null,
   });
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;

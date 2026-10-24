@@ -19,8 +19,8 @@ export interface SideChatMarksLayout {
     threadId: ThreadId;
     label: string;
     state: "open" | "done";
+    /** The middle of the mark's last line, where its tag sits in the row's right gutter. */
     top: number;
-    left: number;
   }>;
   readonly unresolved: ReadonlyArray<SideChatMark>;
 }
@@ -70,8 +70,7 @@ function observeSideChatMarks(input: {
         threadId: mark.threadId,
         label: mark.label,
         state: mark.state,
-        top: end.top - origin.top,
-        left: end.right - origin.left,
+        top: end.top + end.height / 2 - origin.top,
       });
     }
     onLayout({ tags, unresolved });
@@ -104,17 +103,95 @@ function sideChatMarkTagsEqual(
         tag.threadId === other.threadId &&
         tag.label === other.label &&
         tag.state === other.state &&
-        tag.top === other.top &&
-        tag.left === other.left
+        tag.top === other.top
       );
     })
+  );
+}
+
+/** Matches the tag's `size-4`. */
+const TAG_SIZE_PX = 16;
+
+interface GutterSlot {
+  readonly key: ThreadId;
+  readonly top: number;
+  readonly tags: SideChatMarkTag[];
+}
+
+/** Tags that would overlap, because their marks end on the same line, share one slot. */
+function gutterSlots(tags: SideChatMarksLayout["tags"]): GutterSlot[] {
+  const slots: GutterSlot[] = [];
+  for (const tag of tags.toSorted((left, right) => left.top - right.top)) {
+    const slot = slots.at(-1);
+    if (slot !== undefined && tag.top - slot.top < TAG_SIZE_PX) slot.tags.push(tag);
+    else slots.push({ key: tag.threadId, top: tag.top, tags: [tag] });
+  }
+  return slots;
+}
+
+function SideChatTagSlot(props: {
+  readonly slot: GutterSlot;
+  readonly onOpen: (threadId: ThreadId) => void;
+}) {
+  const { slot, onOpen } = props;
+  const [only, ...others] = slot.tags;
+  const className = cn(
+    "pointer-events-auto absolute right-0.5 flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    slot.tags.some((tag) => tag.state === "open")
+      ? "border-primary text-primary"
+      : "text-muted-foreground",
+  );
+  if (only !== undefined && others.length === 0) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Open side chat “${only.label}”`}
+              className={className}
+              style={{ top: slot.top }}
+              onClick={() => onOpen(only.threadId)}
+            />
+          }
+        >
+          <MessageCircleIcon className="size-2.5" />
+        </TooltipTrigger>
+        <TooltipPopup side="top">{only.label}</TooltipPopup>
+      </Tooltip>
+    );
+  }
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Open one of ${slot.tags.length} side chats`}
+            className={className}
+            style={{ top: slot.top }}
+          />
+        }
+      >
+        <MessageCircleIcon className="size-2.5" />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        {slot.tags.map((tag) => (
+          <MenuItem key={tag.threadId} onClick={() => onOpen(tag.threadId)}>
+            {tag.label}
+          </MenuItem>
+        ))}
+      </MenuPopup>
+    </Menu>
   );
 }
 
 /**
  * The tags of an assistant row's side chats, over the row's `relative` wrapper.
  * The layer sits outside the reply's text, so tags never enter find, copy or a
- * selection. Marks it cannot find in the reply go to `onUnresolvedChange`.
+ * selection. Each tag sits in the gutter the row reserves on its right, level with
+ * the line where its mark ends. Marks it cannot find in the reply go to
+ * `onUnresolvedChange`.
  */
 export function SideChatMarks(props: {
   readonly messageId: MessageId;
@@ -152,26 +229,8 @@ export function SideChatMarks(props: {
 
   return (
     <div ref={layerRef} className="pointer-events-none absolute inset-0 select-none">
-      {tags.map((tag) => (
-        <Tooltip key={tag.threadId}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`Open side chat “${tag.label}”`}
-                className={cn(
-                  "pointer-events-auto absolute flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  tag.state === "open" ? "border-primary text-primary" : "text-muted-foreground",
-                )}
-                style={{ top: tag.top, left: tag.left }}
-                onClick={() => onOpen(tag.threadId)}
-              />
-            }
-          >
-            <MessageCircleIcon className="size-2.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">{tag.label}</TooltipPopup>
-        </Tooltip>
+      {gutterSlots(tags).map((slot) => (
+        <SideChatTagSlot key={slot.key} slot={slot} onOpen={onOpen} />
       ))}
     </div>
   );
