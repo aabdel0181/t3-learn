@@ -31,6 +31,7 @@ import {
   normalizeSideChatNote,
 } from "./notes.ts";
 import {
+  readySideChatNotes,
   sideChatChildren,
   sideChatLessonThreadId,
   undeliveredGeneratingSideChats,
@@ -46,11 +47,10 @@ export class SideChatLifecycleService extends Context.Service<
     /**
      * Writes the note for the side chat's `generating` outcome `requestId` and lands it with
      * `thread.side_chat.outcome.complete`. The note takes up the notes of its nested side chats:
-     * the ones its own turns took, and the ready ones it has not received, after waiting for ones
-     * still being written until `SIDE_CHAT_WAIT_CAP_MS` after Done. It says only what is new next
-     * to the note its parent already received. Never fails: interrupts propagate, and anything
-     * else is logged and recorded as `failed`, because a failed outbox row pins the lesson's
-     * worktree.
+     * the ones its own turns took, and every ready one, after waiting for ones still being written
+     * until `SIDE_CHAT_WAIT_CAP_MS` after Done. It says only what is new next to the note its
+     * parent already received. Never fails: interrupts propagate, and anything else is logged and
+     * recorded as `failed`, because a failed outbox row pins the lesson's worktree.
      */
     readonly writeOutcome: (input: {
       readonly threadId: ThreadId;
@@ -274,7 +274,10 @@ const make = Effect.gen(function* () {
         );
         children = yield* readChildren;
       }
-      const childNotes = undeliveredReadySideChatNotes(thread, children);
+      // Every ready note, not only undelivered ones: one an earlier Done took up went no further
+      // if this side chat reopened before its parent received that note. The previous note below
+      // keeps the writer from repeating what the parent already has.
+      const childNotes = readySideChatNotes(children);
 
       const lesson = yield* threads.getThreadRecords(sideChat.lessonThreadId, []);
       const { text } = yield* writeSideChatText({

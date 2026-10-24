@@ -476,6 +476,28 @@ describe("side-chat notes", () => {
   );
 
   it.effect(
+    "a side chat reopened before the lesson received its note still carries its nested side chats' notes",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-reopen-chain-up");
+        yield* Effect.gen(function* () {
+          const { space, box } = yield* lessonWithNestedSideChats(harness);
+          yield* finishWithNote(harness, box, BOX, { text: BOX_BOUNDS_NOTE }, "ready");
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+
+          yield* harness.send(space, "One more question.");
+          assert.isNull((yield* harness.thread(space)).sideChat?.done);
+
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          const input = harness.outcomeInputFor(SPACE) ?? "";
+          assert.include(input, "User: One more question.");
+          assert.include(input, boxLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
     "a lesson message leaves side chats nobody wrote in open, without holding their parent open",
     () =>
       Effect.gen(function* () {

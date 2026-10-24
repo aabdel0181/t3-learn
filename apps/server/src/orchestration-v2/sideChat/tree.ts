@@ -105,9 +105,8 @@ const hasDelivered = (
   requestId: string,
 ): boolean => parent.sideChatNoteDeliveries?.[childThreadId] === requestId;
 
-/** Notes of `children` that are ready and that `parent` has not received, oldest first. */
-export function undeliveredReadySideChatNotes(
-  parent: Pick<OrchestrationV2AppThread, "sideChatNoteDeliveries">,
+/** Notes of `children` that are ready, oldest first. */
+export function readySideChatNotes(
   children: ReadonlyArray<SideChatChildThread>,
 ): ReadonlyArray<ReadySideChatNote> {
   const notes: ReadySideChatNote[] = [];
@@ -115,12 +114,22 @@ export function undeliveredReadySideChatNotes(
     const done = sideChat?.done;
     if (sideChat === undefined || done == null) continue;
     const { status, note, requestId } = done.outcome;
-    if (status !== "ready" || note === null || hasDelivered(parent, id, requestId)) continue;
+    if (status !== "ready" || note === null) continue;
     notes.push({ threadId: id, requestId, label: sideChat.label, note, at: done.at });
   }
   // `at` is an ISO string, so it sorts lexically.
   return notes.toSorted(
     (left, right) => compareText(left.at, right.at) || compareText(left.threadId, right.threadId),
+  );
+}
+
+/** Notes of `children` that are ready and that `parent` has not received, oldest first. */
+export function undeliveredReadySideChatNotes(
+  parent: Pick<OrchestrationV2AppThread, "sideChatNoteDeliveries">,
+  children: ReadonlyArray<SideChatChildThread>,
+): ReadonlyArray<ReadySideChatNote> {
+  return readySideChatNotes(children).filter(
+    ({ threadId, requestId }) => !hasDelivered(parent, threadId, requestId),
   );
 }
 
