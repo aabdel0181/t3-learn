@@ -58,13 +58,14 @@ always lesson, then thread.
 
 A side chat's note writer reads every ready note of its direct children, received or not (an earlier
 note carrying one may never have reached the lesson), and counts them delivered when its own note
-lands, so a gap three levels down reaches the lesson. `sideChatOutcomeRequestId` encodes depth so
-deeper writers are claimed first, or a parent could hold a lane slot waiting on a child that cannot
-start. A side chat is never open under a done one: a message in a done side chat, or a side chat opened
-under it, reopens it and every done ancestor. A note the lesson received is kept as `deliveredNote`, so
-the next says only what is new; a nested one is not, since the parent note carrying it may be dropped.
-A user message also finishes the idle open side chats below it that have messages; busy ones stay open
-with their ancestors, and empty ones stay open because their composer may hold an unsent draft.
+lands. Until the lesson holds one of its notes, a null answer becomes those notes verbatim, so a gap
+three levels down reaches the lesson. `sideChatOutcomeRequestId` encodes depth so deeper writers are
+claimed first, or a parent could hold a lane slot waiting on a child that cannot start. A side chat is
+never open under a done one: a message in a done side chat, or a side chat opened under it, reopens it
+and every done ancestor. A note the lesson received is kept as `deliveredNote`, so the next says only
+what is new; a nested one is not, since the parent note carrying it may be dropped. A user message also
+finishes the idle open side chats below it that have messages; busy ones stay open with their
+ancestors, and empty ones stay open because their composer may hold an unsent draft.
 
 ## Downgrade safety and the capability gate
 

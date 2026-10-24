@@ -17,8 +17,10 @@ interface SideChatNoteEntry {
   readonly note: string;
 }
 
+const NOTE_BULLET = "• ";
+
 const noteLine = ({ label, note }: SideChatNoteEntry): string =>
-  `• re "${oneLine(label)}": ${oneLine(note)}`;
+  `${NOTE_BULLET}re "${oneLine(label)}": ${oneLine(note)}`;
 
 /** First line of the context handoff that carries side-chat notes into the lesson. */
 export const SIDE_CHAT_NOTES_HEADER =
@@ -119,14 +121,7 @@ function fitTranscript(entries: ReadonlyArray<string>, budget: number): Readonly
   return omitted > 0 ? [head, omittedMarker(omitted), ...tail] : [head, ...tail];
 }
 
-/**
- * What the note writer reads: the highlighted passage, the side chat's transcript, notes from its
- * nested side chats and the note already sent to the lesson. The transcript gets the budget left
- * after the other sections, so a long chat keeps its opening question and its latest messages.
- */
-export function buildSideChatOutcomeInput(input: {
-  readonly excerpt: string;
-  readonly messages: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly text: string }>;
+interface NestedSideChatNotes {
   readonly childNotes: ReadonlyArray<SideChatNoteEntry>;
   /**
    * The side chat's own context handoffs. Nested notes its turns took reached only its AI, so they
@@ -135,16 +130,47 @@ export function buildSideChatOutcomeInput(input: {
   readonly contextHandoffs?: ReadonlyArray<
     Pick<OrchestrationV2ContextHandoff, "strategy" | "history" | "summaryText">
   >;
-  readonly previousNote: string | null;
-  readonly budgetChars?: number;
-}): string {
-  const budget = input.budgetChars ?? SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS;
-  const childNoteLines = new Set([
+}
+
+/** The `• re "<label>": <note>` line of every nested note, without repeats. */
+const nestedNoteLines = (input: NestedSideChatNotes): ReadonlySet<string> =>
+  new Set([
     ...(input.contextHandoffs ?? [])
       .filter(isSideChatNotesHandoff)
       .flatMap((handoff) => handoff.summaryText.split("\n").slice(1)),
     ...input.childNotes.map(noteLine),
   ]);
+
+/**
+ * The nested notes as one note, `re "<label>": <note>` joined with "; ", or null when there are
+ * none. It stands in for a writer that answered null while the lesson has none of the side chat's
+ * notes, so a nested point never hangs on the writer's judgment.
+ */
+export function nestedSideChatNotesFallback(input: NestedSideChatNotes): string | null {
+  const notes = [...nestedNoteLines(input)].map((line) =>
+    line.startsWith(NOTE_BULLET) ? line.slice(NOTE_BULLET.length) : line,
+  );
+  return notes.length === 0 ? null : normalizeSideChatNote(notes.join("; "));
+}
+
+/**
+ * What the note writer reads: the highlighted passage, the side chat's transcript, notes from its
+ * nested side chats and the note already sent to the lesson. The transcript gets the budget left
+ * after the other sections, so a long chat keeps its opening question and its latest messages.
+ */
+export function buildSideChatOutcomeInput(
+  input: NestedSideChatNotes & {
+    readonly excerpt: string;
+    readonly messages: ReadonlyArray<{
+      readonly role: "user" | "assistant";
+      readonly text: string;
+    }>;
+    readonly previousNote: string | null;
+    readonly budgetChars?: number;
+  },
+): string {
+  const budget = input.budgetChars ?? SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS;
+  const childNoteLines = nestedNoteLines(input);
   const before = [SIDE_CHAT_OUTCOME_EXCERPT_HEADER, input.excerpt, "", TRANSCRIPT_HEADER];
   const after = [
     ...(childNoteLines.size === 0 ? [] : ["", CHILD_NOTES_HEADER, ...childNoteLines]),

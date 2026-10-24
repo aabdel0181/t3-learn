@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ScheduledTaskId } from "@t3tools/contracts";
+import { ScheduledTaskId, SIDE_CHAT_NOTE_MAX_CHARS } from "@t3tools/contracts";
 
 import {
   SIDE_CHAT_NOTES_HEADER,
@@ -8,6 +8,7 @@ import {
   buildSideChatOutcomeInput,
   isSideChatNotesHandoff,
   isUserAuthoredSideChatTrigger,
+  nestedSideChatNotesFallback,
   normalizeSideChatNote,
 } from "./notes.ts";
 
@@ -230,5 +231,31 @@ describe("buildSideChatOutcomeInput", () => {
     expect(result).not.toContain("earlier messages omitted");
     expect(result).not.toContain("User: What is an observation space?");
     expect(result).not.toMatch(LONE_SURROGATE);
+  });
+});
+
+describe("nestedSideChatNotesFallback", () => {
+  it("joins each nested note once, from handoffs and children, and caps the result like a written note", () => {
+    const boxNotes = buildSideChatNotesSummaryText([
+      { label: "Box", note: "Did not know Box bounds." },
+    ]);
+    const nested = {
+      childNotes: [
+        { label: "Box", note: "Did not know Box bounds." },
+        { label: "reward", note: "Thought rewards are always positive." },
+      ],
+      contextHandoffs: [{ strategy: "manual_context", summaryText: boxNotes } as const],
+    };
+
+    expect(nestedSideChatNotesFallback(nested)).toBe(
+      're "Box": Did not know Box bounds.; re "reward": Thought rewards are always positive.',
+    );
+    expect(nestedSideChatNotesFallback({ childNotes: [] })).toBeNull();
+
+    const capped = nestedSideChatNotesFallback({
+      childNotes: [{ label: "Box", note: "n".repeat(500) }],
+    });
+    expect(capped).toHaveLength(SIDE_CHAT_NOTE_MAX_CHARS);
+    expect(capped?.endsWith("…")).toBe(true);
   });
 });

@@ -479,6 +479,7 @@ Return JSON with key text. Set text to null only if there is nothing to summariz
 Decide whether the lesson's teacher should teach differently because of this side chat: a gap it revealed (for example, the learner did not know what an observation space is), a misconception, or a preference the learner stated.
 If so, write one or two sentences of at most ${SIDE_CHAT_NOTE_MAX_CHARS} characters, addressed to the teacher, saying what to adjust. Do not summarize the side chat, answer its questions, or repeat a note already sent; when a note was already sent, write only what is new.
 Null is the default. Set text to null when nothing needs to change, when the side chat was trivial, or when the note already sent covers it.
+Notes from nested side chats are the exception: the teacher has not seen them, so carry each of their points in your note unless the note already sent covers it. Never set text to null while one of those points is left out.
 Return JSON with key text.`,
 };
 
