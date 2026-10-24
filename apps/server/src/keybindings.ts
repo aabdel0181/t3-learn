@@ -95,6 +95,12 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   );
 }
 
+// An official server rejects unknown commands in keybindings.json and then stops syncing
+// defaults; fork-only defaults apply through mergeWithDefaultKeybindings instead.
+const DISK_SYNCED_DEFAULT_KEYBINDINGS = DEFAULT_KEYBINDINGS.filter(
+  (rule) => !rule.command.startsWith("sideChat."),
+);
+
 const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly id: string;
   readonly alongside: KeybindingRule;
@@ -466,7 +472,7 @@ const make = Effect.gen(function* () {
       );
       const configExists = yield* readConfigExists;
       if (!configExists) {
-        yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
+        yield* writeConfigAtomically(DISK_SYNCED_DEFAULT_KEYBINDINGS);
         if (pendingLateDefaults.length > 0) {
           yield* recordAppliedMigrations([
             ...appliedMigrationIds,
@@ -498,7 +504,7 @@ const make = Effect.gen(function* () {
         key: string;
         when: string | null;
       }> = [];
-      for (const defaultRule of DEFAULT_KEYBINDINGS) {
+      for (const defaultRule of DISK_SYNCED_DEFAULT_KEYBINDINGS) {
         if (existingCommands.has(defaultRule.command)) {
           continue;
         }

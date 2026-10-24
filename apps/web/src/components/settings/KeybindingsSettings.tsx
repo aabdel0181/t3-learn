@@ -1280,11 +1280,13 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 // inline, the compiler joins them to the query's cache scope (filtering might
 // mutate them), and every keystroke rebuilds and re-renders every row.
 function useKeybindingCatalog() {
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
+  const serverConfig = useSettingsScope().environment?.serverConfig;
+  const serverKeybindings = serverConfig?.keybindings;
+  const sideChats = serverConfig?.environment.capabilities.sideChats === true;
   const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
   return {
-    commandOptions: buildKeybindingCommandOptions(merged),
-    allRows: buildKeybindingRows(merged),
+    commandOptions: buildKeybindingCommandOptions(merged, sideChats),
+    allRows: buildKeybindingRows(merged, sideChats),
   };
 }
 

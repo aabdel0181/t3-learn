@@ -6,7 +6,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { MessageCircleQuestionIcon, QuoteIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   captureAssistantTextSelection,
@@ -18,6 +18,7 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { registerSideChatSelectionOwner } from "../sideChat/sideChatSelectionRegistry";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -196,35 +197,47 @@ export function AssistantSelectionToolbar({
     };
   }, [threadRef, viewport]);
 
-  if (!selection) return null;
-  const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
-  const askTooLong = selection.citation.text.length > SIDE_CHAT_EXCERPT_MAX_CHARS;
+  const askTooLong = (selection?.citation.text.length ?? 0) > SIDE_CHAT_EXCERPT_MAX_CHARS;
   const askBlockedReason = askTooLong
     ? `Side chats take up to ${SIDE_CHAT_EXCERPT_MAX_CHARS.toLocaleString("en-US")} characters`
-    : streamingMessageId === selection.citation.messageId
+    : streamingMessageId === selection?.citation.messageId
       ? "Available when this reply finishes"
       : askPending
         ? "Starting side chat…"
         : null;
-  // One action is in the tab order; the arrow keys move between them.
-  const rovingAction = onAskInSideChat && (focusedAction === "ask" || citeTooLong) ? "ask" : "cite";
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
   };
-  const cite = () => {
-    if (citeTooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
-    window.getSelection()?.removeAllRanges();
-    dismiss();
-    return true;
-  };
   const ask = () => {
     if (
+      !selection ||
       askBlockedReason !== null ||
       !onAskInSideChat?.(selection.citation, selection.sourceAnchor)
     ) {
       return false;
     }
+    window.getSelection()?.removeAllRanges();
+    dismiss();
+    return true;
+  };
+  const askFromShortcut = useEffectEvent(ask);
+  const canAsk = selection !== null && onAskInSideChat !== undefined && askBlockedReason === null;
+
+  useEffect(() => {
+    if (!viewport || !canAsk) return;
+    return registerSideChatSelectionOwner({
+      contains: (node) => viewport.contains(node),
+      ask: () => askFromShortcut(),
+    });
+  }, [canAsk, viewport]);
+
+  if (!selection) return null;
+  const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  // One action is in the tab order; the arrow keys move between them.
+  const rovingAction = onAskInSideChat && (focusedAction === "ask" || citeTooLong) ? "ask" : "cite";
+  const cite = () => {
+    if (citeTooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
     window.getSelection()?.removeAllRanges();
     dismiss();
     return true;
