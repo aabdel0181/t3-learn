@@ -278,6 +278,39 @@ describe("thread relationships", () => {
       } as never),
     ).toBeNull();
   });
+
+  it("offers no merge-back target for a side chat", () => {
+    const lesson = ThreadId.make("thread-lesson");
+    const sideChat = ThreadId.make("thread-side-chat");
+
+    expect(
+      resolveMergeBackTargetThreadId({
+        thread: {
+          id: sideChat,
+          forkedFrom: { type: "run", threadId: lesson, runId: "run-lesson" },
+          lineage: {
+            rootThreadId: lesson,
+            parentThreadId: lesson,
+            relationshipToParent: "fork",
+          },
+          sideChat: {
+            lessonThreadId: lesson,
+            anchor: {
+              threadId: lesson,
+              messageId: MessageId.make("message-1"),
+              start: 0,
+              end: 5,
+              prefix: "",
+              suffix: "",
+            },
+            label: "observation space",
+            excerpt: "hello",
+            done: null,
+          },
+        },
+      } as never),
+    ).toBeNull();
+  });
 });
 
 const current = ThreadId.make("thread-current");

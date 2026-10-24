@@ -6,7 +6,11 @@ import type {
   ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
-import { isProviderNativeSubagentThread, OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import {
+  isProviderNativeSubagentThread,
+  isSideChatThread,
+  OrchestrationV2ThreadShell,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
@@ -45,20 +49,21 @@ const isChildRunLive = (
       thread.status === "running" ||
       thread.status === "waiting";
 
-/** Provider-native
-    subagents ask on their parent, so they are skipped. */
-function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
+function liveChildRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
   const kind = thread.pendingRuntimeRequest?.kind;
+  if (kind === undefined || kind === "auth_refresh" || !isChildRunLive(thread)) return null;
+  return kind === "user_input" ? "user_input" : "approval";
+}
+
+/** Provider-native subagents ask on their parent, so they are skipped. */
+function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
   if (
-    kind === undefined ||
-    kind === "auth_refresh" ||
     thread.lineage.relationshipToParent !== "subagent" ||
-    isProviderNativeSubagentThread(thread) ||
-    !isChildRunLive(thread)
+    isProviderNativeSubagentThread(thread)
   ) {
     return null;
   }
-  return kind === "user_input" ? "user_input" : "approval";
+  return liveChildRequest(thread);
 }
 
 export function pendingSubagentRequestsByThread(
@@ -84,13 +89,18 @@ export function pendingSubagentRequestsByThread(
 }
 
 export function childThreadInputsTitle(
-  children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals">>,
+  children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals" | "sideChat">>,
 ): string {
   const approvals = children.filter((child) => child.hasPendingApprovals).length;
   const need = approvals === 0 ? "input" : approvals === children.length ? "approval" : "you";
-  return children.length === 1
-    ? `Subagent needs ${need}`
-    : `${children.length} subagents need ${need}`;
+  const sideChats = children.filter(isSideChatThread).length;
+  const [one, many] =
+    sideChats === 0
+      ? ["Subagent", "subagents"]
+      : sideChats === children.length
+        ? ["Side chat", "side chats"]
+        : ["Thread", "threads"];
+  return children.length === 1 ? `${one} needs ${need}` : `${children.length} ${many} need ${need}`;
 }
 
 const sameWireThreadShell = Schema.toEquivalence(OrchestrationV2ThreadShell);
@@ -279,8 +289,8 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-quiet-thread-shell:${key}`));
   });
 
-  // Child approvals and questions are hidden with their sidebar rows. Read their
-  // shell summaries, without subscribing to every child transcript.
+  // Subagent and side-chat approvals and questions are hidden with their sidebar
+  // rows. Read their shell summaries, without subscribing to every child transcript.
   const childThreadInputsAtomFamily = Atom.family((key: string) => {
     const ref = parseThreadKey(key);
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -288,7 +298,12 @@ export function createEnvironmentThreadShellAtoms(input: {
       const children = new Map<ThreadId, OrchestrationV2ThreadShell[]>();
       for (const thread of get(environmentThreadsAtom(ref.environmentId))) {
         const parent = thread.lineage.parentThreadId;
-        if (parent === null || thread.lineage.relationshipToParent !== "subagent") continue;
+        if (
+          parent === null ||
+          (thread.lineage.relationshipToParent !== "subagent" && !isSideChatThread(thread))
+        ) {
+          continue;
+        }
         const siblings = children.get(parent);
         if (siblings) siblings.push(thread);
         else children.set(parent, [thread]);
@@ -302,7 +317,9 @@ export function createEnvironmentThreadShellAtoms(input: {
           if (seen.has(child.id)) continue;
           seen.add(child.id);
           pending.push(child.id);
-          if (subagentRequest(child) !== null) {
+          const request =
+            subagentRequest(child) ?? (isSideChatThread(child) ? liveChildRequest(child) : null);
+          if (request !== null) {
             next.push(scopedThread(ref.environmentId, child, subagentRequests));
           }
         }
@@ -408,7 +425,11 @@ export function createEnvironmentThreadShellAtoms(input: {
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
       for (const thread of get(environmentThreadsAtom(environmentId))) {
-        if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
+        if (
+          thread.archivedAt !== null ||
+          thread.lineage.relationshipToParent === "subagent" ||
+          isSideChatThread(thread)
+        )
           continue;
         next.push(scopedThread(environmentId, thread, subagentRequests));
       }

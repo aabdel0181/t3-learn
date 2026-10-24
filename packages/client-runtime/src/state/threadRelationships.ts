@@ -1,5 +1,6 @@
 import {
   isOrchestrationV2WorkActive,
+  isSideChatThread,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -38,7 +39,13 @@ export interface ThreadRelationshipWalkRow {
 export function resolveMergeBackTargetThreadId(
   projection: Pick<OrchestrationV2ThreadProjection, "thread"> | null,
 ): ThreadId | null {
-  if (projection?.thread.lineage.relationshipToParent !== "fork") return null;
+  // A side chat is a fork of its parent, but it hands back through Done, not Merge back.
+  if (
+    projection?.thread.lineage.relationshipToParent !== "fork" ||
+    isSideChatThread(projection.thread)
+  ) {
+    return null;
+  }
   return projection.thread.forkedFrom?.type === "run"
     ? projection.thread.forkedFrom.threadId
     : projection.thread.lineage.parentThreadId;
