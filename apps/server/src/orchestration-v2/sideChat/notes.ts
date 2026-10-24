@@ -68,7 +68,7 @@ export function isUserAuthoredSideChatTrigger(
 export const SIDE_CHAT_OUTCOME_EXCERPT_HEADER = "Highlighted passage the learner asked about:";
 
 const TRANSCRIPT_HEADER = "Side chat transcript:";
-const CHILD_NOTES_HEADER = "Notes from nested side chats (not yet sent to the lesson):";
+const CHILD_NOTES_HEADER = "Notes from nested side chats:";
 const PREVIOUS_NOTE_HEADER =
   "Note already sent to the lesson for this side chat (write only what is new; otherwise reply null):";
 

@@ -120,7 +120,7 @@ describe("buildSideChatOutcomeInput", () => {
         "User: What is an observation space?",
         "Assistant: It is everything the agent can see.",
         "",
-        "Notes from nested side chats (not yet sent to the lesson):",
+        "Notes from nested side chats:",
         '• re "Box": Did not know Box bounds.',
         "",
         "Note already sent to the lesson for this side chat (write only what is new; otherwise reply null):",
@@ -152,7 +152,7 @@ describe("buildSideChatOutcomeInput", () => {
     });
 
     expect(result.split("\n").slice(-4)).toEqual([
-      "Notes from nested side chats (not yet sent to the lesson):",
+      "Notes from nested side chats:",
       '• re "Box": Did not know Box bounds.',
       '• re "Discrete": Mixed up Discrete and Box.',
       '• re "reward": Thought rewards are always positive.',
