@@ -1,4 +1,3 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -6,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { MessageSquareIcon } from "lucide-react";
 
 import { useClientSettings } from "../hooks/useSettings";
+import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -19,9 +19,9 @@ import {
 } from "../state/environments";
 import { useThreadSearch } from "../state/queries";
 import { primaryServerProvidersAtom } from "../state/server";
-import { buildThreadRouteParams } from "../threadRoutes";
 import { buildThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
 import { useEnvironmentLookups, useProjectLookups } from "./CommandPaletteLookups";
+import { openThreadTarget, resolveThreadOpenTarget } from "./sideChat/sideChatNavigation";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import {
   ThreadRowLeadingStatus,
@@ -74,6 +74,7 @@ export function useCommandPaletteThreadItems(input: {
 }) {
   const { activeThreadId, threadSearchQuery } = input;
   const navigate = useNavigate();
+  const currentThreadRef = useThreadRouteRef();
   const threads = useThreadShells();
   const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
   const { projectEnvironmentLocationById } = useEnvironmentLookups();
@@ -138,12 +139,13 @@ export function useCommandPaletteThreadItems(input: {
           }
         : undefined;
     },
-    runThread: async (thread) => {
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-      });
-    },
+    runThread: (thread) =>
+      openThreadTarget({
+        navigate,
+        environmentId: thread.environmentId,
+        target: resolveThreadOpenTarget(thread),
+        currentThreadRef,
+      }),
   });
 
   return { threadItems, isSearchPending: threadSearch.isPending };

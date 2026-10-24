@@ -34,6 +34,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { deriveSideChatTree } from "@t3tools/client-runtime/state/thread-relationships";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -59,6 +60,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  NetworkIcon,
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
@@ -112,7 +114,14 @@ import {
   useEnvironments,
   usePrimaryEnvironmentId,
 } from "../state/environments";
-import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
+import {
+  readSideChatTreeShells,
+  useProjects,
+  useServerConfigs,
+  useSideChatTreeShells,
+  useThreadShells,
+  waitForProject,
+} from "../state/entities";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -131,6 +140,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   PULL_REQUESTS_PANEL_REF,
   selectActiveRightPanel,
+  selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
 import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
@@ -217,6 +227,12 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
+import {
+  leaveSideChat,
+  openThreadTarget,
+  resolveFinishableSideChat,
+  sideChatLessonRef,
+} from "./sideChat/sideChatNavigation";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -514,6 +530,9 @@ function OpenCommandPaletteDialog(props: {
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
     reportFailure: false,
   });
+  const finishSideChat = useAtomCommand(threadEnvironment.finishSideChat, {
+    reportFailure: false,
+  });
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -539,6 +558,14 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
+  const sideChatLesson =
+    activeThread !== null && activeThreadServerConfig?.environment.capabilities.sideChats === true
+      ? sideChatLessonRef(activeThread)
+      : null;
+  const sideChatLessonPanel = useRightPanelStore((state) =>
+    selectThreadRightPanelState(state.byThreadKey, sideChatLesson),
+  );
+  const sideChatLessonShells = useSideChatTreeShells(sideChatLesson);
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
@@ -1338,6 +1365,54 @@ function OpenCommandPaletteDialog(props: {
         icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
         run: async () => {
           useRightPanelStore.getState().open(threadRef, "pull-requests");
+        },
+      });
+    }
+  }
+
+  if (activeThread !== null && sideChatLesson !== null) {
+    const lessonRef = sideChatLesson;
+    const currentThreadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-side-chat-map",
+      searchTerms: ["side chat", "map", "tree", "diagram", "detours"],
+      title: "Open side-chat map",
+      icon: <NetworkIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(lessonRef, "thread-map");
+        await openThreadTarget({
+          navigate,
+          environmentId: lessonRef.environmentId,
+          target: { routeThreadId: lessonRef.threadId, sideChatThreadId: null },
+          currentThreadRef,
+        });
+      },
+    });
+    const finishable = resolveFinishableSideChat({
+      surfaces: sideChatLessonPanel.surfaces,
+      activeSurfaceId: sideChatLessonPanel.isOpen ? sideChatLessonPanel.activeSurfaceId : null,
+      shells: sideChatLessonShells,
+      environmentId: lessonRef.environmentId,
+    });
+    if (finishable !== null) {
+      actionItems.push({
+        kind: "action",
+        value: "action:finish-side-chat",
+        searchTerms: ["side chat", "done", "finish", finishable.label],
+        title: "Finish side chat (Done)",
+        description: finishable.label,
+        icon: <CheckIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const rows = deriveSideChatTree(readSideChatTreeShells(lessonRef), lessonRef.threadId);
+          leaveSideChat(lessonRef, finishable.surface, rows);
+          const finished = await finishSideChat({
+            environmentId: lessonRef.environmentId,
+            input: { threadId: finishable.threadId },
+          });
+          if (finished._tag === "Failure" && !isAtomCommandInterrupted(finished)) {
+            throw squashAtomCommandFailure(finished);
+          }
         },
       });
     }

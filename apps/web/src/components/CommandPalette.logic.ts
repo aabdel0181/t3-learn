@@ -374,7 +374,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   renderTrailingContent?: (thread: TThread) => ReactNode;
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
-  runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
+  runThread: (
+    thread: Pick<SidebarThreadSummary, "environmentId" | "id" | "sideChat">,
+  ) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
