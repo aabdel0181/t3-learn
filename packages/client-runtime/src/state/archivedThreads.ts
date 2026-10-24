@@ -27,7 +27,7 @@ export interface ArchivedThreadSnapshotsState {
 export function listedArchivedThreads<
   Thread extends {
     readonly id: ThreadId;
-    readonly sideChat?: { readonly anchor: { readonly threadId: ThreadId } };
+    readonly sideChat?: { readonly anchor: { readonly threadId: ThreadId } } | undefined;
   },
 >(threads: ReadonlyArray<Thread>): ReadonlyArray<Thread> {
   const archivedThreadIds = new Set(threads.map((thread) => thread.id));
