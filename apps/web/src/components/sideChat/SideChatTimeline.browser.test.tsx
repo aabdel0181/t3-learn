@@ -32,12 +32,9 @@ function setup() {
   state.visibleTurnItems = [];
 }
 
-it("shows the side chat's replies without entering the lesson's held timeline", async () => {
-  setup();
-  const fixture = makeStreamingTimelineFixture("A Box is a bounded space of numbers.");
-  state.visibleTurnItems = fixture.visibleTurnItems;
+function timelineProps(fixture: ReturnType<typeof makeStreamingTimelineFixture>) {
   const sideChatRef = scopeThreadRef(ENVIRONMENT_ID, fixture.threadId);
-  const props = {
+  return {
     lessonRef: LESSON_REF,
     sideChatRef,
     detailRef: sideChatRef,
@@ -52,12 +49,44 @@ it("shows the side chat's replies without entering the lesson's held timeline", 
     onOpenThread: () => {},
     workspaceRoot: undefined,
   } satisfies ComponentProps<typeof SideChatTimeline>;
+}
+
+function timelineContainer() {
   const container = document.createElement("div");
   container.style.cssText = "height: 480px; width: 800px; display: flex; flex-direction: column;";
+  return container;
+}
 
-  await using screen = await render(<SideChatTimeline {...props} />, { container });
+it("shows the side chat's replies without entering the lesson's held timeline", async () => {
+  setup();
+  const fixture = makeStreamingTimelineFixture("A Box is a bounded space of numbers.");
+  state.visibleTurnItems = fixture.visibleTurnItems;
+  const props = timelineProps(fixture);
+  const sideChatRef = props.sideChatRef;
+
+  await using screen = await render(<SideChatTimeline {...props} />, {
+    container: timelineContainer(),
+  });
 
   await expect.element(screen.getByText("A Box is a bounded space of numbers.")).toBeVisible();
   expect(peekRememberedThreadTimeline(scopedThreadKey(sideChatRef))).toBeNull();
   expect(peekHeldThreadTimeline()).toBeNull();
+});
+
+it("offers no fork on a side chat's finished reply", async () => {
+  setup();
+  const fixture = makeStreamingTimelineFixture("Still streaming");
+  state.visibleTurnItems = fixture.visibleTurnItems;
+
+  await using screen = await render(<SideChatTimeline {...timelineProps(fixture)} />, {
+    container: timelineContainer(),
+  });
+
+  await expect.element(screen.getByText("Done", { exact: true })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: "Copy message" }).first())
+    .toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: "Fork from this response" }))
+    .not.toBeInTheDocument();
 });

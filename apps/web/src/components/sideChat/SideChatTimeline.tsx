@@ -19,7 +19,6 @@ import { openExpandedImagePreview } from "../chat/ExpandedImageDialog";
 import { ThreadTimeline } from "../chat/ThreadTimeline";
 
 const noop = () => {};
-const noopAsync = async () => {};
 
 /**
  * A side chat's timeline in the lesson's panel. It stays out of the held-timeline
@@ -102,7 +101,6 @@ export function SideChatTimeline(props: {
         onOpenTurnDiff={noop}
         onOpenThread={props.onOpenThread}
         {...(props.onOpenSideChat === undefined ? {} : { onOpenSideChat: props.onOpenSideChat })}
-        onForkFromRun={noopAsync}
         onRollbackCheckpoint={noop}
         supportsConversationRollback={false}
         onRevertToTurnCount={noop}
