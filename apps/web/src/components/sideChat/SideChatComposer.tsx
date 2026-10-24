@@ -253,8 +253,8 @@ export function SideChatComposer(props: {
 
   return (
     <div className="border-t border-border">
-      {/* Always rendered, so screen readers announce a line that appears in it. */}
-      <p role="status" className="px-3 pt-2 text-muted-foreground text-xs empty:hidden">
+      {/* Empty but never display:none: a hidden live region drops out of the accessibility tree, so a line that appears in it may go unannounced. */}
+      <p role="status" className="px-3 pt-2 text-muted-foreground text-xs empty:pt-0">
         {status}
       </p>
       <div className="flex items-end gap-2 px-3 py-2">

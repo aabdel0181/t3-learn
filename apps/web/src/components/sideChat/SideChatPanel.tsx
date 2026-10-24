@@ -536,7 +536,7 @@ export function SideChatPanel(props: {
             workspaceRoot={workspaceRoot}
           />
         </div>
-        <p role="status" className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:hidden">
+        <p role="status" className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:pt-0">
           {statusLine}
         </p>
         {activePendingApproval ? (

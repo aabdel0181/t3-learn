@@ -696,7 +696,7 @@ it("shows the note a finished side chat sent to the lesson", async () => {
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
-  await expect.element(screen.getByRole("status")).toHaveTextContent(`Sent to lesson: ${note}`);
+  await expect.element(screen.getByText(`Sent to lesson: ${note}`)).toBeInTheDocument();
   await expect.element(doneButton(screen)).not.toBeInTheDocument();
 });
 
@@ -711,8 +711,8 @@ it("says a nested side chat's note waits for the parent side chat it goes to", a
   await using screen = await renderPanel();
 
   await expect
-    .element(screen.getByRole("status"))
-    .toHaveTextContent(`Goes with your next message in “observation space”: ${note}`);
+    .element(screen.getByText(`Goes with your next message in “observation space”: ${note}`))
+    .toBeInTheDocument();
 });
 
 it("brings the lesson into view to reveal a top-level side chat's highlight there", async () => {
