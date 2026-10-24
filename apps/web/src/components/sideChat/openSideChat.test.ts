@@ -273,7 +273,9 @@ describe("openSideChatFromSelection", () => {
   });
 
   it("keeps the draft of a closed side chat the server refused to throw away", async () => {
-    vi.mocked(threadEnvironment.finishSideChat.run).mockImplementation(async () => refusal);
+    vi.mocked(threadEnvironment.finishSideChat.run).mockImplementation(
+      async () => refusal as never,
+    );
     const { run, startedThreadId, settle } = deferredRunner();
 
     const outcome = openSideChatFromSelection({

@@ -18,7 +18,6 @@ import {
   collectAssistantCitations,
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
-import * as DateTime from "effect/DateTime";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -549,10 +548,11 @@ it("Done on a top-level side chat closes its tab and remembers it for reopening"
 
 it("Discard finishes the side chat without a note and forgets its draft", async () => {
   const dispatch = setup();
-  state.shells = [
-    LESSON_SHELL,
-    { ...SIDE_1, latestUserMessageAt: DateTime.makeUnsafe("2026-10-22T00:00:00.000Z") },
-  ];
+  const written: Thread = {
+    ...SIDE_1,
+    latestUserMessageAt: "2026-10-22T00:00:00.000Z",
+  };
+  state.shells = [LESSON_SHELL, written];
   useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
