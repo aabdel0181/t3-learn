@@ -353,11 +353,14 @@ export function resolveAssistantCitationRange(
   return match === null ? null : rangeForMatch(root, stream, match);
 }
 
-export function resolveAssistantAnchorRange(
+/** One range or null per anchor, from a single read of the reply. */
+export function resolveAssistantAnchorRanges(
   root: HTMLElement,
-  anchor: AssistantTextAnchor,
-): Range | null {
+  anchors: ReadonlyArray<AssistantTextAnchor>,
+): Array<Range | null> {
   const stream = readAssistantText(root);
-  const match = findAssistantAnchorText(stream.text, anchor);
-  return match === null ? null : rangeForMatch(root, stream, match);
+  return anchors.map((anchor) => {
+    const match = findAssistantAnchorText(stream.text, anchor);
+    return match === null ? null : rangeForMatch(root, stream, match);
+  });
 }
