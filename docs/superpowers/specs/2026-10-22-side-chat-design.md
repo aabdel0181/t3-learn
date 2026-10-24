@@ -25,17 +25,17 @@ the PRD, §1.
 - v1 targets **desktop + web**. Mobile comes later, and v1 must not break it.
 - Built in med's fork. Proposed upstream only after med loves it.
 - **Sending a lesson message finishes open side chats.** Their notes ride along with that message, so med never
-  has to remember Done. *(Designer's refinement: only idle side chats. One whose AI is still answering stays open,
-  and the next lesson message picks it up.)*
+  has to remember Done. _(Designer's refinement: only idle side chats. One whose AI is still answering stays open,
+  and the next lesson message picks it up.)_
 - **The Map is a diagram** (boxes and lines) to start. Med may switch to an outline later, so the tree data and
   the layout are kept separate from the drawing.
 - **Day-to-day use is a Mac desktop build of the fork.**
-- *(Q2, waiting, went unanswered; the designer's default stands: sending waits up to ~15s for a summary or note
-  still being written, then goes ahead without it.)*
+- _(Q2, waiting, went unanswered; the designer's default stands: sending waits up to ~15s for a summary or note
+  still being written, then goes ahead without it.)_
 
 ## Calls made by the designer (med can veto)
 
-- **Same provider for background writing.** Summaries and notes use the *lesson's own provider* with its small
+- **Same provider for background writing.** Summaries and notes use the _lesson's own provider_ with its small
   text model (e.g. Claude → Haiku), so lesson content never goes to a second provider. They fall back to the
   global text-generation setting only when the lesson's provider can't generate text. Failures are shown as
   "Couldn't write the note", never as "No note sent".
@@ -57,7 +57,7 @@ the PRD, §1.
 - **Merge-back is refused for side chats** (from any client or agent) with "Use Done for side chats", because a
   full merge-back would replay the side chat into the lesson.
 - **Telemetry off in dev**, and no new telemetry event in v1.
-- **The citation bug** (providers receive raw `t3-citation://` links for Cite) ships as a *separate small PR*
+- **The citation bug** (providers receive raw `t3-citation://` links for Cite) ships as a _separate small PR_
   before side chats. It is also a good first upstream contribution.
 
 ## Constraints
@@ -134,6 +134,7 @@ instead of silently doing an ordinary fork. Public (in `OrchestrationV2Command`)
 - `thread.side_chat.done { commandId, threadId, discard?: boolean }`, routed to the side chat.
 
 Internal (in `OrchestrationV2InternalCommand`, `orchestrationV2.ts:3022+`):
+
 - `thread.side_chat.opening.complete { threadId, requestId, status, text }`
 - `thread.side_chat.outcome.complete { threadId, requestId, status, note, error? }`
 
@@ -148,6 +149,7 @@ and client-runtime ops (`packages/client-runtime/src/operations/commands.ts`, `s
 ### 3. Open (server)
 
 `thread.side_chat.open`:
+
 - Validates that the anchor thread exists and is not archived, and that the anchored message exists. **No source run
   is required**, so it works after an interrupted or failed run and while a newer run streams. Only the highlighted
   message itself must not be streaming.
@@ -166,6 +168,7 @@ Separately, fix the ordinary fork path: `ThreadForkService.plan` spreads `...inp
 `manual_context` handoff **with `history` undefined and the content in `summaryText`**. `history.coverage` is
 replaced by a generic line above ~3.6KB (`ContextHandoffDelivery.ts:50`). `summaryText` is checked against the full
 budget (`:63-70`). Content:
+
 1. Framing: a focused side question from someone learning; answer at their level; don't change files unless asked.
 2. `opening.text` (the summary). If its status is `fallback` or `failed`: a minimal deterministic context, made of
    the lesson's first user message (the topic) and `excerptContext`, each truncated by characters. Not a transcript
@@ -180,22 +183,28 @@ as a quiet "Side chat context" divider; it expands to show what the AI was given
 ### 4. Done and the note (server)
 
 `thread.side_chat.done` on side chat S:
+
 - If S has an active run, interrupt it first (reuse the stop path).
 - Run Done on S's open descendants first (cascade, deepest first).
 - If S has no messages, or `discard` is set: delete S (and its descendants) and send no note.
 - Otherwise set `done = { at, outcome: { status: "generating", requestId } }` and enqueue the `side-chat.outcome`
-  effect. Its input is S's transcript, plus any **undelivered child notes** (chain-up), plus S's previously delivered
-  note, if any, with the instruction "only what's new, otherwise null". If a child's note is still `generating`, S's
-  note writer waits for it, bounded by the same ~15s cap, and goes ahead without it if the cap passes.
+  effect. Its input is S's transcript, plus any **undelivered child notes** and the child notes S's own turns took
+  (chain-up: those reached only S's AI), plus S's previously delivered note, if any, with the instruction "only what's
+  new, otherwise null". If a child's note is still `generating`, S's note writer waits for it, bounded by the same
+  ~15s cap, and goes ahead without it if the cap passes.
 - **Reopen:** a user message sent in a done S clears `done` (state → open). A later Done writes a fresh note.
+  No side chat stays open under a done one: a user message in a side chat, or opening a side chat from one, also
+  reopens each done side chat above it, so the new note still has an open parent to carry it up.
 
 **Auto-Done on a lesson message.** When a user-authored message is sent in a thread, first run Done on every
 **idle** open side chat in that thread's subtree (deepest first, no interrupt). Side chats with an active run stay
-open. Their notes then follow the waiting rule in §5. Pressing Done in the panel is still available and does the
-same thing immediately.
+open. The finished side chats' notes then follow the waiting rule in §5. A side chat nobody has written in is
+skipped: it keeps its tab and draft and does not hold its parent open. Closing its tab, Done, Discard or its parent's
+Done still delete it. Pressing Done in the panel is still available and does the same thing immediately.
 
 **Delivery on the parent's next turn.** In P's `dispatchMessage`, for **user-authored messages only** (not wakes,
 scheduled tasks or delegated completions):
+
 - Collect P's side-chat children whose `done.outcome.status === "ready"` and whose `requestId` differs from
   `P.sideChatNoteDeliveries[child]`. Reading other threads under P's lock is fine, since merge-back already reads the
   fork's items.
@@ -247,7 +256,7 @@ None of this touches `pendingMergeBackTransfers` or the merge-back guards.
 - **Summarizer input:** build it directly, without `formatThreadTitleContext` (which caps at 8k and favors recent
   messages). Budget about 24k chars, prioritizing the anchored message and its neighbors, then the first user
   message, then the most recent messages. Include the anchor thread's own `opening.text` for nested chats.
-- **Note prompt:** one or two sentences, ≤ 300 chars, *only* if the lesson's AI should teach differently (a revealed
+- **Note prompt:** one or two sentences, ≤ 300 chars, _only_ if the lesson's AI should teach differently (a revealed
   gap, a misconception, a preference). Otherwise null. Null is the default.
 
 ### 6. Web UI
@@ -309,10 +318,10 @@ None of this touches `pendingMergeBackTransfers` or the merge-back guards.
   3. drawing: SVG for the edges (curves, `--muted-foreground` at reduced opacity), with nodes as **HTML buttons**
      absolutely positioned over the SVG, so focus, tooltips with the full label and text truncation work. Each node
      shows a status dot (`ThreadRelationshipIcon`); the current node is accent-outlined, the lesson node bold.
-  Width: the diagram scrolls horizontally inside the panel and auto-scrolls the current node into view on open.
-  A "fit" toggle scales it to the panel width. Keyboard: `role="tree"` with `aria-level`; Up → parent, Down → first
-  child, Left/Right → siblings, Enter opens. No animation, theme tokens only. Click or Enter opens a side chat in the
-  panel; the lesson node focuses the lesson.
+     Width: the diagram scrolls horizontally inside the panel and auto-scrolls the current node into view on open.
+     A "fit" toggle scales it to the panel width. Keyboard: `role="tree"` with `aria-level`; Up → parent, Down → first
+     child, Left/Right → siblings, Enter opens. No animation, theme tokens only. Click or Enter opens a side chat in the
+     panel; the lesson node focuses the lesson.
 - **Keybinding** `sideChat.askSelection`. Its default must not collide: **Mod+Shift+L is taken**
   (`composer.previousWorktree`, `packages/shared/src/keybindings.ts:206`). The resolver reaches whichever toolbar
   instance owns the current selection through a small registry. Add a label in `KeybindingsSettings.logic.ts`.
@@ -324,20 +333,20 @@ None of this touches `pendingMergeBackTransfers` or the merge-back guards.
 About 22 places special-case `relationshipToParent === "subagent"`. The builder audits all of them and records a
 decision per site in the PR. Known sites and their decisions:
 
-| Site | Decision for side chats |
-|---|---|
-| `apps/web/src/components/Sidebar.logic.ts:515-551` | hide; `resolveSidebarRowThreadId` → lesson |
-| `packages/client-runtime/src/state/threadShell.ts:405-415` (navigation shells) | hide |
-| `threadShell.ts:282-300` (child input bubbling) | bubble to the lesson; its banner opens the panel instead of navigating (`useThreadLifecycle.tsx:415-447`) |
-| `ThreadRelationshipsControl.tsx` (Lineage list, Merge back, row navigation 327-355) | hide side chats from Lineage |
-| `ThreadNotificationCoordinator.tsx:131/181/205` | quiet while the lesson is on screen; "Open" → lesson + panel |
-| `IdleCompaction.ts:53` | skip side chats |
-| `ShellStream.ts:117-131`, `ws.ts:998-1002, 1157-1161` | keep side-chat transcript deltas off the shell stream |
-| `ThreadManagementService.ts:741` (`t3_thread_list`) | hide from agents' listings |
-| `AgentAwarenessRelay.ts:518` | don't publish side-chat activity to phones |
-| `storageCleanup.ts:148-171` (`worktreeOwner`) | side chats don't pin the lesson's worktree |
-| `apps/mobile/src/features/threads/threadListV2.ts:229-233, 618-620` | hide (this fork's mobile build only) |
-| `Orchestrator.dispatchThreadMergeBack` | refuse when the source is a side chat |
+| Site                                                                                | Decision for side chats                                                                                   |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/components/Sidebar.logic.ts:515-551`                                  | hide; `resolveSidebarRowThreadId` → lesson                                                                |
+| `packages/client-runtime/src/state/threadShell.ts:405-415` (navigation shells)      | hide                                                                                                      |
+| `threadShell.ts:282-300` (child input bubbling)                                     | bubble to the lesson; its banner opens the panel instead of navigating (`useThreadLifecycle.tsx:415-447`) |
+| `ThreadRelationshipsControl.tsx` (Lineage list, Merge back, row navigation 327-355) | hide side chats from Lineage                                                                              |
+| `ThreadNotificationCoordinator.tsx:131/181/205`                                     | quiet while the lesson is on screen; "Open" → lesson + panel                                              |
+| `IdleCompaction.ts:53`                                                              | skip side chats                                                                                           |
+| `ShellStream.ts:117-131`, `ws.ts:998-1002, 1157-1161`                               | keep side-chat transcript deltas off the shell stream                                                     |
+| `ThreadManagementService.ts:741` (`t3_thread_list`)                                 | hide from agents' listings                                                                                |
+| `AgentAwarenessRelay.ts:518`                                                        | don't publish side-chat activity to phones                                                                |
+| `storageCleanup.ts:148-171` (`worktreeOwner`)                                       | side chats don't pin the lesson's worktree                                                                |
+| `apps/mobile/src/features/threads/threadListV2.ts:229-233, 618-620`                 | hide (this fork's mobile build only)                                                                      |
+| `Orchestrator.dispatchThreadMergeBack`                                              | refuse when the source is a side chat                                                                     |
 
 ### 8. Delete and archive cascade (new)
 
@@ -345,6 +354,8 @@ No child cascade exists today: `thread.archive` / `thread.delete` act on one thr
 `side-chat.cascade` effect that runs after `thread.archive`, `thread.unarchive` or `thread.delete` of a thread with
 side-chat descendants, and dispatches the same command to each descendant. Then MCP, mobile and every client get the
 cascade for free.
+A side chat whose parent is still archived cannot be unarchived on its own; it comes back with its parent, and the
+Archive page lists only the parent.
 
 ## Testing
 
@@ -354,7 +365,7 @@ cascade for free.
     messages. The fallback contains only the topic and `excerptContext`. A nested chat carries the parent side chat's
     opening text. Opening works after an interrupted lesson run.
   - Context survives a provider switch inside the side chat.
-  - Notes: after Done, the lesson's next *user* prompt contains exactly the ready notes. `none` and `failed` add
+  - Notes: after Done, the lesson's next _user_ prompt contains exactly the ready notes. `none` and `failed` add
     nothing. A wake or scheduled run doesn't consume notes. A queued lesson message picks up notes ready by its start.
     Several side chats are combined into one handoff. A note too big for the budget is dropped without failing the
     turn. A chain-up note from a grandchild reaches the lesson after both levels finish.

@@ -21,9 +21,9 @@ them.
 
 ### What T3 Code offers today, and why it isn't enough
 
-- **Cite** (select text in a reply → Cite) puts the quote into the *same*
+- **Cite** (select text in a reply → Cite) puts the quote into the _same_
   conversation's composer. That is exactly the path that derails the lesson.
-- **Fork** (a hidden icon under each reply, shown on hover) copies the *whole*
+- **Fork** (a hidden icon under each reply, shown on hover) copies the _whole_
   conversation into a new thread. The fork carries all the baggage, lives as a
   separate thread in the sidebar, and its way back is **Merge back** (hidden in
   thread details → Lineage), which replays up to ~16k of the fork's transcript
@@ -60,12 +60,14 @@ The user needs to:
 ## 3. Goals, non-goals, anti-goals
 
 **Goals**
+
 - The lesson conversation never contains side-chat traffic.
 - Opening a side chat takes one action from a highlight.
 - The side chat starts with enough context to answer at the right level.
 - Returning is one action, and the lesson continues where it stopped.
 
 **Non-goals (v1)**
+
 - Mobile UI for side chats (viewing, opening, or the map).
 - Letting the user read or edit the return note before it's sent.
 - Side chats started from user messages, or from selections that span more
@@ -79,6 +81,7 @@ The user needs to:
   med loves the feature.
 
 **Anti-goals (a failure even if it technically works)**
+
 - Side-chat questions or answers leaking into the lesson's AI context.
 - The main AI replying or changing course on its own when a side chat ends.
 - The user having to manage, approve or tidy notes.
@@ -92,10 +95,12 @@ The user needs to:
 Each requirement has acceptance criteria (AC) a tester can check.
 
 ### R1. Ask from a highlight
+
 When the user selects text inside one AI reply, the selection toolbar offers
 **Ask in side chat** next to **Cite**.
+
 - AC: Selecting text in a finished AI reply shows both buttons. Clicking
-  *Ask in side chat* opens the side-chat panel with the selected text pinned at
+  _Ask in side chat_ opens the side-chat panel with the selected text pinned at
   the top, and the cursor in the side-chat composer.
 - AC: While that reply is still streaming, the button is disabled with a
   tooltip explaining why.
@@ -104,9 +109,11 @@ When the user selects text inside one AI reply, the selection toolbar offers
 - AC: Keyboard: with a selection active, a shortcut opens the side chat.
 
 ### R2. Context going in: a summary plus the highlight
+
 The side chat's AI receives a short summary of the parent conversation, the
 highlighted text (with the sentence around it), and the user's question. It
 does not receive the parent's full transcript.
+
 - AC: The first prompt sent to the side chat's AI contains the summary and the
   excerpt and contains none of the parent's messages verbatim (beyond the
   excerpt).
@@ -119,20 +126,26 @@ does not receive the parent's full transcript.
   the highlight. It never falls back to a transcript.
 
 ### R3. Isolation
+
 Nothing said in a side chat appears in, or is sent to, the parent, except the
 optional note from R5.
+
 - AC: After a side chat with several turns, the parent's next prompt contains
   none of the side chat's messages.
 
 ### R4. Nesting
+
 Side chats can be opened from side chats, to any depth.
+
 - AC: The panel's breadcrumb shows the path (Lesson › "observation space" ›
   "Box") and each crumb navigates there.
 
 ### R5. Done, and an optional note
+
 **Done** ends a side chat. The AI reviews it and writes a one-to-two-line note
 for the parent only if the parent's AI should teach differently because of it.
 Otherwise no note is made.
+
 - AC: Pressing Done closes the panel's side chat view (back to its parent side
   chat for nested ones, or the panel closes) without waiting for the note.
 - AC: Done always works. If the side chat's AI is still answering, Done stops
@@ -146,13 +159,16 @@ Otherwise no note is made.
 - AC: Pressing Done is optional. Sending a message in the lesson finishes every
   idle open side chat under it, and their notes ride along with that message.
   The same goes for sending in a side chat that has its own open side chats.
-  A side chat whose AI is still answering stays open.
+  A side chat whose AI is still answering stays open, and so does one nobody
+  has written in yet, with its draft.
 
 ### R6. The lesson stays quiet; the note rides along
+
 The parent does not start a turn when a side chat ends. Any ready notes go with
 the user's next message in the parent, as context for the AI. They are not
 shown as a message in the conversation. A collapsed "Side-chat notes included"
 divider marks where they went in.
+
 - AC: After Done, the parent shows no new AI activity.
 - AC: The parent's next prompt contains every ready note from side chats that
   ended since its last turn, one line each, labeled with what was highlighted.
@@ -166,23 +182,29 @@ divider marks where they went in.
   don't fit, they're dropped.
 
 ### R7. Reopen and redo
+
 A finished side chat can be reopened and continued. Pressing Done again
 replaces its earlier note if that note hasn't been delivered yet, and adds a
 fresh note if it has.
+
 - AC: Reopening shows the full side chat history and a working composer.
 
 ### R8. Marks in the lesson
+
 Each highlight that started a side chat stays marked in the parent reply, with
 a small tag that opens the side chat.
+
 - AC: The mark survives scrolling, reloads and app restarts.
 - AC: If the text can't be located any more (say the reply was re-rendered
   differently), the side chat is still reachable from a tag on that reply.
 - AC: Opening a finished side chat shows the note it sent, or "no note sent".
 
 ### R9. Map
+
 A **Map** tab in the right panel shows the lesson and all its side chats as a
 **diagram** (boxes joined by lines, the lesson at the top), each labeled by its
 highlighted text, with an open/done indicator. It may become an outline later.
+
 - AC: A wide diagram scrolls inside the panel, and the current side chat is
   scrolled into view.
 - AC: Clicking a side chat opens it in the panel. Clicking the lesson focuses
@@ -191,6 +213,7 @@ highlighted text, with an open/done indicator. It may become an outline later.
 - AC: Reachable from the command palette.
 
 ### R10. Housekeeping
+
 - AC: Side chats do not appear in the left thread list. Selecting one keeps
   its lesson highlighted there.
 - AC: Deleting or archiving a lesson does the same to its side chats.
@@ -199,11 +222,12 @@ highlighted text, with an open/done indicator. It may become an outline later.
   answerable in the side-chat panel.
 
 ### R11. Compatibility and performance
+
 - AC: An unmodified (official) T3 Code client, including the phone app, can
   still load every thread list and conversation from a server running this
   fork. Side chats may appear there as ordinary forks.
 - AC: A client of this fork connected to an older server hides
-  *Ask in side chat* rather than sending something the server can't handle.
+  _Ask in side chat_ rather than sending something the server can't handle.
 - AC: With a side chat open beside a streaming lesson, scrolling and typing
   stay smooth. No extra data is sent to the lesson's stream.
 
