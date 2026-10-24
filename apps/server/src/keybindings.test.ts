@@ -283,6 +283,44 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("resetting sideChat.askSelection to its default leaves keybindings.json clean", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const askSelection = (key: string) =>
+        ({ key, command: "sideChat.askSelection", when: "!terminalFocus" }) as const;
+      const persistedAskSelection = Effect.map(
+        readKeybindingsConfig(keybindingsConfigPath),
+        (rules) => rules.filter((entry) => entry.command === "sideChat.askSelection"),
+      );
+      const resolvedAskSelection = Effect.map(keybindings.loadConfigState, (state) =>
+        state.keybindings
+          .filter((entry) => entry.command === "sideChat.askSelection")
+          .map((entry) => entry.shortcut.key),
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [askSelection("mod+alt+y")]);
+
+      yield* keybindings.upsertKeybindingRule({
+        ...askSelection("mod+alt+s"),
+        replace: askSelection("mod+alt+y"),
+      });
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+
+      // Beside another binding for the command, the default is a real choice and stays.
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+y"));
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+s"));
+      assert.deepStrictEqual(yield* persistedAskSelection, [
+        askSelection("mod+alt+y"),
+        askSelection("mod+alt+s"),
+      ]);
+
+      yield* keybindings.removeKeybindingRule(askSelection("mod+alt+y"));
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("adds a late default to an existing command once", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
