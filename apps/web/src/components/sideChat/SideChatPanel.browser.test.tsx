@@ -103,7 +103,7 @@ import {
 import type { Thread } from "../../types";
 import { toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
-import { usePendingSideChatStore } from "./pendingSideChatStore";
+import { pendingSideChatThreadIds, usePendingSideChatStore } from "./pendingSideChatStore";
 import { SideChatPanel } from "./SideChatPanel";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -344,6 +344,42 @@ it("shows a starting side chat with its excerpt and puts the cursor in its compo
   await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
   await expect.element(composer(screen)).toHaveFocus();
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+});
+
+it("keeps the excerpt and the empty conversation between the shell arriving and the detail loading", async () => {
+  setup();
+  const citation: AssistantCitation = {
+    version: 1,
+    environmentId: ENVIRONMENT_ID,
+    threadId: LESSON_ID,
+    messageId: MessageId.make("lesson-1-reply"),
+    text: "observation space",
+    start: 3,
+    end: 20,
+    prefix: "An ",
+    suffix: " is what the agent can see.",
+  };
+  const run = vi.fn(() => new Promise<never>(() => {}));
+  await using screen = await renderPanel({ router: LESSON_PATH });
+  await act(() =>
+    askInSideChat({
+      lessonRef: LESSON_REF,
+      citation,
+      sideChatShells: [],
+      topThreadId: null,
+      run,
+    }),
+  );
+  await expect.element(revealButton(screen)).toHaveTextContent("observation space");
+  const lessonKey = scopedThreadKey(LESSON_REF);
+  const [id] = pendingSideChatThreadIds(usePendingSideChatStore.getState(), lessonKey);
+
+  // The shell lands and the lesson forgets the pending entry; the detail is still loading.
+  state.shells = [LESSON_SHELL, sideChatShell(id!, LESSON_ID, "observation space")];
+  act(() => usePendingSideChatStore.getState().prune(lessonKey, new Set([id!])));
+
+  await expect.element(revealButton(screen)).toHaveTextContent("observation space");
+  await expect.element(screen.getByText("Send a message to start the conversation.")).toBeVisible();
 });
 
 it("Done on a nested side chat returns to its parent without waiting for the note", async () => {

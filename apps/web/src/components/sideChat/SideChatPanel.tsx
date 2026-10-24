@@ -17,6 +17,7 @@ import {
   type SideChatTreeRow,
 } from "@t3tools/client-runtime/state/thread-relationships";
 import {
+  type AssistantCitation,
   AuthOrchestrationOperateScope,
   type MessageId,
   type ScopedThreadRef,
@@ -109,10 +110,24 @@ export function SideChatPanel(props: {
   const askPending = usePendingSideChatStore((state) =>
     selectStartingSideChat(state, scopedThreadKey(lessonRef)),
   );
+  // The lesson forgets a pending side chat once its shell lands, before the detail with its
+  // excerpt loads. Holding the asked citation for that gap keeps the excerpt from blinking out.
+  const [held, setHeld] = useState<{
+    readonly key: string;
+    readonly citation: AssistantCitation;
+  } | null>(null);
+  if (pending !== undefined) {
+    if (held?.key !== sideChatKey || held.citation !== pending.citation) {
+      setHeld({ key: sideChatKey, citation: pending.citation });
+    }
+  } else if (held !== null && (held.key !== sideChatKey || detail !== undefined)) {
+    setHeld(null);
+  }
+  const heldCitation = held?.key === sideChatKey ? held.citation : null;
   const citation =
     shell?.sideChat && detail
       ? sideChatAnchorCitation(environmentId, shell.sideChat.anchor, detail.excerpt)
-      : (pending?.citation ?? null);
+      : (pending?.citation ?? heldCitation);
   const crumbs =
     shell === null && pending !== undefined
       ? startingBreadcrumb(rows, pending.citation.threadId, {
@@ -417,7 +432,8 @@ export function SideChatPanel(props: {
             sideChatRef={sideChatRef}
             detailRef={detailRef}
             projection={projection}
-            detailLoading={detailRef !== null && projection === null}
+            // A side chat this panel just started has nothing to load yet.
+            detailLoading={detailRef !== null && projection === null && heldCitation === null}
             optimisticMessages={optimisticMessages}
             listRef={listRef}
             citationRequest={citationRequest}
