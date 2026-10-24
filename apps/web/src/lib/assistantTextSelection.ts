@@ -124,6 +124,52 @@ export function findAssistantCitationText(
   return match ?? (quoteCount === 1 ? onlyQuote : null);
 }
 
+export type AssistantTextAnchor = Pick<
+  AssistantTextSelector,
+  "start" | "end" | "prefix" | "suffix"
+>;
+
+/**
+ * Side-chat shells keep an anchor's offsets and context but not its quote, so
+ * `end - start` stands in for the quote and the context alone must single out
+ * one place. Saved offsets are never trusted, since they drift. Several matches
+ * resolve to nothing, as for citations.
+ */
+export function findAssistantAnchorText(
+  text: string,
+  anchor: AssistantTextAnchor,
+): { start: number; end: number } | null {
+  const length = anchor.end - anchor.start;
+  if (!Number.isInteger(anchor.start) || !Number.isInteger(anchor.end) || length <= 0) return null;
+
+  const normalized = normalizeWhitespace(text);
+  const prefix = normalizeWhitespace(anchor.prefix);
+  const suffix = normalizeWhitespace(anchor.suffix);
+
+  const candidates: { start: number; end: number }[] = [];
+  if (prefix.length > 0) {
+    for (let at = normalized.indexOf(prefix); at !== -1; at = normalized.indexOf(prefix, at + 1)) {
+      const start = at + prefix.length;
+      candidates.push({ start, end: start + length });
+    }
+  } else if (suffix.length > 0) {
+    for (let at = normalized.indexOf(suffix); at !== -1; at = normalized.indexOf(suffix, at + 1)) {
+      candidates.push({ start: at - length, end: at });
+    }
+  } else if (normalized.length === length) {
+    candidates.push({ start: 0, end: length });
+  }
+
+  const matches = candidates.filter(
+    ({ start, end }) =>
+      start >= 0 &&
+      end <= normalized.length &&
+      normalized.slice(Math.max(0, start - prefix.length), start) === prefix &&
+      normalized.slice(end, end + suffix.length) === suffix,
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 /** A text node, or a whole rendered formula standing for its TeX. */
 type TextChunk = { node: Text | Element; start: number; end: number };
 
@@ -269,15 +315,11 @@ function rawTextOffset(text: string, normalizedOffset: number): number {
   return text.length;
 }
 
-export function resolveAssistantCitationRange(
+function rangeForMatch(
   root: HTMLElement,
-  selector: AssistantTextSelector,
+  stream: ReturnType<typeof readAssistantText>,
+  match: { start: number; end: number },
 ): Range | null {
-  if (excludedAncestor(root) !== null) return null;
-  const stream = readAssistantText(root);
-  const match = findAssistantCitationText(stream.text, selector);
-  if (match === null) return null;
-
   const start = rawTextOffset(stream.text, match.start);
   const end = rawTextOffset(stream.text, match.end);
   const first = stream.chunks.find((chunk) => chunk.end > start);
@@ -291,4 +333,24 @@ export function resolveAssistantCitationRange(
   if (isText(last.node)) range.setEnd(last.node, Math.min(last.node.length, end - last.start));
   else range.setEndAfter(last.node);
   return isUsableRange(root, range) ? range : null;
+}
+
+export function resolveAssistantCitationRange(
+  root: HTMLElement,
+  selector: AssistantTextSelector,
+): Range | null {
+  if (excludedAncestor(root) !== null) return null;
+  const stream = readAssistantText(root);
+  const match = findAssistantCitationText(stream.text, selector);
+  return match === null ? null : rangeForMatch(root, stream, match);
+}
+
+export function resolveAssistantAnchorRange(
+  root: HTMLElement,
+  anchor: AssistantTextAnchor,
+): Range | null {
+  if (excludedAncestor(root) !== null) return null;
+  const stream = readAssistantText(root);
+  const match = findAssistantAnchorText(stream.text, anchor);
+  return match === null ? null : rangeForMatch(root, stream, match);
 }
