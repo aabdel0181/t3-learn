@@ -695,6 +695,23 @@ it("says a nested side chat's note waits for the parent side chat it goes to", a
     .toHaveTextContent(`Goes with your next message in “observation space”: ${note}`);
 });
 
+it("brings the lesson into view to reveal a top-level side chat's highlight there", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  showSideChat("side-1", "side-1");
+  useRightPanelStore.getState().setMaximized(LESSON_REF, true);
+  await using screen = await renderPanel({ router: LESSON_PATH });
+
+  await revealButton(screen).click();
+
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).maximized,
+  ).toBeUndefined();
+  await vi.waitFor(() => expect(screen.router?.state.location.hash).not.toBe(""));
+  expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
+});
+
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];

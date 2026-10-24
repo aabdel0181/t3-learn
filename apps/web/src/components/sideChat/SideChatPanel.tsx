@@ -36,6 +36,7 @@ import {
 } from "../../lib/assistantCitationNavigation";
 import { cn, randomUUID } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
 import {
   type SideChatSurface,
   sideChatSurfaceTopThreadId,
@@ -77,7 +78,7 @@ import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
 import { SideChatComposer, type SideChatComposerHandle } from "./SideChatComposer";
 import { SideChatExcerpt } from "./SideChatExcerpt";
-import { leaveSideChat, revealSideChat } from "./sideChatNavigation";
+import { leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
 import {
   type SideChatCrumb,
   sideChatAnchorCitation,
@@ -317,6 +318,8 @@ export function SideChatPanel(props: {
 
   const reveal = () => {
     if (citation === null || revealCitation(citation)) return;
+    // A maximized panel or a sheet would hide the highlight the lesson scrolls to.
+    showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
     // Only the hash changes, so the lesson stays mounted and scrolls to the highlight.
     void navigate({ ...assistantCitationNavigation(citation), replace: true });
   };
