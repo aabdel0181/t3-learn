@@ -3,6 +3,7 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import type { Thread } from "../types";
 import { makeSideChatThreadFixture, makeThreadFixture } from "../test-fixtures";
 import {
+  buildRecentThreadActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
   filterPinnedBrowseEntries,
@@ -439,6 +440,37 @@ describe("returning from file and content search", () => {
     expect(closed).toEqual({ open: false, mode: "files", openIntent: null });
     expect(reduceCommandPaletteUiState(closed, { _tag: "BackToCommand" })).toEqual(closed);
     expect(reduceCommandPaletteUiState(closed, { _tag: "SetOpen", open: true })).toEqual(root);
+  });
+});
+
+describe("buildRecentThreadActionItems", () => {
+  it("leaves side chats out of the recent threads, while search still finds them", () => {
+    const lesson = makeThread({ id: ThreadId.make("lesson"), title: "Reinforcement learning" });
+    const sideChat = {
+      ...makeSideChatThreadFixture({
+        id: ThreadId.make("side"),
+        lessonId: lesson.id,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+      }),
+      projectId: PROJECT_ID,
+      createdAt: "2026-03-05T00:00:00.000Z",
+      updatedAt: "2026-03-05T00:00:00.000Z",
+    };
+    const input = {
+      threads: [lesson, sideChat],
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async () => undefined,
+    } as const;
+
+    expect(buildRecentThreadActionItems(input).map((item) => item.value)).toEqual([
+      "thread:lesson",
+    ]);
+    expect(buildThreadActionItems(input).map((item) => item.value)).toEqual([
+      "thread:side",
+      "thread:lesson",
+    ]);
   });
 });
 

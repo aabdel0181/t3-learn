@@ -1,4 +1,5 @@
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -19,7 +20,12 @@ import {
 } from "../state/environments";
 import { useThreadSearch } from "../state/queries";
 import { primaryServerProvidersAtom } from "../state/server";
-import { buildThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
+import {
+  buildRecentThreadActionItems,
+  buildThreadActionItems,
+  ITEM_ICON_CLASS,
+  type ThreadActionItemsInput,
+} from "./CommandPalette.logic";
 import { useEnvironmentLookups, useProjectLookups } from "./CommandPaletteLookups";
 import { openThreadTarget, resolveThreadOpenTarget } from "./sideChat/sideChatNavigation";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
@@ -67,7 +73,10 @@ function useThreadSearchWithContentMatches(query: string) {
   return { threadSearch, contentMatchByKey };
 }
 
-/** Every thread as a palette item, with message matches for a non-empty `threadSearchQuery`. */
+/**
+ * Every thread as a palette item, with message matches for a non-empty `threadSearchQuery`,
+ * and the recent ones the empty query lists.
+ */
 export function useCommandPaletteThreadItems(input: {
   readonly activeThreadId: ThreadId | undefined;
   readonly threadSearchQuery: string;
@@ -82,7 +91,7 @@ export function useCommandPaletteThreadItems(input: {
   const { threadSearch, contentMatchByKey } = useThreadSearchWithContentMatches(threadSearchQuery);
   const { projectByKey, projectTitleById } = useProjectLookups();
 
-  const threadItems = buildThreadActionItems({
+  const itemInput: ThreadActionItemsInput<EnvironmentThreadShell> = {
     threads,
     ...(activeThreadId ? { activeThreadId } : {}),
     projectTitleById,
@@ -146,7 +155,11 @@ export function useCommandPaletteThreadItems(input: {
         target: resolveThreadOpenTarget(thread),
         currentThreadRef,
       }),
-  });
+  };
 
-  return { threadItems, isSearchPending: threadSearch.isPending };
+  return {
+    threadItems: buildThreadActionItems(itemInput),
+    recentThreadItems: buildRecentThreadActionItems(itemInput),
+    isSearchPending: threadSearch.isPending,
+  };
 }
