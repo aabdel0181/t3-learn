@@ -187,7 +187,11 @@ it("clears the unsent drafts of side chats that are gone", async () => {
 it("keeps the unsent draft of a side chat archived with its lesson", async () => {
   setup();
   // Archiving the lesson archives its side chats, and unarchiving brings them back.
-  state.threadShells = [{ ...SIDE_1, archivedAt: "2026-10-24T00:00:00.000Z" }];
+  state.threadShells = [
+    sideChatShell("side-1", LESSON_ID, "observation space", {
+      archivedAt: "2026-10-24T00:00:00.000Z",
+    }),
+  ];
   showSideChat("side-1");
   const draftRef = scopeThreadRef(ENVIRONMENT_ID, SIDE_1.id);
   useComposerDraftStore.getState().setPrompt(draftRef, "Kept question");
