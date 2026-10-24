@@ -569,6 +569,10 @@ function OpenCommandPaletteDialog(props: {
     selectThreadRightPanelState(state.byThreadKey, sideChatLesson),
   );
   const sideChatLessonShells = useSideChatTreeShells(sideChatLesson);
+  const canOperateSideChatLesson = useEnvironmentScope(
+    sideChatLesson?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
@@ -1393,7 +1397,7 @@ function OpenCommandPaletteDialog(props: {
       shells: sideChatLessonShells,
       environmentId: lessonRef.environmentId,
     });
-    if (finishable !== null) {
+    if (finishable !== null && canOperateSideChatLesson) {
       actionItems.push({
         kind: "action",
         value: "action:finish-side-chat",

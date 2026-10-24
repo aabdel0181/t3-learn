@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
   /** Keyed by `${threadId}:${messageId}`. */
   marks: {} as Record<string, ReadonlyArray<unknown>>,
   noMarks: [] as ReadonlyArray<unknown>,
+  canOperate: true,
   dispatch: (async () => undefined) as (...args: never) => Promise<unknown>,
 }));
 
@@ -76,8 +77,8 @@ vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
 
 vi.mock(import("../../state/session"), async (importOriginal) => ({
   ...(await importOriginal()),
-  readEnvironmentScope: () => true,
-  useEnvironmentScope: () => true,
+  readEnvironmentScope: () => state.canOperate,
+  useEnvironmentScope: () => state.canOperate,
 }));
 
 // The real settings and keybindings watch environment connections the test does not serve.
@@ -235,6 +236,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
   state.projections = {};
   state.visibleTurnItems = [];
   state.marks = {};
+  state.canOperate = true;
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -782,6 +784,26 @@ it("quotes a selection cited inside the panel into the side chat's draft, not th
     ).toEqual([["side-1", "history-assistant", "Done"]]),
   );
   expect(useComposerDraftStore.getState().getComposerDraft(LESSON_REF)).toBeNull();
+});
+
+it("offers a read-only connection no nested side chat to ask", async () => {
+  setup();
+  state.canOperate = false;
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await selectReplyWord(screen, "history-assistant", "Done");
+
+  await expect
+    .element(page.getByRole("button", { name: "Cite selection in composer" }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Ask in side chat" }))
+    .not.toBeInTheDocument();
 });
 
 /** A citation of side-1's own reply, which side-1's loaded history lacks. */

@@ -3287,7 +3287,9 @@ export default function ChatView(props: ChatViewProps) {
                 {...(!paintOnlyDisplayedTimeline
                   ? {
                       onCiteAssistantText: citeAssistantTextStable,
-                      onAskInSideChat: lessonSideChats.onAskInSideChat,
+                      onAskInSideChat: canOperateThread
+                        ? lessonSideChats.onAskInSideChat
+                        : undefined,
                       askInSideChatPending: lessonSideChats.askPending,
                       ...(supportsSideChats ? { onOpenSideChat: openSideChatSurfaceStable } : {}),
                       ...(activeProject ? { onRunShellCommand: runShellCommandStable } : {}),

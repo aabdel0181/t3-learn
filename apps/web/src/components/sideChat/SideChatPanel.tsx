@@ -502,14 +502,17 @@ export function SideChatPanel(props: {
             onCiteAssistantText={(cited, sourceAnchor) =>
               composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false
             }
-            onAskInSideChat={(asked) =>
-              askInSideChat({
-                lessonRef,
-                citation: asked,
-                sideChatShells: treeShells,
-                topThreadId: sideChatSurfaceTopThreadId(surface),
-                run: openSideChat,
-              })
+            onAskInSideChat={
+              canOperate
+                ? (asked) =>
+                    askInSideChat({
+                      lessonRef,
+                      citation: asked,
+                      sideChatShells: treeShells,
+                      topThreadId: sideChatSurfaceTopThreadId(surface),
+                      run: openSideChat,
+                    })
+                : undefined
             }
             onOpenThread={onOpenThread}
             onOpenSideChat={walkInto}
