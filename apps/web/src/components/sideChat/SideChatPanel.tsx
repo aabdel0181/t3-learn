@@ -68,6 +68,7 @@ import { createPageScrollController } from "../chat/pageScrollController";
 import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { ScrollArea } from "../ui/scroll-area";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
@@ -137,6 +138,15 @@ export function SideChatPanel(props: {
           role: "current",
         })
       : sideChatBreadcrumb(rows, surface.threadId, surface.trail);
+
+  const crumbsRef = useRef<HTMLDivElement>(null);
+  const crumbsKey = crumbs.map((crumb) => `${crumb.role}:${crumb.threadId}`).join(" ");
+  useEffect(() => {
+    crumbsRef.current
+      ?.querySelector<HTMLElement>("[aria-current='page']")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new path or current crumb re-renders the crumbs, so the current one scrolls back into view.
+  }, [crumbsKey]);
 
   const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const loadedProviders = useEnvironmentProviders().get(environmentId);
@@ -369,39 +379,35 @@ export function SideChatPanel(props: {
       >
         <header className="flex min-h-9 shrink-0 items-center gap-1 border-b border-border px-2">
           <nav aria-label="Side chat path" className="min-w-0 flex-1">
-            <ol className="flex min-w-0 items-center gap-0.5 text-xs">
-              {crumbs.map((crumb, index) => (
-                <li
-                  key={crumb.threadId}
-                  className={cn(
-                    "flex min-w-0 items-center gap-0.5",
-                    crumb.role !== "current" && "shrink-0",
-                  )}
-                >
-                  {index === 0 ? null : (
-                    <ChevronRightIcon
-                      aria-hidden="true"
-                      className="size-3 shrink-0 text-muted-foreground"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    aria-current={crumb.role === "current" ? "page" : undefined}
-                    className={cn(
-                      "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      crumb.role === "current"
-                        ? "font-medium text-foreground"
-                        : crumb.role === "forward"
-                          ? "text-muted-foreground/70"
-                          : "text-muted-foreground",
+            <ScrollArea ref={crumbsRef} radius="none" hideScrollbars scrollFade>
+              <ol className="flex w-max min-w-full items-center gap-0.5 text-xs">
+                {crumbs.map((crumb, index) => (
+                  <li key={crumb.threadId} className="flex shrink-0 items-center gap-0.5">
+                    {index === 0 ? null : (
+                      <ChevronRightIcon
+                        aria-hidden="true"
+                        className="size-3 shrink-0 text-muted-foreground"
+                      />
                     )}
-                    onClick={() => onCrumb(crumb)}
-                  >
-                    {crumb.label}
-                  </button>
-                </li>
-              ))}
-            </ol>
+                    <button
+                      type="button"
+                      aria-current={crumb.role === "current" ? "page" : undefined}
+                      className={cn(
+                        "block max-w-40 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                        crumb.role === "current"
+                          ? "font-medium text-foreground"
+                          : crumb.role === "forward"
+                            ? "text-muted-foreground/70"
+                            : "text-muted-foreground",
+                      )}
+                      onClick={() => onCrumb(crumb)}
+                    >
+                      {crumb.label}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </ScrollArea>
           </nav>
           {sideChatState === "open" ? (
             <Button
