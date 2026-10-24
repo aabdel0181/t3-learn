@@ -22,7 +22,7 @@ import { readThreadShell } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { usePendingSideChatStore } from "./pendingSideChatStore";
-import { revealSideChat } from "./sideChatNavigation";
+import { focusSideChat } from "./sideChatNavigation";
 import { shouldFinishSideChatOnClose } from "./sideChatPanel.logic";
 import { findOverlappingSideChat, sideChatAnchorFromCitation } from "./sideChatSelection";
 
@@ -57,10 +57,7 @@ export async function openSideChatFromSelection(
   const { lessonRef, citation, topThreadId } = input;
   const existingId = findOverlappingSideChat(input.sideChatShells, citation);
   if (existingId !== null) {
-    revealSideChat(lessonRef, existingId);
-    usePendingSideChatStore
-      .getState()
-      .requestFocus(scopedThreadKey(scopeThreadRef(lessonRef.environmentId, existingId)));
+    focusSideChat(lessonRef, existingId);
     return { _tag: "Reused", threadId: existingId };
   }
 

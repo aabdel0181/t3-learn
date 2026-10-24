@@ -29,7 +29,7 @@ import {
   sideChatMapNodeDescription,
   sideChatMapNodeStatus,
 } from "./SideChatMap.logic";
-import { revealSideChat } from "./sideChatNavigation";
+import { focusSideChat } from "./sideChatNavigation";
 
 // The scroller's p-3, left and right.
 const SCROLLER_PADDING_X = 24;
@@ -217,7 +217,7 @@ export function SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef 
     <SideChatMap
       rows={rows}
       currentThreadId={currentThreadId}
-      onOpenSideChat={(threadId) => revealSideChat(lessonRef, threadId)}
+      onOpenSideChat={(threadId) => focusSideChat(lessonRef, threadId)}
       onFocusLesson={focusLesson}
     />
   );

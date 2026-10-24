@@ -14,6 +14,7 @@ import {
 } from "../../rightPanelStore";
 import { readSideChatTreeShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { usePendingSideChatStore } from "./pendingSideChatStore";
 import { sideChatSurfacePath, topSideChatId } from "./sideChatPanel.logic";
 
 interface SideChatLink {
@@ -37,6 +38,14 @@ export function revealSideChat(
     automatic,
   );
   panels.setMaximized(lessonRef, false);
+}
+
+/** Reveals the side chat and puts the cursor in its composer once its panel shows it. */
+export function focusSideChat(lessonRef: ScopedThreadRef, threadId: ThreadId): void {
+  revealSideChat(lessonRef, threadId);
+  usePendingSideChatStore
+    .getState()
+    .requestFocus(scopedThreadKey(scopeThreadRef(lessonRef.environmentId, threadId)));
 }
 
 /**

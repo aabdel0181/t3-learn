@@ -104,6 +104,7 @@ import type { Thread } from "../../types";
 import { toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
 import { pendingSideChatThreadIds, usePendingSideChatStore } from "./pendingSideChatStore";
+import { SideChatMapSurface } from "./SideChatMap";
 import { SideChatPanel } from "./SideChatPanel";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -378,6 +379,41 @@ it("puts the cursor in the composer when Ask lands on a highlight that already h
 
   await expect.element(composer(screen)).toHaveFocus();
   expect(run).not.toHaveBeenCalled();
+});
+
+/** The lesson's panel showing only its active tab, as the right panel does. */
+function ActiveTab() {
+  const surface = useRightPanelStore((store) => {
+    const panel = selectThreadRightPanelState(store.byThreadKey, LESSON_REF);
+    return panel.surfaces.find((entry) => entry.id === panel.activeSurfaceId);
+  });
+  if (surface?.kind === "thread-map") return <SideChatMapSurface threadRef={LESSON_REF} />;
+  if (surface?.kind !== "side-chat") return null;
+  return (
+    <SideChatPanel
+      key={`${scopedThreadKey(LESSON_REF)}:${surface.id}`}
+      lessonRef={LESSON_REF}
+      surface={surface}
+      visible
+      onFocusLesson={() => {}}
+    />
+  );
+}
+
+it("puts the cursor in the composer of a side chat opened from the Map", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1];
+  useRightPanelStore.getState().open(LESSON_REF, "thread-map");
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  await using screen = await render(<ActiveTab />, { container });
+  const node = screen.getByRole("treeitem", { name: "observation space", exact: true });
+  await expect.element(node).toBeInTheDocument();
+
+  (node.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(composer(screen)).toHaveFocus();
 });
 
 it("keeps the excerpt and the empty conversation between the shell arriving and the detail loading", async () => {
