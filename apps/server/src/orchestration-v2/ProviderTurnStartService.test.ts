@@ -1200,7 +1200,7 @@ effectIt.effect(
             threadId: run.threadId,
             targetRunId: failedRunId,
             fromProviderThreadIds: [],
-            toProviderThreadId: run.providerThreadId,
+            toProviderThreadId: projection.providerThreads.at(-1)!.id,
             coveredRunOrdinals: { from: 1, to: 1 },
             strategy: "manual_context",
             status: "ready",
