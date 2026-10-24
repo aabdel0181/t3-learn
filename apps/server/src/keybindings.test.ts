@@ -321,6 +321,35 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("adding a second shortcut for sideChat.askSelection keeps its default", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const askSelection = (key: string) =>
+        ({ key, command: "sideChat.askSelection", when: "!terminalFocus" }) as const;
+      const persistedAskSelection = Effect.map(
+        readKeybindingsConfig(keybindingsConfigPath),
+        (rules) => rules.filter((entry) => entry.command === "sideChat.askSelection"),
+      );
+      const resolvedAskSelection = Effect.map(keybindings.loadConfigState, (state) =>
+        state.keybindings
+          .filter((entry) => entry.command === "sideChat.askSelection")
+          .map((entry) => entry.shortcut.key),
+      );
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      yield* keybindings.upsertKeybindingRule(askSelection("mod+alt+k"));
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s", "k"]);
+
+      yield* keybindings.upsertKeybindingRule({
+        ...askSelection("mod+alt+s"),
+        replace: askSelection("mod+alt+k"),
+      });
+      assert.deepStrictEqual(yield* persistedAskSelection, []);
+      assert.deepStrictEqual(yield* resolvedAskSelection, ["s"]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("adds a late default to an existing command once", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
