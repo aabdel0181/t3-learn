@@ -164,7 +164,9 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
 
   useEffect(() => {
-    if (target.kind !== "server" || sideChatLessonThreadId === null) return;
+    // A reload starts from the cached shell, which can predate the side chat's deletion,
+    // and the tab the reveal adds would outlive this route.
+    if (target.kind !== "server" || sideChatLessonThreadId === null || !bootstrapComplete) return;
     void openThreadTarget({
       navigate,
       environmentId: target.threadRef.environmentId,
@@ -175,7 +177,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       // Back must not land on the side chat's route again.
       replace: true,
     });
-  }, [navigate, sideChatLessonThreadId, target]);
+  }, [bootstrapComplete, navigate, sideChatLessonThreadId, target]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {

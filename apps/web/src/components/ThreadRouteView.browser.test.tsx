@@ -4,6 +4,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   shells: [] as ReadonlyArray<{ readonly id: string }>,
+  shellStatus: "live" as string,
 }));
 
 vi.mock(import("../state/entities"), async (importOriginal) => ({
@@ -17,7 +18,7 @@ vi.mock(import("../state/entities"), async (importOriginal) => ({
 
 vi.mock(import("../state/shell"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useEnvironmentShellStatus: (() => "live") as never,
+  useEnvironmentShellStatus: (() => state.shellStatus) as never,
 }));
 
 vi.mock(import("./ChatView"), async () => {
@@ -51,6 +52,7 @@ const NESTED_1 = makeSideChatThreadFixture({
 
 function setup() {
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.shellStatus = "live";
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -88,5 +90,25 @@ it("settles a side chat's route on its lesson with the side chat in the panel", 
   expect(
     selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
   ).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+  await expect.element(screen.getByText("Chat view")).not.toBeInTheDocument();
+});
+
+it("waits for the live shell, so a side chat deleted since the cached one stays missing", async () => {
+  setup();
+  // A reload reads the cached shell first, which can predate the side chat's deletion.
+  state.shellStatus = "cached";
+  const target = { kind: "server", threadRef: scopeThreadRef(ENVIRONMENT_ID, SIDE_1.id) } as const;
+  await using screen = await render(<ThreadRouteView target={target} />, {
+    router: "/environment-local/side-1",
+  });
+
+  state.shellStatus = "live";
+  state.shells = [LESSON_SHELL, { ...SIDE_1, deletedAt: "2026-10-22T00:00:01.000Z" }, NESTED_1];
+  await screen.rerender(<ThreadRouteView target={target} />);
+
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
+  ).toEqual([]);
+  expect(screen.router?.state.location.pathname).toBe("/environment-local/side-1");
   await expect.element(screen.getByText("Chat view")).not.toBeInTheDocument();
 });
