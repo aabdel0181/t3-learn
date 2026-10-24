@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
+import { usePendingSideChatStore } from "./sideChat/pendingSideChatStore";
 import { openThreadTarget } from "./sideChat/sideChatNavigation";
 import { SidebarInset } from "./ui/sidebar";
 import {
@@ -167,6 +168,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     // A reload starts from the cached shell, which can predate the side chat's deletion,
     // and the tab the reveal adds would outlive this route.
     if (target.kind !== "server" || sideChatLessonThreadId === null || !bootstrapComplete) return;
+    usePendingSideChatStore.getState().requestFocus(scopedThreadKey(target.threadRef));
     void openThreadTarget({
       navigate,
       environmentId: target.threadRef.environmentId,

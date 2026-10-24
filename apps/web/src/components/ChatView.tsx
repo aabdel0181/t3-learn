@@ -2089,6 +2089,8 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
+      // A side chat opened together with the lesson, by its URL, has taken the cursor.
+      if (document.activeElement?.closest("[data-side-chat-panel]")) return;
       focusComposerStable();
     });
     return () => {

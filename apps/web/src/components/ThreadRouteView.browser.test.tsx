@@ -1,4 +1,4 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
@@ -29,6 +29,7 @@ vi.mock(import("./ChatView"), async () => {
 import { render } from "../../test/render";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { makeSideChatThreadFixture, makeThreadFixture } from "../test-fixtures";
+import { usePendingSideChatStore } from "./sideChat/pendingSideChatStore";
 import { ThreadRouteView } from "./ThreadRouteView";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -59,6 +60,7 @@ function setup() {
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
   });
+  usePendingSideChatStore.setState({ byThreadKey: {}, focusThreadKey: null });
 }
 
 it("renders a lesson's own route as its chat view", async () => {
@@ -90,6 +92,10 @@ it("settles a side chat's route on its lesson with the side chat in the panel", 
   expect(
     selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
   ).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+  // Like every other way into a side chat, its composer takes the cursor once the panel shows it.
+  expect(usePendingSideChatStore.getState().focusThreadKey).toBe(
+    scopedThreadKey(scopeThreadRef(ENVIRONMENT_ID, NESTED_1.id)),
+  );
   await expect.element(screen.getByText("Chat view")).not.toBeInTheDocument();
 });
 
