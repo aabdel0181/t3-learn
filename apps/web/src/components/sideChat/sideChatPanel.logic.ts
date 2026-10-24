@@ -120,17 +120,28 @@ export function sideChatStatusLine(
 
 const SIDE_CHAT_PROVIDER_UNAVAILABLE =
   "This side chat's provider is unavailable. Enable it in Settings → Providers.";
+const SIDE_CHAT_PROVIDER_MISSING =
+  "This side chat's provider instance is no longer available on this device.";
 
 export function sideChatComposerStatus(input: {
   readonly shellExists: boolean;
   readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
   readonly runActive: boolean;
-  /** Send is blocked on the side chat's own provider, with the provider list loaded. */
-  readonly providerUnavailable: boolean;
-}): "Starting side chat…" | "Preparing context…" | typeof SIDE_CHAT_PROVIDER_UNAVAILABLE | null {
+  /**
+   * Why Send is blocked on the side chat's own provider, with the provider list loaded:
+   * its instance was removed, or it is off or not ready.
+   */
+  readonly providerUnavailable: "missing" | "unavailable" | null;
+}):
+  | "Starting side chat…"
+  | "Preparing context…"
+  | typeof SIDE_CHAT_PROVIDER_UNAVAILABLE
+  | typeof SIDE_CHAT_PROVIDER_MISSING
+  | null {
   if (!input.shellExists) return "Starting side chat…";
   if (input.openingStatus === "pending" && input.runActive) return "Preparing context…";
-  if (input.providerUnavailable) return SIDE_CHAT_PROVIDER_UNAVAILABLE;
+  if (input.providerUnavailable === "missing") return SIDE_CHAT_PROVIDER_MISSING;
+  if (input.providerUnavailable === "unavailable") return SIDE_CHAT_PROVIDER_UNAVAILABLE;
   return null;
 }
 
