@@ -28,6 +28,9 @@ const state = vi.hoisted(() => ({
   shells: [] as ReadonlyArray<{ readonly id: string }>,
   projections: {} as Record<string, unknown>,
   visibleTurnItems: [] as ReadonlyArray<unknown>,
+  /** Keyed by `${threadId}:${messageId}`. */
+  marks: {} as Record<string, ReadonlyArray<unknown>>,
+  noMarks: [] as ReadonlyArray<unknown>,
   dispatch: (async () => undefined) as (...args: never) => Promise<unknown>,
 }));
 
@@ -54,6 +57,10 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
   }) as never,
   useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
+  useSideChatMarks: ((ref: { threadId: string } | null, messageId: string) =>
+    ref === null
+      ? state.noMarks
+      : (state.marks[`${ref.threadId}:${messageId}`] ?? state.noMarks)) as never,
 }));
 
 vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) => ({
@@ -226,6 +233,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
   state.shells = [LESSON_SHELL];
   state.projections = {};
   state.visibleTurnItems = [];
+  state.marks = {};
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -418,6 +426,39 @@ it("puts the cursor in the composer of a side chat opened from the Map", async (
   (node.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
 
+  await expect.element(composer(screen)).toHaveFocus();
+});
+
+it("puts the cursor in the composer of a nested side chat opened from its mark in the panel", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  state.visibleTurnItems = makeStreamingTimelineFixture()
+    .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  // The whole reply "Done" is the highlight Box was asked about.
+  state.marks = {
+    "side-1:history-assistant": [
+      {
+        threadId: NESTED_1.id,
+        label: "Box",
+        state: "open",
+        anchor: {
+          threadId: SIDE_1.id,
+          messageId: MessageId.make("history-assistant"),
+          start: 0,
+          end: 4,
+          prefix: "",
+          suffix: "",
+        },
+      },
+    ],
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await screen.getByRole("button", { name: "Open side chat “Box”" }).click();
+
+  await expect.element(crumb(screen, "Box")).toHaveAttribute("aria-current", "page");
   await expect.element(composer(screen)).toHaveFocus();
 });
 

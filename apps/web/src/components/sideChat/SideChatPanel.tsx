@@ -283,6 +283,15 @@ export function SideChatPanel(props: {
         sideChatSurfacePath(rows, surface.threadId),
       );
 
+  // The tag or link that opened a nested side chat goes away with the walk and leaves
+  // focus nowhere, so the side chat's composer takes it. A crumb stays and keeps it.
+  const walkInto = (threadId: ThreadId) => {
+    walkTo(threadId);
+    usePendingSideChatStore
+      .getState()
+      .requestFocus(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
+  };
+
   const onCrumb = (crumb: SideChatCrumb) => {
     if (crumb.role === "lesson") {
       props.onFocusLesson();
@@ -315,7 +324,7 @@ export function SideChatPanel(props: {
   const onOpenThread = (threadId: ThreadId) => {
     const top = topSideChatId(rows, threadId);
     if (top === sideChatSurfaceTopThreadId(surface)) {
-      walkTo(threadId);
+      walkInto(threadId);
       return;
     }
     // A side chat under another top-level one opens in that side chat's own tab.
@@ -493,7 +502,7 @@ export function SideChatPanel(props: {
               })
             }
             onOpenThread={onOpenThread}
-            onOpenSideChat={walkTo}
+            onOpenSideChat={walkInto}
             workspaceRoot={workspaceRoot}
           />
         </div>
