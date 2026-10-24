@@ -358,7 +358,7 @@ export function pullRequestSurface(target: {
 
 export type SideChatSurface = Extract<RightPanelSurface, { kind: "side-chat" }>;
 
-export function sideChatSurfaceId(topThreadId: string): SideChatSurface["id"] {
+function sideChatSurfaceId(topThreadId: string): SideChatSurface["id"] {
   return `side-chat:${topThreadId}`;
 }
 

@@ -148,12 +148,12 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 
 /** Text generation runs beside a thread's critical work, serialized among itself. */
-export const TEXT_GENERATION_LANE_EFFECT_TYPES = [
+const TEXT_GENERATION_LANE_EFFECT_TYPES = [
   "thread-title.generate",
   "side-chat.opening",
   "side-chat.outcome",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
-export const TEXT_GENERATION_LANE_MAX_CONCURRENCY = 2;
+const TEXT_GENERATION_LANE_MAX_CONCURRENCY = 2;
 
 export const PROCESS_BOUND_EFFECT_TYPES = [
   "provider-turn.start",
