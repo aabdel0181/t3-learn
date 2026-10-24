@@ -33,7 +33,7 @@ const NO_MARKS: ReadonlyArray<SideChatMark> = [];
 /**
  * Paints `marks` in `source` and reports where each tag goes, relative to `layer`.
  * Shiki, math and mermaid rewrite the reply after it mounts, which paints the marks
- * again. Opening a panel only reflows it: the painted ranges are live, so only the
+ * again. Opening a panel only reflows it: the painted ranges still hold, so only the
  * tags move. Either happens at most once a frame.
  */
 function observeSideChatMarks(input: {
@@ -44,7 +44,9 @@ function observeSideChatMarks(input: {
 }): () => void {
   const { layer, source, marks, onLayout } = input;
   const highlight = acquireNamedHighlight(SIDE_CHAT_MARK_HIGHLIGHT_NAME);
-  let painted: Array<{ readonly mark: SideChatMark; readonly range: Range }> = [];
+  // Static, because the timeline's list reorders rows by moving their DOM, which collapses
+  // a live range without any mutation inside `source` to repaint on.
+  let painted: Array<{ readonly mark: SideChatMark; readonly range: StaticRange }> = [];
   let unresolved: SideChatMark[] = [];
   let stale = true;
   let frame: number | null = null;
@@ -65,10 +67,12 @@ function observeSideChatMarks(input: {
         unresolved.push(mark);
         return;
       }
-      highlight.add(range);
-      painted.push({ mark, range });
+      const fixed = new StaticRange(range);
+      highlight.add(fixed);
+      painted.push({ mark, range: fixed });
     });
   };
+  const measured = source.ownerDocument.createRange();
   const layout = () => {
     frame = null;
     if (stale) {
@@ -78,7 +82,9 @@ function observeSideChatMarks(input: {
     const origin = layer.getBoundingClientRect();
     const tags: SideChatMarkTag[] = [];
     for (const { mark, range } of painted) {
-      const rects = range.getClientRects();
+      measured.setStart(range.startContainer, range.startOffset);
+      measured.setEnd(range.endContainer, range.endOffset);
+      const rects = measured.getClientRects();
       const end = rects.item(rects.length - 1);
       if (end === null) continue;
       tags.push({

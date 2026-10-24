@@ -3,8 +3,8 @@
  * share. The registry entry is made by the first range and goes with the last.
  */
 export function acquireNamedHighlight(name: string): {
-  readonly add: (range: Range) => void;
-  readonly remove: (range: Range) => void;
+  readonly add: (range: AbstractRange) => void;
+  readonly remove: (range: AbstractRange) => void;
 } {
   const registry =
     typeof CSS !== "undefined" && typeof Highlight !== "undefined" ? CSS.highlights : undefined;

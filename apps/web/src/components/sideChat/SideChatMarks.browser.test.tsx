@@ -60,7 +60,14 @@ function Row(props: {
 
 function highlightedText(): ReadonlyArray<string> {
   const highlight = CSS.highlights.get(SIDE_CHAT_MARK_HIGHLIGHT_NAME);
-  return highlight === undefined ? [] : [...highlight].map((range) => String(range as Range));
+  return highlight === undefined
+    ? []
+    : [...highlight].map((range) => {
+        const text = document.createRange();
+        text.setStart(range.startContainer, range.startOffset);
+        text.setEnd(range.endContainer, range.endOffset);
+        return text.toString();
+      });
 }
 
 it("paints anchored side chats, opens them from their tag or the fallback chip, and survives a re-render", async () => {
@@ -142,4 +149,17 @@ it("gives marks that end on the same line one tag that lists them", async () => 
   await userEvent.keyboard("{Escape}");
   await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   await expect.element(tag).toHaveFocus();
+});
+
+it("keeps painting a mark when the list moves its row in the DOM", async () => {
+  await using screen = await render(
+    <Row onOpen={vi.fn()} text="An observation space is what the agent can see." />,
+  );
+  await vi.waitFor(() => expect(highlightedText()).toEqual(["observation space"]));
+
+  // The timeline's list reorders its rows by moving their DOM, as when a new turn lands.
+  const row = screen.container.firstElementChild!;
+  screen.container.moveBefore(row, null);
+
+  expect(highlightedText()).toEqual(["observation space"]);
 });
