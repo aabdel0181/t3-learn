@@ -32,8 +32,11 @@ const BOX_QUESTION = "What is a Box?";
 const SPACE_NOTE = "They had not met observation spaces before.";
 const BOX_NOTE = "They did not know that a Box has bounds.";
 const BOX_BOUNDS_NOTE = "Did not know Box bounds.";
+const SHAPING = "reward shaping";
+const SHAPING_NOTE = "They thought shaping changes the goal.";
 const spaceLine = `• re "observation space": ${SPACE_NOTE}`;
 const boxLine = `• re "Box": ${BOX_BOUNDS_NOTE}`;
+const shapingLine = `• re "reward shaping": ${SHAPING_NOTE}`;
 
 const headerCount = (prompt: string): number => prompt.split(SIDE_CHAT_NOTES_HEADER).length - 1;
 
@@ -321,23 +324,28 @@ describe("side-chat notes", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("a side-chat message finishes its idle nested side chats and carries their note", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-side-chat");
-      yield* Effect.gen(function* () {
-        const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
-        harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
+  it.effect(
+    "a side-chat message finishes its idle nested side chats and carries their note, which its own note takes on",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-side-chat");
+        yield* Effect.gen(function* () {
+          const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
+          harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
 
-        yield* harness.send(space, "Back to observation spaces.");
+          yield* harness.send(space, "Back to observation spaces.");
 
-        assert.equal((yield* harness.thread(box)).sideChat?.done?.outcome.status, "ready");
-        assert.include(harness.prompts(space).at(-1), boxLine);
-        assert.isNull((yield* harness.thread(space)).sideChat?.done);
-        for (const prompt of harness.prompts(lesson)) {
-          assert.notInclude(prompt, SIDE_CHAT_NOTES_HEADER);
-        }
-      }).pipe(Effect.provide(harness.layer));
-    }).pipe(Effect.scoped),
+          assert.equal((yield* harness.thread(box)).sideChat?.done?.outcome.status, "ready");
+          assert.include(harness.prompts(space).at(-1), boxLine);
+          assert.isNull((yield* harness.thread(space)).sideChat?.done);
+          for (const prompt of harness.prompts(lesson)) {
+            assert.notInclude(prompt, SIDE_CHAT_NOTES_HEADER);
+          }
+
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
   );
 
   it.effect(
@@ -414,19 +422,86 @@ describe("side-chat notes", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("a lesson message deletes side chats nobody wrote in", () =>
+  it.effect(
+    "opening a side chat under a done one reopens it and the done side chats above it, so the new note reaches the lesson",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-open-under-done");
+        yield* Effect.gen(function* () {
+          const { lesson, space, box } = yield* lessonWithNestedSideChats(harness);
+          // Done on `observation space` finishes `Box` below it too.
+          yield* finishWithNote(harness, space, SPACE, { text: SPACE_NOTE }, "ready");
+
+          const shaping = yield* harness.openSideChat({ parentThreadId: box, label: SHAPING });
+
+          assert.isNull((yield* harness.thread(box)).sideChat?.done);
+          assert.isNull((yield* harness.thread(space)).sideChat?.done);
+
+          const after = yield* harness.mark;
+          const question = yield* harness.send(shaping, "[hold] What is reward shaping?");
+          yield* harness.send(lesson, "Continue the lesson.");
+          assert.isNull((yield* harness.thread(box)).sideChat?.done);
+          assert.isNull((yield* harness.thread(space)).sideChat?.done);
+
+          yield* harness.finishHeldTurn(shaping);
+          yield* harness.awaitRun(after, question, "completed");
+          harness.scriptNote(SHAPING, { text: SHAPING_NOTE });
+          harness.scriptNote(BOX, { text: BOX_BOUNDS_NOTE });
+          harness.scriptNote(SPACE, { text: SPACE_NOTE });
+          yield* harness.send(lesson, "Next step.");
+
+          assert.include(harness.outcomeInputFor(BOX), shapingLine);
+          assert.include(harness.outcomeInputFor(SPACE), boxLine);
+          assert.include(harness.prompts(lesson).at(-1), spaceLine);
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("a message in a side chat reopens the done side chats above it", () =>
     Effect.gen(function* () {
-      const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-empty");
+      const harness = yield* makeSideChatHarness("side-chat-notes-message-under-done");
       yield* Effect.gen(function* () {
-        const orchestrator = yield* Orchestrator.OrchestratorV2;
         const lesson = yield* harness.createLesson("Teach me RL environments.");
         const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
-
+        yield* harness.send(space, SPACE_QUESTION);
+        const box = yield* harness.openSideChat({ parentThreadId: space, label: BOX });
+        // Nobody has written in `Box` yet, so the lesson message finishes only its parent.
         yield* harness.send(lesson, "Continue the lesson.");
 
-        assert.isNull(yield* orchestrator.getThreadShell(space));
+        yield* harness.send(box, BOX_QUESTION);
+
+        assert.isNull((yield* harness.thread(space)).sideChat?.done);
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "a lesson message leaves side chats nobody wrote in open, without holding their parent open",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeSideChatHarness("side-chat-notes-auto-done-empty");
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const lesson = yield* harness.createLesson("Teach me RL environments.");
+          const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+          yield* harness.send(space, SPACE_QUESTION);
+          const box = yield* harness.openSideChat({ parentThreadId: space, label: BOX });
+          const shaping = yield* harness.openSideChat({
+            parentThreadId: lesson,
+            label: "reward shaping",
+          });
+
+          yield* harness.send(lesson, "Continue the lesson.");
+
+          const state = (threadId: ThreadId) =>
+            orchestrator
+              .getThreadShell(threadId)
+              .pipe(Effect.map((shell) => shell?.sideChat?.state));
+          assert.equal(yield* state(shaping), "open");
+          assert.equal(yield* state(box), "open");
+          assert.equal(yield* state(space), "done");
+        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.scoped),
   );
 
   it.effect(

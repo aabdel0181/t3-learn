@@ -1,9 +1,4 @@
-import {
-  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
-  SIDE_CHAT_NOTES_HANDOFF_TITLE,
-  type OrchestrationV2Subagent,
-  type OrchestrationV2TurnItem,
-} from "@t3tools/contracts";
+import type { OrchestrationV2Subagent } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 const ACTIVE_SUBAGENT_STATUSES = new Set<OrchestrationV2Subagent["status"]>([
@@ -29,18 +24,4 @@ export function subagentResumedSince(
   return (
     !Number.isNaN(notifiedAtMillis) && DateTime.toEpochMillis(agent.startedAt) > notifiedAtMillis
   );
-}
-
-const SIDE_CHAT_HANDOFF_TITLES: ReadonlySet<string> = new Set([
-  SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
-  SIDE_CHAT_NOTES_HANDOFF_TITLE,
-]);
-
-/**
- * The divider label for a handoff that carries side chat text, or null for any other item. Side
- * chats reuse the `manual_context` handoff; the title tells them apart from a provider switch.
- */
-export function sideChatHandoffDividerLabel(item: OrchestrationV2TurnItem): string | null {
-  if (item.type !== "handoff" || item.strategy !== "manual_context") return null;
-  return item.title !== null && SIDE_CHAT_HANDOFF_TITLES.has(item.title) ? item.title : null;
 }

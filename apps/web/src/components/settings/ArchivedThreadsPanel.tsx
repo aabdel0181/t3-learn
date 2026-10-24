@@ -4,6 +4,7 @@ import { ArchiveIcon, ArchiveX } from "lucide-react";
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { listedArchivedThreads } from "@t3tools/client-runtime/state/threads";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -55,7 +56,7 @@ export function ArchivedThreadsPanel() {
       }),
     );
     const threads = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads.map((thread) => ({
+      listedArchivedThreads(snapshot.threads).map((thread) => ({
         ...presentThreadShell(environmentId, thread),
         environmentLabel: environmentLabels.get(environmentId) ?? environmentId,
       })),

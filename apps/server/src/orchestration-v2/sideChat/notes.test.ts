@@ -129,6 +129,37 @@ describe("buildSideChatOutcomeInput", () => {
     );
   });
 
+  it("lists the nested notes the side chat's turns took once each, beside the undelivered ones", () => {
+    const handoff = (summaryText: string) =>
+      ({ strategy: "manual_context", history: undefined, summaryText }) as const;
+    const result = buildSideChatOutcomeInput({
+      excerpt: "observation space",
+      messages,
+      childNotes: [
+        { label: "Box", note: "Did not know Box bounds." },
+        { label: "reward", note: "Thought rewards are always positive." },
+      ],
+      contextHandoffs: [
+        handoff("Opening context: the learner asked about observation spaces."),
+        handoff(
+          buildSideChatNotesSummaryText([
+            { label: "Box", note: "Did not know Box bounds." },
+            { label: "Discrete", note: "Mixed up Discrete and Box." },
+          ]),
+        ),
+      ],
+      previousNote: null,
+    });
+
+    expect(result.split("\n").slice(-4)).toEqual([
+      "Notes from nested side chats (not yet sent to the lesson):",
+      '• re "Box": Did not know Box bounds.',
+      '• re "Discrete": Mixed up Discrete and Box.',
+      '• re "reward": Thought rewards are always positive.',
+    ]);
+    expect(result).not.toContain("Opening context");
+  });
+
   it("omits the child-note and previous-note sections when there is nothing to put in them", () => {
     const result = buildSideChatOutcomeInput({
       excerpt: "observation space",

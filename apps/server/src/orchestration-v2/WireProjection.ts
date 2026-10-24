@@ -1,8 +1,9 @@
-import type {
-  OrchestrationV2DomainEvent,
-  OrchestrationV2ContextHandoff,
-  OrchestrationV2ThreadProjection,
-  OrchestrationV2TurnItem,
+import {
+  sideChatHandoffTitle,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2ContextHandoff,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
 import {
   compactDynamicToolOutput,
@@ -199,6 +200,11 @@ export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): Orchest
           item.result === null ? null : (truncateDetail(item.result, MAX_ON_DEMAND_BYTES) ?? null),
       };
     case "handoff":
+      // A side chat's divider shows the user what the AI was given; other handoffs copy whole
+      // transcripts that never leave the server.
+      return sideChatHandoffTitle(item) !== null && item.summary !== undefined
+        ? { ...item, summary: truncateDetail(item.summary, MAX_ON_DEMAND_BYTES) ?? "" }
+        : projectTurnItemForWire(item);
     case "file_change":
       return projectTurnItemForWire(item);
     default:

@@ -706,4 +706,38 @@ describe("side chat cascade", () => {
       assert.isNull(yield* orchestrator.getThreadShell(box));
     }).pipe(Effect.provide(openHarness())),
   );
+
+  it.effect("refuses to unarchive a side chat while its lesson is archived", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      yield* createLesson();
+      yield* seedSideChatThread({
+        threadId: SIDE_CHAT_THREAD_ID,
+        anchorThreadId: LESSON_THREAD_ID,
+        sideChat: pendingSideChat({
+          anchor: observationAnchor(),
+          excerpt: OBSERVATION_EXCERPT,
+          requestId: OPEN_REQUEST_ID,
+        }),
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:side-chat:archive-lesson"),
+        threadId: LESSON_THREAD_ID,
+      });
+      yield* worker.drain();
+
+      const error = yield* orchestrator
+        .dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.make("command:side-chat:unarchive-side-chat"),
+          threadId: SIDE_CHAT_THREAD_ID,
+        })
+        .pipe(Effect.flip);
+
+      assert.equal(error._tag, "OrchestratorDispatchError");
+      assert.isNotNull((yield* readThread(SIDE_CHAT_THREAD_ID)).archivedAt);
+    }).pipe(Effect.provide(openHarness())),
+  );
 });

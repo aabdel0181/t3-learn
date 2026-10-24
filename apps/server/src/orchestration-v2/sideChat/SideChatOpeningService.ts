@@ -65,7 +65,7 @@ const make = Effect.gen(function* () {
       kind: "opening_summary",
       prompt: buildSideChatSummarizerInput({
         messages,
-        anchorMessageId: anchor.messageId,
+        anchor,
         excerpt: sideChat.excerpt,
         anchorOpeningText: anchorRecords.thread.sideChat?.opening.text ?? null,
       }),

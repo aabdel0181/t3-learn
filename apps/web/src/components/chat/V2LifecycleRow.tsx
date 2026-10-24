@@ -17,8 +17,10 @@ import {
   type HandoffTimelineRun,
 } from "@t3tools/client-runtime/handoff";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
+import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import {
   ProviderDriverKind,
+  sideChatHandoffTitle,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
   type OrchestrationV2Subagent,
@@ -53,7 +55,7 @@ import { getTriggerDisplayModelName } from "./providerIconUtils";
 import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
-import { sideChatHandoffDividerLabel, subagentResumedSince } from "./V2LifecycleRow.logic";
+import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
 import { SideChatContextDivider } from "../sideChat/SideChatContextDivider";
@@ -131,9 +133,17 @@ export function V2LifecycleRow(props: {
     );
   }
   if (item.type === "handoff") {
-    const sideChatLabel = sideChatHandoffDividerLabel(item);
+    const sideChatLabel = sideChatHandoffTitle(item);
     if (sideChatLabel !== null) {
-      return <SideChatContextDivider label={sideChatLabel} summary={item.summary ?? ""} />;
+      return (
+        <SideChatContextDivider
+          label={sideChatLabel}
+          environmentId={props.environmentId}
+          threadId={item.threadId}
+          itemId={item.id}
+          revision={turnItemDetailRevision(item)}
+        />
+      );
     }
     return (
       <EnvironmentHandoffRow

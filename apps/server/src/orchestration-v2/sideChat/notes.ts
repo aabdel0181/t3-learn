@@ -128,15 +128,26 @@ export function buildSideChatOutcomeInput(input: {
   readonly excerpt: string;
   readonly messages: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly text: string }>;
   readonly childNotes: ReadonlyArray<SideChatNoteEntry>;
+  /**
+   * The side chat's own context handoffs. Nested notes its turns took reached only its AI, so they
+   * still go up with its note.
+   */
+  readonly contextHandoffs?: ReadonlyArray<
+    Pick<OrchestrationV2ContextHandoff, "strategy" | "history" | "summaryText">
+  >;
   readonly previousNote: string | null;
   readonly budgetChars?: number;
 }): string {
   const budget = input.budgetChars ?? SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS;
+  const childNoteLines = new Set([
+    ...(input.contextHandoffs ?? [])
+      .filter(isSideChatNotesHandoff)
+      .flatMap((handoff) => handoff.summaryText.split("\n").slice(1)),
+    ...input.childNotes.map(noteLine),
+  ]);
   const before = [SIDE_CHAT_OUTCOME_EXCERPT_HEADER, input.excerpt, "", TRANSCRIPT_HEADER];
   const after = [
-    ...(input.childNotes.length === 0
-      ? []
-      : ["", CHILD_NOTES_HEADER, ...input.childNotes.map(noteLine)]),
+    ...(childNoteLines.size === 0 ? [] : ["", CHILD_NOTES_HEADER, ...childNoteLines]),
     ...(input.previousNote === null ? [] : ["", PREVIOUS_NOTE_HEADER, input.previousNote]),
   ];
   const transcript = fitTranscript(

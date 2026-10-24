@@ -97,9 +97,26 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
 
 // An official server rejects unknown commands in keybindings.json and then stops syncing
 // defaults; fork-only defaults apply through mergeWithDefaultKeybindings instead.
+const isMemoryOnlyDefault = (rule: KeybindingRule) => rule.command.startsWith("sideChat.");
 const DISK_SYNCED_DEFAULT_KEYBINDINGS = DEFAULT_KEYBINDINGS.filter(
-  (rule) => !rule.command.startsWith("sideChat."),
+  (rule) => !isMemoryOnlyDefault(rule),
 );
+const MEMORY_ONLY_DEFAULT_KEYBINDINGS = DEFAULT_KEYBINDINGS.filter(isMemoryOnlyDefault);
+
+/**
+ * Keeps fork-only defaults off disk when a write would store one, as a Reset to default does.
+ * Dropping one that is its command's only entry changes nothing, because
+ * mergeWithDefaultKeybindings restores it; beside another entry for the command it is a choice
+ * the user made and stays.
+ */
+function withoutMemoryOnlyDefaults(rules: readonly KeybindingRule[]): readonly KeybindingRule[] {
+  return rules.filter(
+    (rule) =>
+      !MEMORY_ONLY_DEFAULT_KEYBINDINGS.some((defaultRule) =>
+        isSameKeybindingRule(rule, defaultRule),
+      ) || rules.some((other) => other !== rule && other.command === rule.command),
+  );
+}
 
 const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly id: string;
@@ -415,8 +432,10 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /** Writes `rules` without fork-only defaults and returns what it wrote. */
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
-    return encodeKeybindingsConfigPrettyJson(rules).pipe(
+    const written = withoutMemoryOnlyDefaults(rules);
+    return encodeKeybindingsConfigPrettyJson(written).pipe(
       Effect.map((encoded) => `${encoded}\n`),
       Effect.flatMap((encoded) =>
         writeFileStringAtomically({
@@ -427,6 +446,7 @@ const make = Effect.gen(function* () {
           Effect.provideService(Path.Path, path),
         ),
       ),
+      Effect.as(written),
       Effect.mapError(
         (cause) =>
           new KeybindingsConfigError({
@@ -682,9 +702,9 @@ const make = Effect.gen(function* () {
               maxEntries: MAX_KEYBINDINGS_COUNT,
             });
           }
-          yield* writeConfigAtomically(cappedConfig);
+          const written = yield* writeConfigAtomically(cappedConfig);
           const nextResolved = mergeWithDefaultKeybindings(
-            compileResolvedKeybindingsConfig(cappedConfig),
+            compileResolvedKeybindingsConfig(written),
           );
           yield* Cache.set(resolvedConfigCache, resolvedConfigCacheKey, {
             keybindings: nextResolved,
@@ -703,9 +723,9 @@ const make = Effect.gen(function* () {
           const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const target = keybindingRuleFromRemoveInput(input);
           const nextConfig = customConfig.filter((entry) => !isSameKeybindingRule(entry, target));
-          yield* writeConfigAtomically(nextConfig);
+          const written = yield* writeConfigAtomically(nextConfig);
           const nextResolved = mergeWithDefaultKeybindings(
-            compileResolvedKeybindingsConfig(nextConfig),
+            compileResolvedKeybindingsConfig(written),
           );
           yield* Cache.set(resolvedConfigCache, resolvedConfigCacheKey, {
             keybindings: nextResolved,
