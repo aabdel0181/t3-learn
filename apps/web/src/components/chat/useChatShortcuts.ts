@@ -17,6 +17,12 @@ import {
 } from "./composerFocusRedirect";
 import { composerShortcutCommands } from "./composerShortcuts";
 
+const LESSON_ONLY_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "modelPicker.toggle",
+  "thread.steerQueuedMessage",
+  "chat.find",
+]);
+
 /** Runs a command. Returning false lets the key event through untouched. */
 export type ChatShortcutHandler = (context: {
   readonly event: KeyboardEvent;
@@ -79,9 +85,11 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       context: shortcutContext,
     });
     if (!command) return;
-    // The side chat has its own composer, so the lesson's composer chords stay out of its panel.
+    // The side chat has its own composer, so the lesson's composer chords stay out of its
+    // panel. A side chat never queues, so steering there can't mean the lesson's queue, and
+    // the lesson's find bar can't search the panel, so the browser's find gets the key.
     if (
-      (command === "modelPicker.toggle" || command.startsWith("composer.")) &&
+      (LESSON_ONLY_COMMANDS.has(command) || command.startsWith("composer.")) &&
       eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR)
     ) {
       return;
