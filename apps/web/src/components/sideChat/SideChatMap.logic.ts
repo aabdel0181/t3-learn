@@ -4,7 +4,7 @@ import type { ThreadId } from "@t3tools/contracts";
 import type { SideChatTreeLayoutOptions } from "../../lib/sideChatTreeLayout";
 
 export const SIDE_CHAT_MAP_LAYOUT: SideChatTreeLayoutOptions = {
-  nodeWidth: 112,
+  nodeWidth: 168,
   nodeHeight: 26,
   gapX: 8,
   gapY: 48,
