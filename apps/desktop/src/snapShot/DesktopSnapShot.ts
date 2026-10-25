@@ -744,6 +744,8 @@ function probeGlobalShortcut(accelerator: string): DesktopSnapShotShortcutAvaila
 
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  // Privacy & Security lists the app bundle, which keeps its T3 Code name under the T3 Learn display name.
+  const macAppName = `T3 Code (${environment.branding.stageLabel})`;
   const permissions = yield* MacPermissions.MacPermissions;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
@@ -1381,7 +1383,7 @@ export const make = Effect.gen(function* () {
                 reason: "setup-failed",
                 step: "find-window",
                 ...macCommandFailure(cause),
-                appName: environment.displayName,
+                appName: macAppName,
                 cause,
               }),
           });
@@ -1405,7 +1407,7 @@ export const make = Effect.gen(function* () {
                 reason: "setup-failed",
                 step: "capture-window",
                 ...macCommandFailure(cause),
-                appName: environment.displayName,
+                appName: macAppName,
                 cause,
               }),
           });

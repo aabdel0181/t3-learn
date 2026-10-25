@@ -492,7 +492,8 @@ const layerTest = (
           DesktopEnvironment.DesktopEnvironment,
           DesktopEnvironment.DesktopEnvironment.of({
             platform,
-            displayName: "T3 Code (Dev)",
+            branding: { baseName: "T3 Learn", stageLabel: "Dev", displayName: "T3 Learn (Dev)" },
+            displayName: "T3 Learn (Dev)",
             stateDir: "/state",
             linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
             appRoot: "/repo",
