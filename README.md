@@ -1,3 +1,15 @@
+# T3 Learn
+
+T3 Learn is a fork of [T3 Code](https://github.com/pingdotgg/t3code) for learning with AI.
+
+When a reply uses something you don't know yet, highlight it and choose **Ask in side chat** (⌥⌘S on a Mac, Ctrl+Alt+S elsewhere). A side chat opens next to the lesson. It sees your highlight and a short summary of the lesson, and nothing you say in it lands in the lesson. Side chats nest, so you can follow a question as deep as it goes, and the Map shows where you are. Press **Done** to climb back out: the AI writes a short note, and your next lesson message carries it so the lesson picks up where you left off.
+
+T3 Learn stays compatible with T3 Code. The `t3` CLI, the mobile app and T3 Connect work as they do upstream.
+
+---
+
+_The rest of this README is upstream T3 Code's._
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
