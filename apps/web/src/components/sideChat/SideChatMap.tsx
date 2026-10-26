@@ -70,7 +70,7 @@ export function SideChatMap(props: {
   useEffect(() => {
     treeRef.current
       ?.querySelector(nodeSelector(currentThreadId))
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
+      ?.scrollIntoView({ block: "center", inline: "nearest" });
   }, [currentThreadId]);
 
   return (
@@ -86,7 +86,8 @@ export function SideChatMap(props: {
           Fit
         </Toggle>
       </div>
-      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-auto p-3">
+      {/* Fit scales by the scroller's width, so a vertical scrollbar must not change it, or a tall map rescales every frame. */}
+      <div ref={scrollerRef} className="scrollbar-gutter-stable min-h-0 flex-1 overflow-auto p-3">
         <div
           className="relative"
           style={{ width: layout.width * scale, height: layout.height * scale }}

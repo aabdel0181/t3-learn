@@ -41,30 +41,30 @@ function keyTarget(from: string, key: string): string | null {
 
 describe("resolveSideChatMapKeyTarget", () => {
   it("moves to the parent, the first child and the neighbouring siblings", () => {
-    expect(keyTarget("a", "ArrowUp")).toBe("lesson");
-    expect(keyTarget("a", "ArrowDown")).toBe("a1");
-    expect(keyTarget("a", "ArrowRight")).toBe("b");
-    expect(keyTarget("b", "ArrowLeft")).toBe("a");
-    expect(keyTarget("c", "ArrowLeft")).toBe("b");
+    expect(keyTarget("a", "ArrowLeft")).toBe("lesson");
+    expect(keyTarget("a", "ArrowRight")).toBe("a1");
+    expect(keyTarget("a", "ArrowDown")).toBe("b");
+    expect(keyTarget("b", "ArrowUp")).toBe("a");
+    expect(keyTarget("c", "ArrowUp")).toBe("b");
   });
 
   it("stops at the edges instead of wrapping", () => {
-    expect(keyTarget("a", "ArrowLeft")).toBeNull();
-    expect(keyTarget("c", "ArrowRight")).toBeNull();
-    expect(keyTarget("lesson", "ArrowUp")).toBeNull();
-    expect(keyTarget("lesson", "ArrowRight")).toBeNull();
-    expect(keyTarget("a1", "ArrowRight")).toBeNull();
+    expect(keyTarget("a", "ArrowUp")).toBeNull();
+    expect(keyTarget("c", "ArrowDown")).toBeNull();
+    expect(keyTarget("lesson", "ArrowLeft")).toBeNull();
+    expect(keyTarget("lesson", "ArrowDown")).toBeNull();
     expect(keyTarget("a1", "ArrowDown")).toBeNull();
+    expect(keyTarget("a1", "ArrowRight")).toBeNull();
   });
 
   it("goes from the lesson to its first side chat", () => {
-    expect(keyTarget("lesson", "ArrowDown")).toBe("a");
+    expect(keyTarget("lesson", "ArrowRight")).toBe("a");
   });
 
   it("ignores other keys and threads that are not in the map", () => {
     expect(keyTarget("a", "Enter")).toBeNull();
     expect(keyTarget("a", "Tab")).toBeNull();
-    expect(keyTarget("gone", "ArrowDown")).toBeNull();
+    expect(keyTarget("gone", "ArrowRight")).toBeNull();
   });
 });
 

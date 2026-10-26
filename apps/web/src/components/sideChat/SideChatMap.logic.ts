@@ -6,13 +6,15 @@ import type { SideChatTreeLayoutOptions } from "../../lib/sideChatTreeLayout";
 export const SIDE_CHAT_MAP_LAYOUT: SideChatTreeLayoutOptions = {
   nodeWidth: 168,
   nodeHeight: 26,
-  gapX: 8,
-  gapY: 48,
+  gapX: 32,
+  gapY: 8,
 };
 
 /**
- * Where an arrow key moves focus in the map. `rows` are in preorder, so a
- * parent's children appear in sibling order and the first one is the first child.
+ * Where an arrow key moves focus in the map, which grows left to right: Left to
+ * the parent, Right to the first child, Up and Down between siblings. `rows` are
+ * in preorder, so a parent's children appear in sibling order and the first one
+ * is the first child.
  */
 export function resolveSideChatMapKeyTarget(
   rows: ReadonlyArray<SideChatTreeRow>,
@@ -23,14 +25,14 @@ export function resolveSideChatMapKeyTarget(
   if (from === undefined) return null;
 
   switch (key) {
-    case "ArrowUp":
-      return rows.find((row) => row.threadId === from.parentId)?.threadId ?? null;
-    case "ArrowDown":
-      return rows.find((row) => row.parentId === from.threadId)?.threadId ?? null;
     case "ArrowLeft":
-    case "ArrowRight": {
+      return rows.find((row) => row.threadId === from.parentId)?.threadId ?? null;
+    case "ArrowRight":
+      return rows.find((row) => row.parentId === from.threadId)?.threadId ?? null;
+    case "ArrowUp":
+    case "ArrowDown": {
       const siblings = rows.filter((row) => row.parentId === from.parentId);
-      const step = key === "ArrowLeft" ? -1 : 1;
+      const step = key === "ArrowUp" ? -1 : 1;
       return siblings[siblings.indexOf(from) + step]?.threadId ?? null;
     }
     default:

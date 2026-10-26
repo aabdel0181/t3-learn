@@ -39,6 +39,7 @@ function timelineProps(fixture: ReturnType<typeof makeStreamingTimelineFixture>)
     sideChatRef,
     detailRef: sideChatRef,
     projection: null,
+    label: "Box",
     detailLoading: false,
     optimisticMessages: [],
     listRef: createRef<LegendListRef | null>(),
