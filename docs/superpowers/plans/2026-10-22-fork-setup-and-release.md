@@ -34,6 +34,7 @@ sqlite3 CLI, GitHub Actions (`ubuntu-latest`, `macos-latest`), electron-builder 
 `AGENTS.md` (upstream `22840ab9`).
 
 **Global constraints**
+
 - Never modify `/tmp/t3recon/t3code`. It is a read-only reference.
 - Agent shells carry `T3CODE_HOME=/home/quokka/.t3`, `T3_BOOT_SERVICE_UNIT=t3code.service` and
   `T3_SERVICE_LAUNCHER_CONTEXT`, because the live T3 Code service spawned them. Therefore:
@@ -67,6 +68,7 @@ sqlite3 CLI, GitHub Actions (`ubuntu-latest`, `macos-latest`), electron-builder 
   must print nothing.
 
 **Review focus**
+
 - Part A: the old history survives (`backup/pre-fork-main`, docs commits re-applied). `main` is
   exactly `22840ab9` plus docs. The dev server's `baseDir` is inside the worktree. GitHub Actions
   stay off for the whole fork until Task 13, so pushing `main` (whose `ci.yml` triggers on
@@ -84,14 +86,14 @@ sqlite3 CLI, GitHub Actions (`ubuntu-latest`, `macos-latest`), electron-builder 
 
 **Fixed values used below**
 
-| Name | Value |
-|---|---|
-| Fork | `aabdel0181/t3code`. Confirm in Task 1: the spec says `aaawonzo/t3code`, but GitHub has no account `aaawonzo` (HTTP 404 on 2026-10-22). `gh` is logged in as `aabdel0181`, and `aaawonzo` is only the local git `user.name`. |
-| Main checkout (`$MAIN`) | `/home/quokka/.t3/projects/t3-sidechat` |
-| Dev worktree (`$DEV`) | `/home/quokka/.t3/projects/t3-sidechat-dev` |
-| Upstream baseline | `22840ab943b8418744b48223411e46ba4fdcef1a` (`fix(deps): pin all patched package versions (#23798)`) |
-| Base nightly | `v0.1.2-nightly.20261022.3541` (newest nightly tag that is an ancestor of the baseline) |
-| Live service today | `~/.config/systemd/user/t3code.service`, `ExecStart=/home/quokka/.t3/runtime/versions/0.0.46-nightly.20261015.3145/t3 __service-launcher`, `~/.t3/runtime/service-state.json` `activeVersion` `0.0.46-nightly.20261015.3145` |
+| Name                    | Value                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fork                    | `aabdel0181/t3-learn`. Confirm in Task 1: the spec says `aaawonzo/t3code`, but GitHub has no account `aaawonzo` (HTTP 404 on 2026-10-22). `gh` is logged in as `aabdel0181`, and `aaawonzo` is only the local git `user.name`. |
+| Main checkout (`$MAIN`) | `/home/quokka/.t3/projects/t3-sidechat`                                                                                                                                                                                        |
+| Dev worktree (`$DEV`)   | `/home/quokka/.t3/projects/t3-sidechat-dev`                                                                                                                                                                                    |
+| Upstream baseline       | `22840ab943b8418744b48223411e46ba4fdcef1a` (`fix(deps): pin all patched package versions (#23798)`)                                                                                                                            |
+| Base nightly            | `v0.1.2-nightly.20261022.3541` (newest nightly tag that is an ancestor of the baseline)                                                                                                                                        |
+| Live service today      | `~/.config/systemd/user/t3code.service`, `ExecStart=/home/quokka/.t3/runtime/versions/0.0.46-nightly.20261015.3145/t3 __service-launcher`, `~/.t3/runtime/service-state.json` `activeVersion` `0.0.46-nightly.20261015.3145`   |
 
 Shell state does not persist between tool calls. Every step repeats its `cd`, or uses absolute
 paths.
@@ -105,8 +107,9 @@ paths.
 **Files:** none (GitHub state only)
 
 **Interfaces:**
+
 - Consumes: `gh` authenticated on this machine
-- Produces: repository `aabdel0181/t3code` (fork of `pingdotgg/t3code`, default branch `main`), with
+- Produces: repository `aabdel0181/t3-learn` (fork of `pingdotgg/t3code`, default branch `main`), with
   GitHub Actions turned off for the whole repository (`actions/permissions` `enabled: false`) until
   Task 13 turns them on with only `fork-release.yml` enabled
 
@@ -130,29 +133,31 @@ CI on Blacksmith runners the fork cannot use. Actions must therefore be off befo
 Run: `gh api user --jq .login; gh api users/aaawonzo --jq .login`
 Expected: `aabdel0181`, then `gh: Not Found (HTTP 404)`.
 Ask med: "The spec names aaawonzo/t3code, but GitHub has no aaawonzo account and gh is logged in as
-aabdel0181. Fork to aabdel0181/t3code?" Continue only after he confirms. If he names another owner,
+aabdel0181. Fork to aabdel0181/t3-learn?" Continue only after he confirms. If he names another owner,
 replace `aabdel0181` throughout this plan: the commands, the default URL in
 `scripts/fork-service-switch.sh`, and the README text.
 
 - [ ] **Step 2: Fork without cloning**
 
 Run: `gh repo fork pingdotgg/t3code --clone=false --default-branch-only`
-Expected: `aabdel0181/t3code already exists` (the fork was made on 2026-10-17). Only on a brand-new
-fork does it print `✓ Created fork aabdel0181/t3code`.
+Expected: `aabdel0181/t3-learn already exists` (the fork was made on 2026-10-17). Only on a brand-new
+fork does it print `✓ Created fork aabdel0181/t3-learn`.
 
 - [ ] **Step 3: Verify the fork**
 
-Run: `gh api repos/aabdel0181/t3code --jq '"\(.fork) \(.parent.full_name) \(.default_branch)"'`
+Run: `gh api repos/aabdel0181/t3-learn --jq '"\(.fork) \(.parent.full_name) \(.default_branch)"'`
 Expected: `true pingdotgg/t3code main`
 
 - [ ] **Step 4: Turn Actions off for the whole repository (before anything is pushed)**
 
 Run:
+
 ```bash
-gh api repos/aabdel0181/t3code/actions/workflows --jq .total_count
-gh api -X PUT repos/aabdel0181/t3code/actions/permissions -F enabled=false
-gh api repos/aabdel0181/t3code/actions/permissions --jq .enabled
+gh api repos/aabdel0181/t3-learn/actions/workflows --jq .total_count
+gh api -X PUT repos/aabdel0181/t3-learn/actions/permissions -F enabled=false
+gh api repos/aabdel0181/t3-learn/actions/permissions --jq .enabled
 ```
+
 Expected: `0` (no workflow is registered yet, so a workflow-state check here would check nothing),
 then no output from the `PUT`, then `false`. Task 2 Step 5 checks after the push that no run was
 queued, and Task 13 Step 2 turns Actions on with only `fork-release.yml` enabled.
@@ -160,32 +165,38 @@ queued, and Task 13 Step 2 turns Actions on with only `fork-release.yml` enabled
 ### Task 2: Turn the local repository into the fork checkout
 
 **Files:**
+
 - Commit (untracked today): `docs/superpowers/plans/*.md`
 - No source edits
 
 **Interfaces:**
+
 - Consumes: the fork from Task 1
 - Produces: `$MAIN` on branch `main`, which is `22840ab9` plus the `docs/superpowers` commits;
-  remote `origin` = `https://github.com/aabdel0181/t3code.git`; remote `upstream` =
+  remote `origin` = `https://github.com/aabdel0181/t3-learn.git`; remote `upstream` =
   `https://github.com/pingdotgg/t3code.git`, tracking `main` only, with tags fetched; branch
   `backup/pre-fork-main` = the old history
 
 - [ ] **Step 1: Commit the plans on the old history**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
 git status --porcelain
 git worktree list
 ```
+
 Expected: only `?? docs/superpowers/plans/`, and one worktree line (the main checkout). Stop and ask
 med if there is anything else.
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
 git add docs/superpowers/plans
 git commit -m "docs: side chat implementation plans" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git status --porcelain
 ```
+
 Expected: the commit succeeds, and `git status --porcelain` prints nothing.
 
 - [ ] **Step 2: Keep the old history**
@@ -197,20 +208,23 @@ Expected: 5 lines. The first is `<sha> docs: side chat implementation plans` and
 - [ ] **Step 3: Add remotes and fetch**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
 git remote add -t main upstream https://github.com/pingdotgg/t3code.git
-git remote add origin https://github.com/aabdel0181/t3code.git
+git remote add origin https://github.com/aabdel0181/t3-learn.git
 git fetch upstream --tags
 git fetch origin
 git merge-base --is-ancestor 22840ab943b8418744b48223411e46ba4fdcef1a upstream/main && echo base-ok
 git describe --tags --abbrev=0 --match 'v*-nightly.*' 22840ab943b8418744b48223411e46ba4fdcef1a
 ```
+
 Expected: `base-ok`, then `v0.1.2-nightly.20261022.3541`.
 
 - [ ] **Step 4: Rebuild `main` on the baseline and re-apply the docs commits**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
 docs_commits="$(git rev-list --reverse "$(git rev-list --max-parents=0 backup/pre-fork-main)"..backup/pre-fork-main)"
@@ -221,6 +235,7 @@ git log --oneline -5
 git ls-files docs/superpowers
 test -f AGENTS.md && test -f t3.json && echo upstream-tree
 ```
+
 Expected: `4` (9966afb, 34f83ef, 21c3e59 and the plans commit). The cherry-picks apply without
 conflicts, because upstream has no `docs/superpowers`. The log shows the 4 docs commits above
 `22840ab9 fix(deps): pin all patched package versions (#23798)`. `ls-files` lists both specs and
@@ -234,20 +249,24 @@ The fork's `main` (`51f7382`, 2026-10-17) is an ancestor of the baseline (GitHub
 guards against someone having pushed to the fork in the meantime.
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
-test "$(gh api repos/aabdel0181/t3code/actions/permissions --jq .enabled)" = false && echo actions-off
+test "$(gh api repos/aabdel0181/t3-learn/actions/permissions --jq .enabled)" = false && echo actions-off
 git push --force-with-lease=main:"$(git rev-parse origin/main)" -u origin main
-test "$(git rev-parse main)" = "$(gh api repos/aabdel0181/t3code/commits/main --jq .sha)" && echo pushed
+test "$(git rev-parse main)" = "$(gh api repos/aabdel0181/t3-learn/commits/main --jq .sha)" && echo pushed
 ```
+
 Expected: `actions-off` (if not, do Task 1 Step 4 first and do not push), then
 `51f7382..<sha>  main -> main` (a fast-forward, no `(forced update)`), then `pushed`.
 
 Then check that the push queued nothing:
+
 ```bash
-gh api repos/aabdel0181/t3code/actions/permissions --jq .enabled
-gh run list -R aabdel0181/t3code --limit 5 --json databaseId --jq length
+gh api repos/aabdel0181/t3-learn/actions/permissions --jq .enabled
+gh run list -R aabdel0181/t3-learn --limit 5 --json databaseId --jq length
 ```
+
 Expected: `false`, then `0`.
 
 ### Task 3: Install the toolchain
@@ -255,6 +274,7 @@ Expected: `false`, then `0`.
 **Files:** none in the repo. The vp installer edits med's shell profile.
 
 **Interfaces:**
+
 - Produces: `vp` on `PATH` in login shells; Node 26.12.1 under vp; the `sqlite3` CLI
 
 - [ ] **Step 1: (med) Install vp, after med agrees**
@@ -298,9 +318,11 @@ is built in CI (Task 10), so skip it here. If med later wants desktop dev on Ubu
 ### Task 4: Create the dev worktree, install dependencies and Playwright, and turn telemetry off
 
 **Files:**
+
 - Create: `/home/quokka/.t3/projects/t3-sidechat/.env` (gitignored; `.gitignore` has `.env`)
 
 **Interfaces:**
+
 - Consumes: Tasks 2 and 3
 - Produces: `$DEV` = linked worktree at `/home/quokka/.t3/projects/t3-sidechat-dev`, detached at
   `origin/main`, with dependencies installed and `.env` linked to `$MAIN/.env`
@@ -310,11 +332,13 @@ is built in CI (Task 10), so skip it here. If med later wants desktop dev on Ubu
 - [ ] **Step 1: Confirm the telemetry switch in code**
 
 Run:
+
 ```bash
 cd /tmp/t3recon/t3code
 grep -n 'T3CODE_TELEMETRY_ENABLED' apps/server/src/telemetry/AnalyticsService.ts
 grep -n 'loadRepoEnv()' scripts/dev-runner.ts
 ```
+
 Expected: `81:  enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),`
 (telemetry is on unless this is set), and `26:Object.assign(process.env, loadRepoEnv());` (the dev
 runner loads the repository `.env`, `scripts/lib/public-config.ts:26-40`).
@@ -322,21 +346,25 @@ runner loads the repository `.env`, `scripts/lib/public-config.ts:26-40`).
 - [ ] **Step 2: Turn telemetry off for dev**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat
 printf 'T3CODE_TELEMETRY_ENABLED=false\n' >> .env
 git check-ignore .env && cat .env
 ```
+
 Expected: `.env`, then `T3CODE_TELEMETRY_ENABLED=false`. Keep T3 Connect keys out of this file.
 Release builds get them from `.env.example` (Task 10).
 
 - [ ] **Step 3: Add the linked worktree next to the checkout**
 
 Run:
+
 ```bash
 git -C /home/quokka/.t3/projects/t3-sidechat worktree add --detach /home/quokka/.t3/projects/t3-sidechat-dev origin/main
 git -C /home/quokka/.t3/projects/t3-sidechat worktree list
 ```
+
 Expected: `Preparing worktree (detached HEAD <sha>)`, then two lines: the main checkout `[main]` and
 `t3-sidechat-dev (detached HEAD)`.
 
@@ -351,6 +379,7 @@ fix the cause before going on.
 - [ ] **Step 5: Install Playwright Chromium (the CI commands)**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 node apps/web/node_modules/playwright/cli.js install --only-shell chromium
@@ -358,6 +387,7 @@ node apps/server/node_modules/playwright-core/cli.js install --only-shell chromi
 browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
 test -n "$browser" && { ldd "$browser" | grep '=> not found' || echo libs-ok; }
 ```
+
 Expected: download lines (or "is already installed"), then `libs-ok`. If a library is missing,
 **(med)** runs
 `cd /home/quokka/.t3/projects/t3-sidechat-dev && sudo "$(command -v node)" apps/web/node_modules/playwright/cli.js install-deps chromium`
@@ -377,6 +407,7 @@ Expected: `ambient T3CODE_HOME=/home/quokka/.t3`, then
 `.t3/dev-first-run.pid` (all gitignored).
 
 **Interfaces:**
+
 - Produces: `$DEV/.t3/userdata/statev2.sqlite`, a recent copy of med's projects and stopped threads
   (made by `apps/server/scripts/migrate-dev-db.ts`, which drops scheduled tasks, pending work and
   auth sessions)
@@ -384,11 +415,13 @@ Expected: `ambient T3CODE_HOME=/home/quokka/.t3`, then
 - [ ] **Step 1: Start the dev server in its own process group**
 
 Run in one foreground tool call:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 (setsid vp run dev > .t3/dev-first-run.log 2>&1 < /dev/null & echo $! > .t3/dev-first-run.pid)
 ps -o pid=,pgid=,sid= -p "$(cat .t3/dev-first-run.pid)"
 ```
+
 Expected: three equal numbers. The captured PID leads its own process group, so Step 4 can stop
 exactly what was started.
 
@@ -402,6 +435,7 @@ Expected: `up`. On timeout, read `.t3/dev-first-run.log` and go to Step 4.
 - [ ] **Step 3: Verify the seed, the isolation and the telemetry setting**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 grep -o '\[dev-runner\] seeding [^ ]* from [^ ]*' .t3/dev-first-run.log
@@ -411,6 +445,7 @@ tr '\0' '\n' < "/proc/$pid/environ" | grep -E '^T3CODE_(HOME|TELEMETRY_ENABLED)=
 origin=$(sed -n 's/.*"origin":"\([^"]*\)".*/\1/p' .t3/userdata/server-runtime.json)
 curl -fsS "$origin/.well-known/t3/environment" | grep -o '"serverVersion":"[^"]*"'
 ```
+
 Expected:
 `[dev-runner] seeding /home/quokka/.t3/projects/t3-sidechat-dev/.t3 from /home/quokka/.t3/userdata/statev2.sqlite`.
 Then a positive thread count, then `T3CODE_HOME=/home/quokka/.t3/projects/t3-sidechat-dev/.t3` and
@@ -419,6 +454,7 @@ Then a positive thread count, then `T3CODE_HOME=/home/quokka/.t3/projects/t3-sid
 - [ ] **Step 4: Stop exactly what you started**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 port=$(sed -n 's/.*"port":\([0-9]*\).*/\1/p' .t3/userdata/server-runtime.json)
@@ -427,6 +463,7 @@ kill -TERM -- "-$pgid"
 timeout 60 bash -c "while kill -0 -- -$pgid 2>/dev/null; do sleep 1; done" && echo stopped
 ss -H -ltn "sport = :$port" | wc -l
 ```
+
 Expected: `stopped`, then `0`.
 
 ### Task 6: Prove the toolchain with focused upstream tests
@@ -434,6 +471,7 @@ Expected: `stopped`, then `0`.
 **Files:** none
 
 **Interfaces:**
+
 - Consumes: Tasks 3 to 5
 - Produces: evidence that the Node, browser and scripts test projects, typecheck and lint all run
   in `$DEV`
@@ -470,12 +508,14 @@ Part A is done. The citation-fix and side-chat plans run next in `$DEV`.
 ## Part B: release (do last, after side chats merge into fork `main`)
 
 Branch for all of Part B. Run this once, before Task 7:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 git fetch --multiple --tags origin upstream
 git grep -q 'isSideChatThread' origin/main -- packages/contracts/src/orchestrationV2.ts && echo side-chats-merged
 git switch -c fork/release origin/main
 ```
+
 Expected: `side-chats-merged`, then `Switched to a new branch 'fork/release'`. `git fetch` needs
 `--multiple` to fetch two remotes; without it `upstream` is read as a refspec on `origin`
 (`fatal: couldn't find remote ref upstream`). The check looks for the feature's code, not a commit
@@ -486,6 +526,7 @@ side-chat PR merges.
 ### Task 7: Fork-build flag; desktop auto-updater off
 
 **Files:**
+
 - Create: `packages/shared/src/forkBuild.ts`
 - Modify: `packages/shared/package.json` (add the `"./forkBuild"` export next to `"./cliRelease"`, about line 418)
 - Modify: `apps/desktop/src/app/DesktopConfig.ts:36-64` (add the `forkBuild` field)
@@ -494,6 +535,7 @@ side-chat PR merges.
 - Test: `apps/desktop/src/updates/DesktopUpdates.test.ts` (next to "keeps the disabled reason available after configuration and channel changes")
 
 **Interfaces:**
+
 - Produces (`@t3tools/shared/forkBuild`):
   - `isForkBuildBundle(): boolean`: true only in bundles built with `__T3CODE_FORK_BUILD__`
   - `ForkBuildConfig: Config.Config<boolean>`: env `T3CODE_FORK_BUILD`, defaulting to `isForkBuildBundle()`
@@ -504,25 +546,25 @@ side-chat PR merges.
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-  it.effect("never checks for updates in a fork build", () => {
-    const harness = makeHarness({ env: { T3CODE_FORK_BUILD: "true" } });
-    const reason = "Automatic updates are off in this fork build. Rebuild the fork to update.";
+it.effect("never checks for updates in a fork build", () => {
+  const harness = makeHarness({ env: { T3CODE_FORK_BUILD: "true" } });
+  const reason = "Automatic updates are off in this fork build. Rebuild the fork to update.";
 
-    return Effect.scoped(
-      Effect.gen(function* () {
-        const updates = yield* DesktopUpdates.DesktopUpdates;
-        yield* updates.configure;
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const updates = yield* DesktopUpdates.DesktopUpdates;
+      yield* updates.configure;
 
-        const configured = yield* updates.getState;
-        assert.equal(configured.status, "disabled");
-        assert.equal(configured.message, reason);
+      const configured = yield* updates.getState;
+      assert.equal(configured.status, "disabled");
+      assert.equal(configured.message, reason);
 
-        const result = yield* updates.check("menu");
-        assert.equal(result.checked, false);
-        assert.equal(harness.checkCount(), 0);
-      }),
-    ).pipe(Effect.provide(harness.layer));
-  });
+      const result = yield* updates.check("menu");
+      assert.equal(result.checked, false);
+      assert.equal(harness.checkCount(), 0);
+    }),
+  ).pipe(Effect.provide(harness.layer));
+});
 ```
 
 - [ ] **Step 2: Run the test to verify that it fails**
@@ -534,6 +576,7 @@ Expected: FAIL with `expected 'idle' to equal 'disabled'`. The harness has mock 
 
 `packages/shared/src/forkBuild.ts`. The text is fixed, because three packages and three build
 configs depend on the define name:
+
 ```ts
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -558,6 +601,7 @@ export const readForkBuild: Effect.Effect<boolean> = ForkBuildConfig.pipe(
   Effect.orElseSucceed(isForkBuildBundle),
 );
 ```
+
 - `packages/shared/package.json`: add `"./forkBuild": { "types": "./src/forkBuild.ts", "import": "./src/forkBuild.ts" }`.
 - `DesktopConfig.ts`: after `disableAutoUpdate`, add `forkBuild: ForkBuildConfig,` (import from `@t3tools/shared/forkBuild`).
 - `DesktopUpdates.ts`: add `forkBuild: boolean;` to the `getAutoUpdateDisabledReason` args. Make it
@@ -587,12 +631,14 @@ git commit -m "feat(desktop): fork builds never auto-update" -m "Co-Authored-By:
 ### Task 8: Server: no self-update in fork builds
 
 **Files:**
+
 - Modify: `apps/server/src/cloud/selfUpdate.ts:46-52` (`resolveServerSelfUpdateCapability`), `:218-240` (`make`: `capability` and the start of `update`)
 - Modify: `apps/server/src/environment/ServerEnvironment.ts:195-199`
 - Modify: `apps/server/vite.config.ts:114-117` (`pack.define`, which covers both `dist` and `dist-exe`)
 - Test: `apps/server/src/cloud/selfUpdate.test.ts`, `apps/server/src/environment/ServerEnvironment.test.ts`
 
 **Interfaces:**
+
 - Consumes: `readForkBuild` (Task 7)
 - Produces: `resolveServerSelfUpdateCapability(input: { readonly desktopManaged: boolean; readonly launcherManaged: boolean; readonly forkBuild: boolean }): ServerSelfUpdateCapability | null`,
   which returns `null` when `forkBuild` is set. A fork server advertises no `serverSelfUpdate`,
@@ -606,49 +652,54 @@ git commit -m "feat(desktop): fork builds never auto-update" -m "Co-Authored-By:
 In `makeHarness`, add this as the last item in the `ServerSelfUpdate.make().pipe(...)` chain:
 `Effect.provide(options.env === undefined ? Layer.empty : ConfigProvider.layer(ConfigProvider.fromEnv({ env: options.env })))`.
 Then add:
+
 ```ts
-  it.effect("refuses every update in a fork build before staging", () =>
-    Effect.gen(function* () {
-      const { selfUpdate, order } = yield* makeHarness({ env: { T3CODE_FORK_BUILD: "true" } });
-      const error = yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
-      expect(error.reason).toBe(
-        "This server runs a fork build of T3 Code, which does not update itself. Rebuild the fork to update it.",
-      );
-      expect(order).toEqual([]);
-    }),
-  );
+it.effect("refuses every update in a fork build before staging", () =>
+  Effect.gen(function* () {
+    const { selfUpdate, order } = yield* makeHarness({ env: { T3CODE_FORK_BUILD: "true" } });
+    const error = yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
+    expect(error.reason).toBe(
+      "This server runs a fork build of T3 Code, which does not update itself. Rebuild the fork to update it.",
+    );
+    expect(order).toEqual([]);
+  }),
+);
 ```
+
 `ServerEnvironment.test.ts` (import `* as ConfigProvider from "effect/ConfigProvider"`). It mirrors
 "publishes proven install ownership only for manually updated servers", in desktop mode, where an
 official build would report `"desktop-managed"`:
+
 ```ts
-  it.effect("advertises no self-update in a fork build", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const baseDir = yield* fs.makeTempDirectoryScoped();
-      const config = yield* makeServerConfig(baseDir);
-      yield* fs.makeDirectory(config.stateDir, { recursive: true });
-      const descriptor = yield* Effect.gen(function* () {
-        const environment = yield* ServerEnvironment.ServerEnvironment;
-        return yield* environment.getDescriptor;
-      }).pipe(
-        Effect.provide(
-          ServerEnvironment.layer.pipe(
-            Layer.provide(layerEmptySecretStore),
-            Layer.provide(ServerConfig.layer({ ...config, mode: "desktop" })),
-          ),
+it.effect("advertises no self-update in a fork build", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const baseDir = yield* fs.makeTempDirectoryScoped();
+    const config = yield* makeServerConfig(baseDir);
+    yield* fs.makeDirectory(config.stateDir, { recursive: true });
+    const descriptor = yield* Effect.gen(function* () {
+      const environment = yield* ServerEnvironment.ServerEnvironment;
+      return yield* environment.getDescriptor;
+    }).pipe(
+      Effect.provide(
+        ServerEnvironment.layer.pipe(
+          Layer.provide(layerEmptySecretStore),
+          Layer.provide(ServerConfig.layer({ ...config, mode: "desktop" })),
         ),
-        Effect.provideService(HostProcess.Arguments, ["node", `${baseDir}/missing/bin.mjs`]),
-        Effect.provideService(HostProcess.IsExecutable, false),
-        Effect.provideService(HostProcess.Platform, "linux"),
-        Effect.provideService(HostProcess.Environment, {}),
-        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_FORK_BUILD: "true" } }))),
-      );
-      expect(descriptor.capabilities.serverSelfUpdate).toBeUndefined();
-      expect(descriptor.capabilities.serverSelfUpdateProgress).toBeUndefined();
-      expect(descriptor.capabilities.desktopAppUpdate).toBeUndefined();
-    }),
-  );
+      ),
+      Effect.provideService(HostProcess.Arguments, ["node", `${baseDir}/missing/bin.mjs`]),
+      Effect.provideService(HostProcess.IsExecutable, false),
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Environment, {}),
+      Effect.provide(
+        ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_FORK_BUILD: "true" } })),
+      ),
+    );
+    expect(descriptor.capabilities.serverSelfUpdate).toBeUndefined();
+    expect(descriptor.capabilities.serverSelfUpdateProgress).toBeUndefined();
+    expect(descriptor.capabilities.desktopAppUpdate).toBeUndefined();
+  }),
+);
 ```
 
 - [ ] **Step 2: Run the tests to verify that they fail**
@@ -687,12 +738,14 @@ git commit -m "feat(server): fork builds refuse self-update" -m "Co-Authored-By:
 ### Task 9: Web: "Update everything" leaves servers alone in fork builds
 
 **Files:**
+
 - Modify: `apps/web/src/versionSkew.ts:86-90` (`resolveServerSelfUpdateCapability`, the one choke point for the update banner, Connections settings and "Update everything")
 - Modify: `apps/web/src/components/sidebar/updateEverything.logic.ts:69-72, 98`
 - Modify: `apps/web/vite.config.ts:232-255` (`define`)
 - Test: `apps/web/src/components/sidebar/updateEverything.logic.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isForkBuildBundle` (Task 7)
 - Produces: `resolveServerSelfUpdateCapability(serverConfig, forkBuild = isForkBuildBundle()): ServerSelfUpdateCapability | null`
   and `collectServerUpdateTargets(machines, targetVersion, forkBuild = isForkBuildBundle())`.
@@ -701,22 +754,22 @@ git commit -m "feat(server): fork builds refuse self-update" -m "Co-Authored-By:
 - [ ] **Step 1: Write the failing test** (in `describe("collectServerUpdateTargets")`, reusing `machine()`)
 
 ```ts
-  it("leaves every server alone in a fork build", () => {
-    const { targets, skipped } = collectServerUpdateTargets(
-      [
-        machine("service", "0.0.40", "boot-service"),
-        machine("other-desktop", "0.0.40", "desktop-managed"),
-      ],
-      "0.0.50",
-      true,
-    );
+it("leaves every server alone in a fork build", () => {
+  const { targets, skipped } = collectServerUpdateTargets(
+    [
+      machine("service", "0.0.40", "boot-service"),
+      machine("other-desktop", "0.0.40", "desktop-managed"),
+    ],
+    "0.0.50",
+    true,
+  );
 
-    expect(targets).toEqual([]);
-    expect(skipped.map((entry) => [entry.label, entry.reason])).toEqual([
-      ["service", "needs a manual update"],
-      ["other-desktop", "needs a manual update"],
-    ]);
-  });
+  expect(targets).toEqual([]);
+  expect(skipped.map((entry) => [entry.label, entry.reason])).toEqual([
+    ["service", "needs a manual update"],
+    ["other-desktop", "needs a manual update"],
+  ]);
+});
 ```
 
 - [ ] **Step 2: Run the test to verify that it fails**
@@ -751,10 +804,12 @@ git commit -m "feat(web): fork builds skip server updates" -m "Co-Authored-By: C
 ### Task 10: Fork release workflow and version script
 
 **Files:**
+
 - Create: `scripts/fork-version.sh` (executable)
 - Create: `.github/workflows/fork-release.yml`
 
 **Interfaces:**
+
 - Produces: `scripts/fork-version.sh [<ref>]`, which prints `<base nightly>.fork.<n>`, for example
   `0.1.2-nightly.20261022.3541.fork.9`. `<n>` counts the fork's commits since the merge base with
   `upstream/main`. The version sorts after the nightly it contains and before the next one (checked
@@ -781,6 +836,7 @@ base="$(git merge-base "$ref" upstream/main)"
 nightly="$(git describe --tags --abbrev=0 --match 'v*-nightly.*' "$base")"
 printf '%s.fork.%s\n' "${nightly#v}" "$(git rev-list --count "$base..$ref")"
 ```
+
 Then run `chmod +x scripts/fork-version.sh`.
 
 - [ ] **Step 2: Verify its output**
@@ -798,6 +854,7 @@ The commands mirror `.github/workflows/release-desktop.yml` and
 sets `CSC_IDENTITY_AUTO_DISCOVERY=false` and drops them. Copying `.env.example` supplies the public
 T3 Connect identifiers that official builds carry. med's server uses the T3 Connect relay, and
 without them the fork would lose that link.
+
 ```yaml
 name: Fork release
 
@@ -979,6 +1036,7 @@ jobs:
           gh release create "v$VERSION" assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
           --title "T3 Code fork $VERSION" --generate-notes
 ```
+
 The release tag `v…-nightly.….fork.N` matches upstream `release.yml`'s exclusion `!v*-nightly.*`,
 so it can never trigger an official release. The generated notes (merged PR titles) are the
 changelog entry the PRD asks for.
@@ -986,10 +1044,12 @@ changelog entry the PRD asks for.
 - [ ] **Step 4: Validate the YAML and the formatting**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev/packages/shared && node -e 'const y=require("yaml");const d=y.parse(require("fs").readFileSync("../../.github/workflows/fork-release.yml","utf8"));console.log(Object.keys(d.jobs).join(","))'
 cd /home/quokka/.t3/projects/t3-sidechat-dev && vp fmt --check .github/workflows/fork-release.yml scripts/fork-version.sh --no-error-on-unmatched-pattern
 ```
+
 Expected: `check,server_linux_x64,desktop_mac_arm64,release`, and no formatting diff (run `vp fmt` on
 the files if there is one).
 
@@ -1003,12 +1063,14 @@ git commit -m "ci: fork release builds the Mac app and the Linux server runtime"
 ### Task 11: `scripts/fork-service-switch.sh` and its test
 
 **Files:**
+
 - Create: `scripts/fork-service-switch.sh` (executable)
 - Test: `scripts/fork-service-switch.test.ts`. Mirror `scripts/build-npm-launcher.test.ts`:
   `it.layer(NodeServices.layer)`, the `collect` and `run` helpers (`:22-46`, `extendEnv: false`),
   and the `acquireRelease` HTTP server (`:80-92`).
 
 **Interfaces:**
+
 - Consumes: the release layout from Task 10. The runtime layout from `pinnedRuntime.ts:49-66`:
   `runtime/versions/<v>/t3` plus a `.install-complete` file containing `<v>`.
   `t3 service install --base-dir` (`apps/server/src/cli/service.ts:122-139`), which rewrites the
@@ -1030,7 +1092,7 @@ git commit -m "ci: fork release builds the Mac app and the Linux server runtime"
   and `fork-service-switch.sh --to-official [<version>] [--dry-run] [--health-timeout <s>]`.
   Exit codes: 0 ok, 1 error, 2 usage, 3 busy (threads, or for `--to-official` side-chat effects
   still pending or running). The test hook `T3_FORK_RELEASE_BASE_URL` overrides the default
-  `https://github.com/aabdel0181/t3code/releases/download`.
+  `https://github.com/aabdel0181/t3-learn/releases/download`.
 
 Why not only rewrite `ExecStart`: the service launcher spawns
 `runtime/versions/<activeVersion>/t3 serve`, with `activeVersion` read from
@@ -1046,6 +1108,7 @@ the old official runtimes. That is why `--to-official` downloads a current offic
 Build the fixtures and helpers below, then the eight tests. Wrap everything in
 `it.layer(NodeServices.layer)("fork-service-switch", (it) => { … })`, and give each test
 `it.effect.skipIf(HostProcess.Platform.defaultValue() !== "linux")` (systemd only).
+
 ```ts
 // @effect-diagnostics nodeBuiltinImport:off - Serves a fake fork release and a fake server over real HTTP to the switch script.
 const OFFICIAL = "0.1.2-nightly.20261022.3541";
@@ -1090,7 +1153,9 @@ INSERT INTO orchestration_v2_effect_outbox VALUES ('e3', 't2', 'side-chat.outcom
 const KEYBINDINGS_JSON =
   '[{"key":"mod+alt+s","command":"sideChat.askSelection","when":"!terminalFocus"},{"key":"mod+b","command":"sidebar.toggle"}]\n';
 ```
+
 Helpers (signatures; the bodies use `FileSystem`, `Path` and `run` as in the mirrored file):
+
 - `makeMachine(options: { readonly active: string; readonly busy?: boolean; readonly sideChatEffect?: boolean })` returns
   `{ root, home, t3Home, script }`. It creates a scoped temp root (prefix `t3-fork-switch-test-`) containing:
   - `home/.t3/runtime/versions/<active>/t3`, an executable `fakeT3(active)`, plus `.install-complete` (`<active>\n`)
@@ -1110,13 +1175,14 @@ Helpers (signatures; the bodies use `FileSystem`, `Path` and `run` as in the mir
   - `/.well-known/t3/environment` returns `{"serverVersion":"<v>"}`, where `<v>` comes from
     `/"serverVersion":"([^"]*)"/` applied to `NodeFS.readFileSync(<t3Home>/userdata/server-runtime.json)`.
     It answers with whatever version the fake runtime last recorded, like the real server.
-  `corruptChecksum()` sets the checksum to `"0".repeat(64)`.
+    `corruptChecksum()` sets the checksum to `"0".repeat(64)`.
 - `switchScript(machine, host, args: ReadonlyArray<string>, extraEnv: Record<string, string> = {})`
   is `run("bash", [machine.script, ...args], { cwd: machine.root, env })` with
   `env = { PATH: ${root}/bin:${process.env.PATH}, HOME: home, FAKE_T3_LOG: ${root}/t3.log, FAKE_SYSTEMCTL_LOG: ${root}/systemctl.log, FAKE_ORIGIN: host.baseUrl, T3_FORK_RELEASE_BASE_URL: host.baseUrl, ...extraEnv }`.
 - `readLines(file)` returns `[]` when the file is missing, otherwise its trimmed lines.
 
 Tests and assertions:
+
 1. `"refuses to restart while a thread has an active run, a queued run or a running subagent"`.
    Uses `makeMachine({ active: OFFICIAL, busy: true })` and `--to-fork FORK`. `exitCode` is `3`.
    `stderr` includes `Audit AI PCB Eval Verdicts (t1): run queued` and
@@ -1260,7 +1326,7 @@ up, then switch, then verify, and the restore commands are printed before anythi
    - `--to-fork`: skip the install when `runtime/versions/<v>/t3` is executable and its
      `.install-complete` reads `<v>`. Otherwise take `--archive`, or download
      `t3-<v>-linux-<arch>.tar.gz` and `SHA256SUMS` with `curl -fsSL --retry 3` from
-     `${T3_FORK_RELEASE_BASE_URL:-https://github.com/aabdel0181/t3code/releases/download}/v<v>/`
+     `${T3_FORK_RELEASE_BASE_URL:-https://github.com/aabdel0181/t3-learn/releases/download}/v<v>/`
      into the backup folder. A downloaded archive's sha256 must equal its `SHA256SUMS` entry, else
      die with `checksum mismatch for <file>; nothing was switched`. Extract with
      `--strip-components=1` into `mktemp -d runtime/versions/.staging-fork-XXXXXX`. Require
@@ -1286,6 +1352,7 @@ up, then switch, then verify, and the restore commands are printed before anythi
     prints `OK: t3code.service runs t3 <target>; <after> threads (was <before>).`
 
 Notes for the reviewer:
+
 - The fork version sorts after its own base nightly (`compareExactServiceVersions`: when the
   prerelease parts tie, the longer one wins), so `t3 update` refuses the base nightly as a downgrade
   (`update.ts:386-389`). The script passes `--allow-downgrade` for exactly that version, which runs
@@ -1298,6 +1365,7 @@ Notes for the reviewer:
 - [ ] **Step 4: Run the tests and check the queries against the real schema**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 vp test run scripts/fork-service-switch.test.ts
@@ -1306,6 +1374,7 @@ sqlite3 -batch -init /dev/null -readonly .t3/userdata/statev2.sqlite \
   "SELECT count(*) FROM orchestration_v2_projection_runs r JOIN orchestration_v2_projection_threads t USING (thread_id) WHERE t.deleted_at IS NULL AND r.status IN ('preparing','queued','starting','running','waiting'); SELECT count(*) FROM orchestration_v2_projection_subagents s JOIN orchestration_v2_projection_threads t USING (thread_id) WHERE t.deleted_at IS NULL AND s.status IN ('pending','running','waiting'); SELECT count(*) FROM orchestration_v2_effect_outbox WHERE status IN ('pending','running') AND effect_type LIKE 'side-chat.%';"
 vp run --filter @t3tools/scripts typecheck && vp lint scripts/fork-service-switch.test.ts
 ```
+
 Expected: `Tests  8 passed (8)`, then `syntax-ok`. The schema check runs against the worktree's
 seeded copy, never `~/.t3`, and prints three integers with no `no such column` or `no such table`
 error. Typecheck exits 0, and lint is clean.
@@ -1320,14 +1389,16 @@ git commit -m "feat(scripts): switch the background service between fork and off
 ### Task 12: User docs, fork README, Ideas draft; open the PR into fork `main`
 
 **Files:**
+
 - Create: `docs/user/side-chats.md`
 - Modify: `README.md:1` (insert the fork section right after `# T3 Code`)
 - Create: `docs/superpowers/upstream-ideas-discussion.md`
 
 **Interfaces:**
+
 - Consumes: the shipped side-chat UI strings, the `sideChat.askSelection` keybinding, and the
   `sideChats` capability (side-chat plan). Also Tasks 7 to 11.
-- Produces: the PR `fork/release` into `main` on `aabdel0181/t3code`
+- Produces: the PR `fork/release` into `main` on `aabdel0181/t3-learn`
 
 - [ ] **Step 1: Read the shipped strings the docs quote**
 
@@ -1337,7 +1408,7 @@ differently, use the code's exact spelling in the doc.
 
 - [ ] **Step 2: Write `docs/user/side-chats.md`**
 
-~~~markdown
+```markdown
 # Side chats
 
 A side chat answers a question about one part of an assistant reply without adding the question to
@@ -1389,12 +1460,11 @@ chat. Archiving or deleting a conversation does the same to its side chats.
 
 Side chats need this fork on both the app and the server. Official T3 Code apps, including the phone
 app, show side chats as ordinary threads.
-~~~
+```
 
 - [ ] **Step 3: Insert the fork section into `README.md` after line 1**
 
-~~~markdown
-
+````markdown
 ## This fork
 
 This fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code) adds
@@ -1404,8 +1474,8 @@ the app and the server, from the same release.
 
 ### Install the Mac app
 
-1. Download it: `gh release download --repo aabdel0181/t3code --pattern 'T3-Code-*-arm64.dmg'`, or
-   use the [Releases](https://github.com/aabdel0181/t3code/releases) page.
+1. Download it: `gh release download --repo aabdel0181/t3-learn --pattern 'T3-Code-*-arm64.dmg'`, or
+   use the [Releases](https://github.com/aabdel0181/t3-learn/releases) page.
 2. Quit T3 Code, open the dmg, and drag T3 Code into Applications. Move any other T3 Code app to the
    Trash so only one app uses your data. Your settings and connections stay.
 3. The app is not signed. If macOS won't open it, run
@@ -1433,7 +1503,7 @@ and that no threads are missing, and prints the commands that restore the backup
 To go back to an official release, run `scripts/fork-service-switch.sh --to-official` for the newest
 nightly, or pass a version. The official version must be the fork's base nightly (the part before
 `.fork.`, for example `0.1.2-nightly.20261022.3541`) or newer. Until upstream publishes a nightly
-newer than the fork's base, the newest nightly *is* the base and `t3 update` refuses it as a
+newer than the fork's base, the newest nightly _is_ the base and `t3 update` refuses it as a
 downgrade, so roll back with `--to-official <base nightly>`. Going back also refuses while a
 side-chat note or summary is still being written (an official server cannot finish it and would get
 stuck on it); wait a moment and run it again. It removes `sideChat.*` shortcuts from
@@ -1447,16 +1517,16 @@ git fetch upstream --tags
 git switch main && git pull --ff-only origin main
 git rebase upstream/main
 git push --force-with-lease origin main
-gh workflow run fork-release.yml --repo aabdel0181/t3code --ref main -f version="$(scripts/fork-version.sh origin/main)"
+gh workflow run fork-release.yml --repo aabdel0181/t3-learn --ref main -f version="$(scripts/fork-version.sh origin/main)"
 ```
 
 When the run finishes, install the new Mac app and run `--to-fork` with the new version. A fork must
 be at or ahead of the official version the server last ran; otherwise the switch refuses.
-~~~
+````
 
 - [ ] **Step 4: Write `docs/superpowers/upstream-ideas-discussion.md`**
 
-~~~markdown
+```markdown
 # Upstream Ideas discussion draft
 
 Post in https://github.com/pingdotgg/t3code/discussions/categories/ideas after med has used side
@@ -1502,7 +1572,7 @@ Demo: DEMO_URL
 - Every provider works. Summaries and notes use the conversation's own provider and its small text
   model.
 
-I built it in a fork ([aabdel0181/t3code](https://github.com/aabdel0181/t3code)) for web and
+I built it in a fork ([aabdel0181/t3-learn](https://github.com/aabdel0181/t3-learn)) for web and
 desktop and have used it every day for two weeks.
 
 ### Questions
@@ -1510,12 +1580,13 @@ desktop and have used it every day for two weeks.
 1. Is this a direction you'd take for T3 Code?
 2. If so, should a first PR include mobile and MCP tools for agents, or start with web and desktop?
 3. Is the right panel the right home for it?
-~~~
+```
 
 - [ ] **Step 5: Check formatting and commit**
 
 Run: `cd /home/quokka/.t3/projects/t3-sidechat-dev && vp fmt --check docs/user/side-chats.md README.md docs/superpowers/upstream-ideas-discussion.md`
 Expected: no diff (run `vp fmt` on the three files if there is one).
+
 ```bash
 git add docs/user/side-chats.md README.md docs/superpowers/upstream-ideas-discussion.md
 git commit -m "docs: side chats guide, fork install and server switch, upstream Ideas draft" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1530,10 +1601,11 @@ scripts, plus the tests beside the changed files). Fix and amend before pushing.
 - [ ] **Step 7: Push and open the PR into fork `main`**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 git push -u origin fork/release
-gh pr create --repo aabdel0181/t3code --base main --head fork/release \
+gh pr create --repo aabdel0181/t3-learn --base main --head fork/release \
   --title "feat: fork release plumbing (no self-update, Mac build, server switch)" \
   --body-file - <<'EOF'
 med runs side chats day to day from a Mac build of this fork, connected to an Ubuntu server that runs the fork too. Both must come from one commit and must never be replaced by an official release.
@@ -1548,6 +1620,7 @@ Tests: `vp test run apps/desktop/src/updates/DesktopUpdates.test.ts apps/server/
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 ```
+
 Expected: a PR URL. Register it with the thread (`link_pull_request`). Ask med to review it and
 squash-merge it. Squash merges keep fork `main` linear, so "Update the fork" can rebase it.
 
@@ -1556,19 +1629,22 @@ squash-merge it. Squash merges keep fork `main` linear, so "Update the fork" can
 **Files:** none
 
 **Interfaces:**
+
 - Consumes: the merged PR (Tasks 7 to 12) on fork `main`
-- Produces: GitHub Release `v<version>` on `aabdel0181/t3code` with three assets; med's Mac and
+- Produces: GitHub Release `v<version>` on `aabdel0181/t3-learn` with three assets; med's Mac and
   Ubuntu server on that release
 
 - [ ] **Step 1: Compute the version from the merged `main`**
 
 Run:
+
 ```bash
 cd /home/quokka/.t3/projects/t3-sidechat-dev
 git fetch origin
 VERSION="$(scripts/fork-version.sh origin/main)"; echo "$VERSION"
 git -C /home/quokka/.t3/projects/t3-sidechat pull --ff-only origin main
 ```
+
 Expected: `0.1.2-nightly.20261022.3541.fork.<n>`, then a fast-forward of the main checkout, which
 is where med runs the switch script.
 
@@ -1578,43 +1654,48 @@ Actions have been off for the whole repository since Task 1 Step 4. Do this step
 no PR activity on the fork in between: `ci.yml` also triggers on `pull_request` and `push: main`.
 
 Run:
+
 ```bash
-gh api -X PUT repos/aabdel0181/t3code/actions/permissions -F enabled=true -f allowed_actions=all
-gh api repos/aabdel0181/t3code/actions/workflows --paginate \
+gh api -X PUT repos/aabdel0181/t3-learn/actions/permissions -F enabled=true -f allowed_actions=all
+gh api repos/aabdel0181/t3-learn/actions/workflows --paginate \
   --jq '.workflows[] | select(.path != ".github/workflows/fork-release.yml" and .state == "active") | .path' \
-  | while read -r path; do gh workflow disable "$path" -R aabdel0181/t3code; done
-gh workflow enable fork-release.yml -R aabdel0181/t3code
-gh api repos/aabdel0181/t3code/actions/workflows --paginate --jq '.workflows[] | "\(.state)\t\(.path)"' | sort
+  | while read -r path; do gh workflow disable "$path" -R aabdel0181/t3-learn; done
+gh workflow enable fork-release.yml -R aabdel0181/t3-learn
+gh api repos/aabdel0181/t3-learn/actions/workflows --paginate --jq '.workflows[] | "\(.state)\t\(.path)"' | sort
 ```
+
 Expected: the last command lists 19 rows (the 18 upstream workflow files and
 `fork-release.yml`): `.github/workflows/fork-release.yml` is `active` and every other row is
 `disabled_manually`. If the list is empty or lacks `fork-release.yml`, GitHub has not registered the
 workflow files: turn Actions off again
-(`gh api -X PUT repos/aabdel0181/t3code/actions/permissions -F enabled=false`) and ask med before
-going on. Also confirm nothing started: `gh run list -R aabdel0181/t3code --limit 5 --json databaseId --jq length`
+(`gh api -X PUT repos/aabdel0181/t3-learn/actions/permissions -F enabled=false`) and ask med before
+going on. Also confirm nothing started: `gh run list -R aabdel0181/t3-learn --limit 5 --json databaseId --jq length`
 prints `0`.
 
 - [ ] **Step 3: Run the release**
 
 Run:
+
 ```bash
-gh workflow run fork-release.yml -R aabdel0181/t3code --ref main -f version="$VERSION"
-gh run list -R aabdel0181/t3code --workflow fork-release.yml --limit 1 --json databaseId,status --jq '.[0]'
+gh workflow run fork-release.yml -R aabdel0181/t3-learn --ref main -f version="$VERSION"
+gh run list -R aabdel0181/t3-learn --workflow fork-release.yml --limit 1 --json databaseId,status --jq '.[0]'
 ```
-Then run `gh run watch <databaseId> -R aabdel0181/t3code --exit-status` with the Bash tool's
+
+Then run `gh run watch <databaseId> -R aabdel0181/t3-learn --exit-status` with the Bash tool's
 `run_in_background` (the macOS job takes about 30 minutes).
 Expected: `✓ Created workflow_dispatch event`, then the run completes with success. On failure,
-read `gh run view <id> -R aabdel0181/t3code --log-failed`, fix it on a branch through a PR, and
+read `gh run view <id> -R aabdel0181/t3-learn --log-failed`, fix it on a branch through a PR, and
 rerun with a new version (`.fork.<n>` grows with each commit).
 
 - [ ] **Step 4: Verify the release assets**
 
-Run: `gh release view "v$VERSION" -R aabdel0181/t3code --json assets --jq '[.assets[].name] | sort | .[]'`
+Run: `gh release view "v$VERSION" -R aabdel0181/t3-learn --json assets --jq '[.assets[].name] | sort | .[]'`
 Expected: exactly `SHA256SUMS`, `T3-Code-$VERSION-arm64.dmg` and `t3-$VERSION-linux-x64.tar.gz`.
 
 - [ ] **Step 5: Hand off to med (the agent stops here)**
 
 Send med these steps, with `$VERSION` filled in. **Do not run any of them yourself.**
+
 1. Mac: follow README "This fork → Install the Mac app". Check **Settings** for the update status
    "Automatic updates are off in this fork build. Rebuild the fork to update.", and check that
    About shows `$VERSION`.
