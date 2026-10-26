@@ -143,6 +143,9 @@ export const make = Effect.gen(function* () {
     const settingsClick = () => {
       runMenuEffect("open-settings", dispatchMenuAction("open-settings"));
     };
+    const welcomeGuideClick = () => {
+      runMenuEffect("open-welcome-guide", dispatchMenuAction("open-welcome-guide"));
+    };
     // Chromium already pastes as plain text for this chord, so the accelerator
     // needs nothing from the menu: the composer and the terminal each arm
     // themselves from the same keydown. Routing it through the renderer anyway
@@ -302,6 +305,11 @@ export const make = Effect.gen(function* () {
       {
         role: "help",
         submenu: [
+          {
+            label: "Welcome Guide",
+            click: welcomeGuideClick,
+          },
+          { type: "separator" },
           {
             label: "Check for Updates...",
             click: checkForUpdatesClick,
