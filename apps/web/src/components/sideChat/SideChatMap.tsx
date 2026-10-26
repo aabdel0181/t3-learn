@@ -70,7 +70,7 @@ export function SideChatMap(props: {
   useEffect(() => {
     treeRef.current
       ?.querySelector(nodeSelector(currentThreadId))
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
+      ?.scrollIntoView({ block: "center", inline: "nearest" });
   }, [currentThreadId]);
 
   return (

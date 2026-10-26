@@ -68,13 +68,13 @@ it("walks the tree with arrow keys and opens the focused node with Enter", async
   await expect.element(node(screen, "Box")).toHaveAttribute("aria-level", "3");
 
   node(screen, "reward shaping").element().focus();
-  await userEvent.keyboard("{ArrowUp}");
+  await userEvent.keyboard("{ArrowLeft}");
   await expect.element(node(screen, "RL environments")).toHaveFocus();
-  await userEvent.keyboard("{ArrowDown}");
-  await expect.element(node(screen, "observation space")).toHaveFocus();
   await userEvent.keyboard("{ArrowRight}");
-  await expect.element(node(screen, "reward shaping")).toHaveFocus();
+  await expect.element(node(screen, "observation space")).toHaveFocus();
   await userEvent.keyboard("{ArrowDown}");
+  await expect.element(node(screen, "reward shaping")).toHaveFocus();
+  await userEvent.keyboard("{ArrowRight}");
   await expect.element(node(screen, "sparse reward")).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   expect(onOpenSideChat).toHaveBeenCalledExactlyOnceWith(ThreadId.make("b1"));

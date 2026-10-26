@@ -34,12 +34,14 @@ interface PlacedRow {
   parent: PlacedRow | null;
   firstChild: PlacedRow | null;
   lastChild: PlacedRow | null;
-  x: number;
+  y: number;
 }
 
 /**
- * Lays the side-chat tree out as a tidy tree: leaves take consecutive columns,
- * a parent centres between its first and last child, and each depth is a row.
+ * Lays the side-chat tree out as a tidy tree that grows left to right: each
+ * depth is a column, leaves take consecutive rows, and a parent centres between
+ * its first and last child. A busy lesson has many leaves but rarely more than
+ * a few levels, so the tree grows down, where the panel scrolls, not wide.
  * `rows` come root first in preorder, so walking them backwards visits every
  * child before its parent. A row whose parent is not in `rows` gets no edge but
  * keeps its depth.
@@ -53,7 +55,7 @@ export function layoutSideChatTree(
     parent: null,
     firstChild: null,
     lastChild: null,
-    x: 0,
+    y: 0,
   }));
   const placedById = new Map(placed.map((entry) => [entry.row.threadId, entry]));
   for (const entry of placed) {
@@ -64,44 +66,44 @@ export function layoutSideChatTree(
     parent.lastChild = entry;
   }
 
-  const columnWidth = opts.nodeWidth + opts.gapX;
-  let nextColumn = 0;
+  const rowHeight = opts.nodeHeight + opts.gapY;
+  let nextRow = 0;
   for (const entry of placed) {
-    if (entry.firstChild === null) entry.x = nextColumn++ * columnWidth;
+    if (entry.firstChild === null) entry.y = nextRow++ * rowHeight;
   }
   for (const entry of placed.toReversed()) {
     if (entry.firstChild !== null && entry.lastChild !== null) {
-      entry.x = (entry.firstChild.x + entry.lastChild.x) / 2;
+      entry.y = (entry.firstChild.y + entry.lastChild.y) / 2;
     }
   }
 
-  const rowHeight = opts.nodeHeight + opts.gapY;
-  const yOf = (entry: PlacedRow) => entry.row.depth * rowHeight;
+  const columnWidth = opts.nodeWidth + opts.gapX;
+  const xOf = (entry: PlacedRow) => entry.row.depth * columnWidth;
   const edges: Array<SideChatTreeLayoutEdge> = [];
   for (const entry of placed) {
     if (entry.parent === null) continue;
-    const x1 = entry.parent.x + opts.nodeWidth / 2;
-    const y1 = yOf(entry.parent) + opts.nodeHeight;
-    const x2 = entry.x + opts.nodeWidth / 2;
-    const y2 = yOf(entry);
-    const mid = (y1 + y2) / 2;
+    const x1 = xOf(entry.parent) + opts.nodeWidth;
+    const y1 = entry.parent.y + opts.nodeHeight / 2;
+    const x2 = xOf(entry);
+    const y2 = entry.y + opts.nodeHeight / 2;
+    const mid = (x1 + x2) / 2;
     edges.push({
       from: entry.parent.row.threadId,
       to: entry.row.threadId,
-      path: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`,
+      path: `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`,
     });
   }
 
   return {
     nodes: placed.map((entry) => ({
       threadId: entry.row.threadId,
-      x: entry.x,
-      y: yOf(entry),
+      x: xOf(entry),
+      y: entry.y,
       width: opts.nodeWidth,
       height: opts.nodeHeight,
     })),
     edges,
-    width: placed.reduce((max, entry) => Math.max(max, entry.x + opts.nodeWidth), 0),
-    height: placed.reduce((max, entry) => Math.max(max, yOf(entry) + opts.nodeHeight), 0),
+    width: placed.reduce((max, entry) => Math.max(max, xOf(entry) + opts.nodeWidth), 0),
+    height: placed.reduce((max, entry) => Math.max(max, entry.y + opts.nodeHeight), 0),
   };
 }
