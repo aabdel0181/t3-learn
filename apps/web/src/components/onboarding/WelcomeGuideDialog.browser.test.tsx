@@ -1,4 +1,5 @@
 import { RegistryContext } from "@effect/atom-react";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 import { AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -32,6 +33,7 @@ vi.mock(import("../../state/server"), async (importOriginal) => {
 });
 
 import { act, render } from "../../../test/render";
+import { __setClientSettingsForTests } from "../../hooks/useSettings";
 import {
   WELCOME_GUIDE_SEEN_STORAGE_KEY,
   WelcomeGuideHost,
@@ -44,10 +46,16 @@ const NOW = "2026-10-26T12:00:00.000Z";
 function setup({
   sideChats = [false, true],
   seenAt = null,
+  setupDone = true,
 }: {
   readonly sideChats?: ReadonlyArray<boolean>;
   readonly seenAt?: string | null;
+  readonly setupDone?: boolean;
 } = {}): Disposable {
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: setupDone ? EARLIER : null,
+  });
   state.serverConfigs = new Map(
     sideChats.map((supported, index) => [
       `environment-${index}`,
@@ -66,7 +74,7 @@ function systemTime(now: string): Disposable {
 }
 
 // A fresh registry per test, so the capability atom reads this test's environments.
-function mount({ hostedStatic = true }: { readonly hostedStatic?: boolean } = {}) {
+function mount({ hostedStatic = false }: { readonly hostedStatic?: boolean } = {}) {
   return render(
     <RegistryContext.Provider value={AtomRegistry.make()}>
       <WelcomeGuideHost hostedStatic={hostedStatic} />
@@ -79,20 +87,28 @@ const heading = (name: string) => page.getByRole("heading", { name });
 const button = (name: string) => page.getByRole("button", { name, exact: true });
 const storedSeenAt = () => localStorage.getItem(WELCOME_GUIDE_SEEN_STORAGE_KEY);
 
-it("opens by itself when this device has not seen it and an environment has side chats", async () => {
+it("opens by itself after first-run setup when this device has not seen it and an environment has side chats", async () => {
   using _storage = setup();
   await using _screen = await mount();
 
   await expect.element(guide()).toBeVisible();
   await expect.element(heading("Welcome to T3 Learn")).toBeVisible();
+  await expect.element(guide()).toHaveAccessibleDescription(/^Welcome to T3 Learn Every chat/);
   expect(storedSeenAt()).toBeNull();
 });
 
 it("waits for first-run setup before opening by itself", async () => {
-  using _storage = setup();
-  await using _screen = await mount({ hostedStatic: false });
+  using _storage = setup({ setupDone: false });
+  await using _screen = await mount();
 
   await expect.element(guide()).not.toBeInTheDocument();
+});
+
+it("opens by itself on the hosted app, which has no first-run setup", async () => {
+  using _storage = setup({ setupDone: false });
+  await using _screen = await mount({ hostedStatic: true });
+
+  await expect.element(guide()).toBeVisible();
 });
 
 it("stays closed once this device has seen it", async () => {
@@ -120,8 +136,10 @@ it("moves through the steps and records the visit when the learner finishes", as
   await userEvent.click(button("Next"));
   await expect.element(heading("Highlight what you don't get")).toBeVisible();
   await expect.element(button("Highlight, step 2")).toHaveAttribute("aria-current", "step");
+  await expect.element(guide()).toHaveAccessibleDescription(/^Highlight what you don't get /);
   await userEvent.click(button("Back"));
   await expect.element(heading("Welcome to T3 Learn")).toBeVisible();
+  await expect.element(button("Next")).toHaveFocus();
 
   await userEvent.click(button("Next"));
   await userEvent.click(button("Next"));

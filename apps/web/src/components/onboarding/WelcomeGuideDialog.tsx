@@ -5,12 +5,11 @@ import {
   ArrowUpIcon,
   BookOpenIcon,
   ChevronRightIcon,
-  type LucideIcon,
   MessageCircleIcon,
   MessageCircleQuestionIcon,
   QuoteIcon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { create } from "zustand";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -21,20 +20,27 @@ import { environmentPresentations } from "~/state/presentation";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { T3Wordmark } from "../T3Wordmark";
 import { Button } from "../ui/button";
-import { Dialog } from "../ui/dialog";
+import { Dialog, DialogDescription } from "../ui/dialog";
 import { Kbd } from "../ui/kbd";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 
 export const WELCOME_GUIDE_SEEN_STORAGE_KEY = "t3learn:welcome-guide-seen:v1";
 const WelcomeGuideSeenSchema = Schema.NullOr(Schema.String);
 
-const STEPS = ["Welcome", "Highlight", "Ask", "Done", "Map"];
-
 const useWelcomeGuideRequest = create<{ requested: boolean }>(() => ({ requested: false }));
 
 /** Opens the side-chat guide, whether or not this device has seen it. */
 export function openWelcomeGuide() {
   useWelcomeGuideRequest.setState({ requested: true });
+}
+
+// Subscribed on import rather than by the host: a Help menu click that has to open a window
+// delivers the action on load, long before the auth and first-run gates mount the host, and
+// Electron drops a message nobody listens for. The store holds the request until the host mounts.
+if (typeof window !== "undefined") {
+  window.desktopBridge?.onMenuAction((action) => {
+    if (action === "open-welcome-guide") openWelcomeGuide();
+  });
 }
 
 // The host sits at the app root, so it reads one boolean instead of every environment's config.
@@ -58,14 +64,6 @@ export function WelcomeGuideHost({ hostedStatic }: { readonly hostedStatic: bool
   // Keeps a dismissal for the session even when storage refuses the write.
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    const onMenuAction = window.desktopBridge?.onMenuAction;
-    if (typeof onMenuAction !== "function") return;
-    return onMenuAction((action) => {
-      if (action === "open-welcome-guide") openWelcomeGuide();
-    });
-  }, []);
-
   const autoOpen =
     seenAt === null && !dismissed && (hostedStatic || setupDone) && sideChatsAvailable;
   if (!requested && !autoOpen) return null;
@@ -81,11 +79,10 @@ export function WelcomeGuideHost({ hostedStatic }: { readonly hostedStatic: bool
 function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
   const [step, setStep] = useState(0);
   const nextRef = useRef<HTMLButtonElement>(null);
-  const askShortcut = shortcutLabelForCommand(
-    useAtomValue(primaryServerKeybindingsAtom),
-    "sideChat.askSelection",
+  const steps = guideSteps(
+    shortcutLabelForCommand(useAtomValue(primaryServerKeybindingsAtom), "sideChat.askSelection"),
   );
-  const last = step === STEPS.length - 1;
+  const last = step === steps.length - 1;
 
   return (
     <Dialog
@@ -108,31 +105,57 @@ function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
         >
           <WizardSteps
             label="Guide progress"
-            steps={STEPS}
+            steps={steps.map((item) => item.label)}
             currentStep={step}
             onStepChange={setStep}
           />
         </WizardHeader>
         <WizardPanel>
-          <GuideStep step={step} askShortcut={askShortcut} />
+          <div className="space-y-4">
+            {steps[step]?.illustration}
+            {/* Every step's text shares one cell, so the panel keeps the tallest step's height at
+                any width. Focus opens on Next, so the description is how a screen reader hears
+                the first step, and the live region how it hears the rest. */}
+            <DialogDescription render={<div />} aria-live="polite" className="grid">
+              {steps.map((item, index) => (
+                <div
+                  key={item.label}
+                  className={cn(
+                    "col-start-1 row-start-1 space-y-1.5",
+                    index !== step && "invisible",
+                  )}
+                >
+                  <h3 className="text-lg font-semibold tracking-tight text-foreground">
+                    {item.title}
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+                  {item.footnote ? (
+                    <p className="pt-1 text-xs text-muted-foreground">{item.footnote}</p>
+                  ) : null}
+                </div>
+              ))}
+            </DialogDescription>
+          </div>
         </WizardPanel>
+        {/* Hidden rather than removed at either end, so the footer keeps its size. */}
         <WizardFooter
-          // Always a node, so the buttons on the right keep their place, and focus, on the last step.
           leading={
-            last ? (
-              <span />
-            ) : (
-              <Button variant="ghost" onClick={onClose}>
-                Skip
-              </Button>
-            )
+            <Button variant="ghost" className={last ? "invisible" : undefined} onClick={onClose}>
+              Skip
+            </Button>
           }
         >
-          {step > 0 ? (
-            <Button variant="outline" onClick={() => setStep(step - 1)}>
-              Back
-            </Button>
-          ) : null}
+          <Button
+            variant="outline"
+            className={step === 0 ? "invisible" : undefined}
+            onClick={() => {
+              // Back hides on the first step and would drop keyboard focus onto the popup.
+              if (step === 1) nextRef.current?.focus();
+              setStep(step - 1);
+            }}
+          >
+            Back
+          </Button>
           <Button ref={nextRef} onClick={last ? onClose : () => setStep(step + 1)}>
             {last ? "Start learning" : "Next"}
           </Button>
@@ -142,27 +165,20 @@ function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
   );
 }
 
-function GuideStep({
-  step,
-  askShortcut,
-}: {
-  readonly step: number;
-  readonly askShortcut: string | null;
-}) {
-  switch (step) {
-    case 0:
-      return (
-        <StepBody illustration={<LessonMock />} title="Welcome to T3 Learn">
-          Every chat is a lesson. When a reply uses something you don&apos;t know yet, you can dig
-          into it on the side while the lesson stays on track.
-        </StepBody>
-      );
-    case 1:
-      return (
-        <StepBody
-          illustration={<SelectionMock askShortcut={askShortcut} />}
-          title="Highlight what you don't get"
-        >
+function guideSteps(askShortcut: string | null) {
+  return [
+    {
+      label: "Welcome",
+      illustration: <LessonMock />,
+      title: "Welcome to T3 Learn",
+      body: "Every chat is a lesson. When a reply uses something you don't know yet, you can dig into it on the side while the lesson stays on track.",
+    },
+    {
+      label: "Highlight",
+      illustration: <SelectionMock askShortcut={askShortcut} />,
+      title: "Highlight what you don't get",
+      body: (
+        <>
           Select any words in a reply, then choose Ask in side chat
           {askShortcut === null ? null : (
             <>
@@ -171,60 +187,32 @@ function GuideStep({
             </>
           )}
           .
-        </StepBody>
-      );
-    case 2:
-      return (
-        <StepBody illustration={<SidePanelMock />} title="Ask your own question">
-          A side chat opens next to the lesson. It already knows what you highlighted and what the
-          lesson is about. Ask anything, and highlight inside it to go deeper.
-        </StepBody>
-      );
-    case 3:
-      return (
-        <StepBody illustration={<NoteMock />} title="Press Done when it clicks">
-          The AI writes a short note about where you got stuck. It goes with your next lesson
-          message so the lesson can adjust, and the side chat itself stays out of the lesson.
-        </StepBody>
-      );
-    default:
-      return (
-        <StepBody
-          illustration={<MapMock />}
-          title="See it all on the Map"
-          footnote="You can open this guide again from Settings."
-        >
-          The Map shows every side chat in a lesson. Click one to pick it back up, or move around
-          with the arrow keys.
-        </StepBody>
-      );
-  }
+        </>
+      ),
+    },
+    {
+      label: "Ask",
+      illustration: <SidePanelMock />,
+      title: "Ask your own question",
+      body: "A side chat opens next to the lesson. It already knows what you highlighted and what the lesson is about. Ask anything, and highlight inside it to go deeper.",
+    },
+    {
+      label: "Done",
+      illustration: <NoteMock />,
+      title: "Press Done when it clicks",
+      body: "The AI writes a short note about where you got stuck. It goes with your next lesson message so the lesson can adjust, and the side chat itself stays out of the lesson.",
+    },
+    {
+      label: "Map",
+      illustration: <MapMock />,
+      title: "See it all on the Map",
+      body: "The Map shows every side chat in a lesson. Click one to pick it back up, or move around with the arrow keys.",
+      footnote: "You can open this guide again from Settings.",
+    },
+  ];
 }
 
-function StepBody({
-  illustration,
-  title,
-  footnote,
-  children,
-}: {
-  readonly illustration: ReactNode;
-  readonly title: string;
-  readonly footnote?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className="space-y-4">
-      {illustration}
-      <div className="space-y-1.5">
-        <h3 className="text-lg font-semibold tracking-tight text-foreground">{title}</h3>
-        <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
-        {footnote ? <p className="pt-1 text-xs text-muted-foreground">{footnote}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-// Static pictures of the real UI, one fixed height so the panel holds still between steps.
+// Static pictures of the real UI, all one height so changing steps never resizes the panel.
 function Illustration({
   label,
   children,
@@ -350,11 +338,9 @@ function NoteMock() {
   return (
     <Illustration label="A finished side chat's note waiting to go with the next lesson message">
       <div className="overflow-hidden rounded-md border bg-card">
-        <div className="flex items-center gap-1 border-b px-1.5 py-1">
+        {/* After Done: the real panel drops the button and shows where the note goes. */}
+        <div className="flex items-center border-b px-1.5 py-1.5">
           <SideChatPath />
-          <span className="shrink-0 rounded-md border bg-background px-2 py-0.5 font-medium">
-            Done
-          </span>
         </div>
         <p className="px-3 py-2 leading-relaxed text-muted-foreground">
           Goes with your next lesson message: The learner didn&apos;t know what destructive
@@ -381,7 +367,7 @@ function MapNode({
   readonly status: MapNodeStatus;
   readonly current?: boolean;
 }) {
-  const Icon: LucideIcon = status === "lesson" ? BookOpenIcon : MessageCircleIcon;
+  const Icon = status === "lesson" ? BookOpenIcon : MessageCircleIcon;
   return (
     <span
       className={cn(
@@ -403,18 +389,28 @@ function MapNode({
           )}
         />
       </span>
-      <span className="truncate">{label}</span>
+      {/* A phone-width Map has no room for the word, and the icon already says lesson. */}
+      <span className={cn("truncate", status === "lesson" && "@max-sm:hidden")}>{label}</span>
     </span>
   );
 }
 
 /** Children joined to their parent by a bracket: a stub into each child, a spine between them. */
-function MapBranch({ node, children }: { readonly node: ReactNode; readonly children: ReactNode }) {
+function MapBranch({
+  node,
+  leaves = false,
+  children,
+}: {
+  readonly node: ReactNode;
+  // Short leaf labels keep their width on a narrow screen; the parent's long label truncates.
+  readonly leaves?: boolean;
+  readonly children: ReactNode;
+}) {
   return (
     <div className="flex min-w-0 items-center">
       {node}
       <span className="h-px w-3 shrink-0 bg-muted-foreground/40" />
-      <div className="flex min-w-0 flex-col">{children}</div>
+      <div className={cn("flex flex-col", leaves ? "shrink-0" : "min-w-0")}>{children}</div>
     </div>
   );
 }
@@ -430,21 +426,26 @@ function MapChild({ children }: { readonly children: ReactNode }) {
 function MapMock() {
   return (
     <Illustration label="The Map: the lesson with its side chats branching to the right">
-      <MapBranch node={<MapNode label="Lesson" status="lesson" />}>
-        <MapChild>
-          <MapBranch node={<MapNode label="destructive interference" status="done" current />}>
-            <MapChild>
-              <MapNode label="phase" status="done" />
-            </MapChild>
-            <MapChild>
-              <MapNode label="wavelength" status="open" />
-            </MapChild>
-          </MapBranch>
-        </MapChild>
-        <MapChild>
-          <MapNode label="feedforward mic" status="done" />
-        </MapChild>
-      </MapBranch>
+      <div className="@container">
+        <MapBranch node={<MapNode label="Lesson" status="lesson" />}>
+          <MapChild>
+            <MapBranch
+              node={<MapNode label="destructive interference" status="open" current />}
+              leaves
+            >
+              <MapChild>
+                <MapNode label="phase" status="done" />
+              </MapChild>
+              <MapChild>
+                <MapNode label="wavelength" status="open" />
+              </MapChild>
+            </MapBranch>
+          </MapChild>
+          <MapChild>
+            <MapNode label="feedforward mic" status="done" />
+          </MapChild>
+        </MapBranch>
+      </div>
     </Illustration>
   );
 }
