@@ -62,6 +62,8 @@ describe("fromRunner generateSideChatText", () => {
         "gap",
         "misconception",
         "preference",
+        "already knows the subject",
+        "do not define terms",
       ]) {
         assert.include(prompt, phrase);
       }
