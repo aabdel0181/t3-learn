@@ -6,6 +6,20 @@ When a reply uses something you don't know yet, highlight it and choose **Ask in
 
 T3 Learn stays compatible with T3 Code. The `t3` CLI, the mobile app and T3 Connect work as they do upstream.
 
+### Run it
+
+There are no T3 Learn builds yet, and the installers further down install upstream T3 Code, which has no side chats. To run T3 Learn, build it from source. You need [`vp`](#install-vp) and at least one provider set up (see [Installation](#installation)):
+
+```bash
+git clone https://github.com/aabdel0181/t3code t3-learn
+cd t3-learn
+vp i
+vp run --filter t3 build
+vp env exec -- node apps/server/dist/bin.mjs serve --base-dir ~/.t3-learn
+```
+
+Open the pairing URL it prints. `--base-dir` keeps T3 Learn's data apart from an existing T3 Code install.
+
 ---
 
 _The rest of this README is upstream T3 Code's._
