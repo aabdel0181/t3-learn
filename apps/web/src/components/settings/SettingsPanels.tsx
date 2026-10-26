@@ -36,6 +36,7 @@ import {
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { openWelcomeGuide } from "../onboarding/WelcomeGuideDialog";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
@@ -1925,6 +1926,15 @@ export function GeneralSettingsPanel() {
             />
           </>
         )}
+        <SettingsRow
+          {...searchableSetting("welcome-guide")}
+          description="A short tour of side chats, notes and the Map."
+          control={
+            <Button size="sm" variant="outline" onClick={openWelcomeGuide}>
+              Show guide
+            </Button>
+          }
+        />
         <MobileAppSettingsRow />
         <SettingsRow
           {...searchableSetting("privacy-policy")}
