@@ -11,7 +11,7 @@ T3 Learn stays compatible with T3 Code. The `t3` CLI, the mobile app and T3 Conn
 There are no T3 Learn builds yet, and the installers further down install upstream T3 Code, which has no side chats. To run T3 Learn, build it from source. You need [`vp`](#install-vp) and at least one provider set up (see [Installation](#installation)):
 
 ```bash
-git clone https://github.com/aabdel0181/t3code t3-learn
+git clone https://github.com/aabdel0181/t3-learn t3-learn
 cd t3-learn
 vp i
 vp run --filter t3 build
