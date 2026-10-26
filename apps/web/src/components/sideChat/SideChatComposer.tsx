@@ -85,6 +85,8 @@ export function SideChatComposer(props: {
   /** The environment's providers have loaded, so a missing entry means the provider is gone. */
   readonly providerCatalogKnown: boolean;
   readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
+  /** The side chat has a message, so the next one is a follow-up rather than its question. */
+  readonly hasMessages: boolean;
   readonly runActive: boolean;
   readonly answeringPendingUserInput: boolean;
   readonly handleRef: React.RefObject<SideChatComposerHandle | null>;
@@ -261,7 +263,7 @@ export function SideChatComposer(props: {
         <ComposerPromptEditor
           draftKey={sideChatKey}
           ariaLabel="Side chat message"
-          placeholder="Ask a follow-up…"
+          placeholder={props.hasMessages ? "Ask a follow-up…" : "Ask your own question…"}
           editorRef={editorRef}
           value={prompt}
           cursor={cursor}

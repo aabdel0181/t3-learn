@@ -377,6 +377,13 @@ export function SideChatPanel(props: {
     delivered: noteDelivered,
   });
   const answeringPendingUserInput = activePendingProgress !== null;
+  const label =
+    sideChat?.label ?? (pending === undefined ? null : assistantCitationLabel(pending.citation));
+  // The shell, the detail and this panel's own rows each learn of a sent message at their own time.
+  const hasMessages =
+    optimisticMessages.length > 0 ||
+    (projection?.messages.length ?? 0) > 0 ||
+    (shell?.latestUserMessageAt ?? null) !== null;
 
   return (
     <SideChatPanelContexts revealCitation={revealCitation}>
@@ -510,6 +517,7 @@ export function SideChatPanel(props: {
             sideChatRef={sideChatRef}
             detailRef={detailRef}
             projection={projection}
+            label={label}
             // A side chat this panel just started has nothing to load yet.
             detailLoading={detailRef !== null && projection === null && heldCitation === null}
             optimisticMessages={optimisticMessages}
@@ -594,6 +602,7 @@ export function SideChatPanel(props: {
           providerEntry={providerEntry}
           providerCatalogKnown={loadedProviders !== undefined}
           openingStatus={detail?.opening.status ?? null}
+          hasMessages={hasMessages}
           runActive={runActive}
           answeringPendingUserInput={answeringPendingUserInput}
           handleRef={composerHandleRef}

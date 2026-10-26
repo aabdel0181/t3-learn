@@ -31,6 +31,8 @@ export function SideChatTimeline(props: {
   /** Null until the side chat's detail may load. */
   readonly detailRef: ScopedThreadRef | null;
   readonly projection: ThreadStructure | null;
+  /** The highlight the side chat is about; null until known. */
+  readonly label: string | null;
   readonly detailLoading: boolean;
   readonly optimisticMessages: ReadonlyArray<ChatMessage>;
   readonly listRef: React.RefObject<LegendListRef | null>;
@@ -118,6 +120,9 @@ export function SideChatTimeline(props: {
         onIsAtEndChange={noop}
         onManualNavigation={noop}
         hideEmptyPlaceholder={props.detailLoading}
+        emptyPlaceholder={
+          props.label === null ? undefined : `What do you want to know about “${props.label}”?`
+        }
         emptyPlaceholderInset={0}
       />
     </div>

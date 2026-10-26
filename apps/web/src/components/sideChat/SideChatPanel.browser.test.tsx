@@ -497,7 +497,21 @@ it("keeps the excerpt and the empty conversation between the shell arriving and 
   act(() => usePendingSideChatStore.getState().prune(lessonKey, new Set([id!])));
 
   await expect.element(revealButton(screen)).toHaveTextContent("observation space");
-  await expect.element(screen.getByText("Send a message to start the conversation.")).toBeVisible();
+  await expect
+    .element(screen.getByText("What do you want to know about “observation space”?"))
+    .toBeVisible();
+  await expect
+    .element(composer(screen))
+    .toHaveAttribute("aria-placeholder", "Ask your own question…");
+});
+
+it("asks for a follow-up once the side chat has a message", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, { ...SIDE_1, latestUserMessageAt: "2026-10-22T00:00:00.000Z" }];
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+
+  await expect.element(composer(screen)).toHaveAttribute("aria-placeholder", "Ask a follow-up…");
 });
 
 it("Done on a nested side chat returns to its parent without waiting for the note", async () => {
