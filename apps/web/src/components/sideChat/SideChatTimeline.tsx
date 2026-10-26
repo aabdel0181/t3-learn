@@ -121,7 +121,12 @@ export function SideChatTimeline(props: {
         onManualNavigation={noop}
         hideEmptyPlaceholder={props.detailLoading}
         emptyPlaceholder={
-          props.label === null ? undefined : `What do you want to know about “${props.label}”?`
+          props.label === null ? undefined : (
+            // The question is the side chat's only prompt to type, so it reads at full muted strength.
+            <span className="text-muted-foreground">
+              What do you want to know about “{props.label}”?
+            </span>
+          )
         }
         emptyPlaceholderInset={0}
       />
