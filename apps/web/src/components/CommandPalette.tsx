@@ -59,6 +59,7 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  MessageCircleQuestionIcon,
   MessageSquareIcon,
   NetworkIcon,
   PaletteIcon,
@@ -68,6 +69,7 @@ import {
   TextSearchIcon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
+import { openWelcomeGuide } from "./onboarding/WelcomeGuideDialog";
 import {
   useDeferredValue,
   useEffect,
@@ -1641,6 +1643,18 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/settings" });
     },
   });
+
+  // The guide is not mounted while the setup wizard runs.
+  if (pathname !== "/welcome") {
+    actionItems.push({
+      kind: "action",
+      value: "action:welcome-guide",
+      searchTerms: ["Show welcome guide", "guide", "tour", "onboarding", "side chat", "T3 Learn"],
+      title: "Show welcome guide",
+      icon: <MessageCircleQuestionIcon className={ITEM_ICON_CLASS} />,
+      run: async () => openWelcomeGuide(),
+    });
+  }
 
   const contextualProjectGroup =
     (contextualProjectRef

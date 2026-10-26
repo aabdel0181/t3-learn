@@ -552,6 +552,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     desktopOnly: true,
   },
   {
+    id: "welcome-guide",
+    title: "Welcome guide",
+    to: "/settings/general",
+    searchTerms: ["welcome guide tour onboarding tutorial help intro side chat notes map T3 Learn"],
+  },
+  {
     id: "mobile-app",
     title: "Mobile app",
     to: "/settings/general",
