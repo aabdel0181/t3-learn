@@ -15,6 +15,7 @@ import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection
 import { deriveActiveWorkStartedAt, derivePhase, isLatestRunSettled } from "../../session-logic";
 import type { ChatMessage } from "../../types";
 import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
+import { useCitedHistory } from "../chat/citationProcedure";
 import { openExpandedImagePreview } from "../chat/ExpandedImageDialog";
 import { ThreadTimeline } from "../chat/ThreadTimeline";
 
@@ -56,6 +57,7 @@ export function SideChatTimeline(props: {
   const lessonKey = scopedThreadKey(props.lessonRef);
   const { resolvedTheme } = useTheme();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const citationHistory = useCitedHistory(props.citationRequest);
 
   // Run state as ChatView derives it for a server thread.
   const latestRun = projection === null ? null : deriveLatestThreadRun(projection);
@@ -82,7 +84,7 @@ export function SideChatTimeline(props: {
         readyMarkdownCwd={workspaceRoot ?? null}
         readyWorkspaceRoot={workspaceRoot ?? null}
         citationRequest={props.citationRequest}
-        citationHistoryLoading={props.detailLoading}
+        citationHistory={citationHistory}
         onCiteAssistantText={props.onCiteAssistantText}
         onAskInSideChat={props.onAskInSideChat}
         askInSideChatPending={props.askInSideChatPending}
@@ -100,7 +102,6 @@ export function SideChatTimeline(props: {
         turnDiffSummaries={[]}
         activeThreadEnvironmentId={props.sideChatRef.environmentId}
         routeThreadKey={sideChatKey}
-        onOpenTurnDiff={noop}
         onOpenThread={props.onOpenThread}
         {...(props.onOpenSideChat === undefined ? {} : { onOpenSideChat: props.onOpenSideChat })}
         onRollbackCheckpoint={noop}
@@ -118,7 +119,6 @@ export function SideChatTimeline(props: {
         contentInsetEndAdjustment={0}
         liveFollowEnabled
         onIsAtEndChange={noop}
-        onManualNavigation={noop}
         hideEmptyPlaceholder={props.detailLoading}
         emptyPlaceholder={
           props.label === null ? undefined : (

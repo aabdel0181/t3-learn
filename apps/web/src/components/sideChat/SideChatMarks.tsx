@@ -251,11 +251,9 @@ function SideChatMenu(props: {
 }
 
 /**
- * The tags of an assistant row's side chats, over the row's `relative` wrapper.
- * The layer sits outside the reply's text, so tags never enter find, copy or a
- * selection. Each tag sits in the gutter the row reserves on its right, level with
- * the line where its mark ends. Marks it cannot find in the reply go to
- * `onUnresolvedChange`.
+ * Side-chat tags over an assistant row's `relative` wrapper, outside the reply's text so they
+ * never enter find, copy or a selection. Each sits in the row's right gutter, level with the line
+ * where its mark ends; marks missing from the reply go to `onUnresolvedChange`.
  */
 export function SideChatMarks(props: {
   readonly messageId: MessageId;

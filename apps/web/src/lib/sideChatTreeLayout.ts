@@ -38,13 +38,10 @@ interface PlacedRow {
 }
 
 /**
- * Lays the side-chat tree out as a tidy tree that grows left to right: each
- * depth is a column, leaves take consecutive rows, and a parent centres between
- * its first and last child. A busy lesson has many leaves but rarely more than
- * a few levels, so the tree grows down, where the panel scrolls, not wide.
- * `rows` come root first in preorder, so walking them backwards visits every
- * child before its parent. A row whose parent is not in `rows` gets no edge but
- * keeps its depth.
+ * A tidy tree growing left to right: depths are columns, leaves take consecutive rows, and a parent
+ * centres between its first and last child, so a busy lesson grows down, where the panel scrolls.
+ * `rows` come in preorder, so walking them backwards visits children before parents. A row whose
+ * parent is not in `rows` gets no edge but keeps its depth.
  */
 export function layoutSideChatTree(
   rows: ReadonlyArray<SideChatTreeRow>,

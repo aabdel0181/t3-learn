@@ -203,7 +203,6 @@ export function SideChatPanel(props: {
   } = usePendingThreadRequests({
     environmentId,
     activeThreadId: shell?.id ?? null,
-    activeThread: shell ?? undefined,
     serverProjection: projection,
     supportsQuestionAttachments: false,
     composerDraftTarget: sideChatRef,

@@ -24,7 +24,7 @@ const LESSON_ONLY_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
   "chat.find",
 ]);
 
-/** Runs a command. Returning false lets the key event through untouched. */
+/** Returning false lets the key event through untouched. */
 export type ChatShortcutHandler = (context: {
   readonly event: KeyboardEvent;
   readonly terminalFocusOwner: TerminalFocusOwner | null;
