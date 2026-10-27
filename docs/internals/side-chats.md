@@ -36,8 +36,15 @@ temp directory so the project's `AGENTS.md` and `CLAUDE.md` cannot leak into sum
 ## Context in
 
 [ProviderTurnStartService](../../apps/server/src/orchestration-v2/ProviderTurnStartService.ts) hands a
-new provider thread the opening context. It waits for the summary before taking the workspace lease,
-which the side chat shares with the lesson.
+new provider thread the opening context. It waits up to `SIDE_CHAT_WAIT_CAP_MS` for the summary before
+taking the workspace lease, which the side chat shares with the lesson. A context sent without the
+summary gets the fallback title, and the summary rides the next turn on its own once it lands. It is
+owed only while no handoff of the side chat contains its text
+([`owedSideChatSummary`](../../apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts)), so it
+is written at most once and never after an opening that carried it. A later fresh native thread gets
+the summary in its own opening, which drops a late summary still carried from a stopped run. The text
+is the record because the summary can land while a turn start, which holds no lock, is writing a
+fallback opening.
 
 Notes attach at run start, not dispatch, so a queued message sees notes that became ready meanwhile.
 [`awaitNotesForRunStart`](../../apps/server/src/orchestration-v2/sideChat/SideChatLifecycleService.ts)
@@ -47,10 +54,10 @@ completions it waits for take the lesson's lock. The wait holds one of the worke
 notes need a lane slot and a worker slot of their own, so four waiting turn starts would hold every
 slot. `SIDE_CHAT_WAIT_CAP_MS` bounds that; a turn that misses it goes ahead and the note rides the next
 user message. The cap counts from the send (a queued message waits once), from Done for a parent's
-note, and from its start for the opening. Notes that do not fit the budget are dropped whole ([context
-handoffs](./context-handoffs.md)). Snapshots and live events strip every handoff's `summary`; the
-side-chat dividers fetch theirs with `orchestration.getTurnItem` when expanded
-([WireProjection](../../apps/server/src/orchestration-v2/WireProjection.ts)).
+note, and from its start for the opening. Notes and late summaries that do not fit the budget are
+dropped whole ([context handoffs](./context-handoffs.md)). Snapshots and live events strip every
+handoff's `summary`; the side-chat dividers fetch theirs with `orchestration.getTurnItem` when
+expanded ([WireProjection](../../apps/server/src/orchestration-v2/WireProjection.ts)).
 
 ## Locks, chain-up and reopen
 

@@ -89,7 +89,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       (!planned.summariesIncluded ||
         historyCost(planned.selected.messages, planned.selected.context) > budget)
     ) {
-      yield* Effect.logWarning("Dropped side-chat notes that do not fit the context budget", {
+      yield* Effect.logWarning("Dropped side-chat context that does not fit the context budget", {
         handoffIds: remaining.filter(optional).map((handoff) => handoff.id),
         budget,
       });

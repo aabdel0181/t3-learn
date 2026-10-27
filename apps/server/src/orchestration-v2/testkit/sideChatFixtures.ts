@@ -115,9 +115,10 @@ export function sideChatMessageCommand(input: {
   };
 }
 
-/** Marks the thread's newest run completed, as if its provider turn had finished. */
+/** Marks the thread's newest run completed (or `status`), as if its provider turn had ended so. */
 export const completeLatestRun = Effect.fn("sideChatFixtures.completeLatestRun")(function* (
   threadId: ThreadId,
+  status: "completed" | "interrupted" = "completed",
 ) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const eventSink = yield* EventSink.EventSinkV2;
@@ -134,7 +135,7 @@ export const completeLatestRun = Effect.fn("sideChatFixtures.completeLatestRun")
         threadId,
         runId: run.id,
         occurredAt: now,
-        payload: { ...run, status: "completed", completedAt: now },
+        payload: { ...run, status, completedAt: now },
       },
     ],
   });

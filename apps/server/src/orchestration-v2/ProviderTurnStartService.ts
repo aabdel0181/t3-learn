@@ -63,14 +63,20 @@ import {
 } from "./RestartBackgroundNote.ts";
 import {
   awaitWithinSideChatWaitCap,
+  buildSideChatLateSummary,
   buildSideChatOpeningContext,
+  isSideChatLateSummaryHandoff,
   isSideChatOpeningHandoff,
   loadSideChatOpeningSources,
+  owedSideChatSummary,
+  sideChatOpeningCarriesSummary,
+  type SideChatContextHandoff,
+  sideChatLateSummaryHandoffId,
   sideChatOpeningEffectId,
   sideChatOpeningHandoffId,
 } from "./sideChat/sideChatOpening.ts";
 import { isSideChatNotesHandoff, isUserAuthoredSideChatTrigger } from "./sideChat/notes.ts";
-import { buildSideChatOpeningSummaryText } from "./sideChat/sideChatText.ts";
+import { buildSideChatOpeningSummaryText, readySideChatSummary } from "./sideChat/sideChatText.ts";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -909,14 +915,17 @@ export const layer: Layer.Layer<
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
       // A fresh native thread knows nothing of the lesson, so the opening context rides with its
       // first prompt: the first turn, or the first after a failed resume bound a replacement. A
-      // retry, or the run after one that never sent its opening, finds it among `handoffs`. A
-      // summary that missed `awaitSideChatOpening` leaves this context as the fallback.
+      // retry, or the run after one that never sent its opening, finds it among `handoffs`.
       const sideChat = projection.thread.sideChat;
       const openingHandoffId = sideChatOpeningHandoffId(run.id);
+      const hasOwnOpening = projection.contextHandoffs.some(
+        (handoff) => handoff.id === openingHandoffId,
+      );
+      let sideChatContext: SideChatContextHandoff | undefined;
       if (
         sideChat !== undefined &&
         (providerThread.nativeThreadRef === null || !sameNativeThread) &&
-        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId) &&
+        !hasOwnOpening &&
         !handoffs.some(isSideChatOpeningHandoff)
       ) {
         const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
@@ -928,7 +937,7 @@ export const layer: Layer.Layer<
             }).pipe(Effect.as({ lessonTopic: null, parentOpeningText: null })),
           ),
         );
-        const opening = buildSideChatOpeningContext({
+        sideChatContext = buildSideChatOpeningContext({
           run,
           rootNodeId: rootNode.id,
           providerThreadId: providerThread.id,
@@ -938,12 +947,32 @@ export const layer: Layer.Layer<
             excerptContext: sideChat.excerptContext,
             ...sources,
           }),
+          withSummary: readySideChatSummary(sideChat.opening) !== null,
           turnItemId: idAllocator.derive.runSignalTurnItem({
             runId,
             signal: `context-handoff:${openingHandoffId}`,
           }),
           createdAt: now,
         });
+      } else if (sideChat !== undefined && !hasOwnOpening) {
+        // An opening sent before the summary was ready held the fallback; the summary follows alone,
+        // on a later run than the opening's own retries so the two keep their timeline order.
+        const summary = owedSideChatSummary(sideChat.opening, projection.contextHandoffs);
+        if (summary !== null) {
+          sideChatContext = buildSideChatLateSummary({
+            run,
+            rootNodeId: rootNode.id,
+            providerThreadId: providerThread.id,
+            summary,
+            turnItemId: idAllocator.derive.runSignalTurnItem({
+              runId,
+              signal: `context-handoff:${sideChatLateSummaryHandoffId(runId)}`,
+            }),
+            createdAt: now,
+          });
+        }
+      }
+      if (sideChatContext !== undefined) {
         yield* eventSink.write({
           events: [
             {
@@ -953,7 +982,7 @@ export const layer: Layer.Layer<
               runId,
               providerInstanceId: run.providerInstanceId,
               occurredAt: now,
-              payload: opening.handoff,
+              payload: sideChatContext.handoff,
             },
             {
               id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
@@ -963,11 +992,28 @@ export const layer: Layer.Layer<
               nodeId: rootNode.id,
               providerInstanceId: run.providerInstanceId,
               occurredAt: now,
-              payload: opening.turnItem,
+              payload: sideChatContext.turnItem,
             },
           ],
         });
-        effectiveHandoffs = [opening.handoff, ...effectiveHandoffs];
+        // The opening comes before everything else the run carries; a late summary is the newest.
+        effectiveHandoffs = isSideChatOpeningHandoff(sideChatContext.handoff)
+          ? [sideChatContext.handoff, ...effectiveHandoffs]
+          : [...effectiveHandoffs, sideChatContext.handoff];
+      }
+      // A late summary carried from a stopped run would repeat the summary that a fresh native
+      // thread's opening already carries.
+      if (
+        sideChat !== undefined &&
+        sideChatOpeningCarriesSummary(
+          sideChat.opening,
+          [...projection.contextHandoffs, ...effectiveHandoffs],
+          providerThread.id,
+        )
+      ) {
+        effectiveHandoffs = effectiveHandoffs.filter(
+          (handoff) => !isSideChatLateSummaryHandoff(handoff),
+        );
       }
       const threadUsage = loadedProviderThread.contextUsage ?? providerThread.contextUsage;
       const previousUsage = measuredContext
@@ -1286,7 +1332,8 @@ export const layer: Layer.Layer<
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff],
             deferInline: compact || goalCommand,
-            optional: isSideChatNotesHandoff,
+            optional: (handoff) =>
+              isSideChatNotesHandoff(handoff) || isSideChatLateSummaryHandoff(handoff),
             providerThread: runningProviderThread,
             budget: Effect.gen(function* () {
               return handoffBudget({
