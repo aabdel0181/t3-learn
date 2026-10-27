@@ -19,7 +19,9 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source_file="$root/.github/workflows/ci.yml"
 output_file="$root/.github/workflows/t3-learn-ci.yml"
 
-# blacksmith-6vcpu-macos-26 is Apple silicon; GitHub's macos-26 is arm64 too.
+# blacksmith-6vcpu-macos-26 is Apple silicon. GitHub's macos-26 image went
+# unassigned for 15 minutes on four attempts in a row (2026-10-27), and the
+# only macOS job lints with Homebrew tools, so it runs on macos-15 (arm64).
 # Lint always runs and Check already needs it, so the drift guard lives there.
 # Test Web runs on one 8 vCPU runner upstream. Browser test files share one
 # Chromium page, and on a slower 4 vCPU runner the heaviest file previews then
@@ -28,7 +30,7 @@ output_file="$root/.github/workflows/t3-learn-ci.yml"
 transform='
 s/^name: CI$/name: T3 Learn CI/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-ubuntu-2404$/\1runs-on: ubuntu-24.04/
-s/^( *)runs-on: blacksmith-[0-9]+vcpu-macos-26$/\1runs-on: macos-26/
+s/^( *)runs-on: blacksmith-[0-9]+vcpu-macos-26$/\1runs-on: macos-15/
 /^  test_web:$/,/^  [a-z_]+:$/{
   s/^(    name: Test Web)$/\1 ${{ matrix.shard }}/
   /^    runs-on: ubuntu-24.04$/a\
