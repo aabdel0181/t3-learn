@@ -1729,7 +1729,7 @@ export default function ChatView(props: ChatViewProps) {
   };
   const focusComposerStable = useStableCallback(focusComposer);
   const returnToLessonFromSideChat = () => {
-    if (activeThreadRef) returnToLesson(activeThreadRef, shouldUsePlanSidebarSheet, focusComposer);
+    if (activeThreadRef) returnToLesson(activeThreadRef, prefersPlanSidebarSheet, focusComposer);
   };
   const returnToLessonFromSideChatStable = useStableCallback(returnToLessonFromSideChat);
   const canInterruptRunningThread =
