@@ -145,14 +145,28 @@ const TIMELINE_LIST_FADE_HEADER = (
 );
 function TimelineListFooter({
   composerInset,
+  onGrow,
   children,
 }: {
   readonly composerInset: number;
+  readonly onGrow: (() => void) | undefined;
   readonly children?: ReactNode;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- reports growth of the footer's content, which the list does not follow
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || !onGrow) return;
+    let height = content.offsetHeight;
+    return observeResize(content, () => {
+      const next = content.offsetHeight;
+      if (next > height) onGrow();
+      height = next;
+    });
+  }, [onGrow]);
   return (
     <div>
-      {children}
+      <div ref={contentRef}>{children}</div>
       <div aria-hidden style={{ height: composerInset }} />
       <div aria-hidden className="h-3 sm:h-4" />
     </div>
@@ -228,7 +242,6 @@ interface MessagesTimelineProps {
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   routeThreadKey: string;
   displayThreadKey?: string;
-  paintOnly?: boolean;
   /** Off where another region already speaks the thread's status, like a subagent's bar. */
   announceTurnStatus?: boolean;
   /** Off beside the thread's own timeline, as in a side chat, so the thread's find stays its own. */
@@ -282,6 +295,8 @@ interface MessagesTimelineProps {
   onToolOutputCollapsedAtEnd?: () => void;
   /** Receives the list's viewport when it mounts; the returned cleanup runs when it goes away. */
   onViewportAttach?: (viewport: TimelineViewport) => () => void;
+  /** The footer's content grew, such as a new queued turn or status line. */
+  onFooterGrow?: () => void;
   findOpen?: boolean;
   hideEmptyPlaceholder?: boolean;
   /** What an empty timeline says; a generic invitation to send when omitted. */
@@ -344,7 +359,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   turnDiffSummaries,
   routeThreadKey,
   displayThreadKey,
-  paintOnly = false,
   threadFind = true,
   announceTurnStatus = true,
   onOpenTurnDiff,
@@ -383,6 +397,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   liveFollowEnabled,
   onToolOutputCollapsedAtEnd,
   onViewportAttach,
+  onFooterGrow,
   hideEmptyPlaceholder = false,
   emptyPlaceholder = "Send a message to start the conversation.",
   emptyPlaceholderInset,
@@ -767,7 +782,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
     setFullscreenAppRowId((current) => (fullscreen ? rowId : current === rowId ? null : current));
   };
   const alwaysRenderIndices = restoringAlwaysRender?.indices ?? [];
+  // Screen readers can only reach headings in the DOM. Keeping the first and
+  // last messages mounted lets heading navigation wrap to either end.
+  const firstMessageRow = rows.find(isMessageRow);
+  const lastMessageRow = rows.findLast(isMessageRow);
   const alwaysRenderKeys = [
+    ...(firstMessageRow ? [firstMessageRow.id] : []),
+    ...(lastMessageRow && lastMessageRow !== firstMessageRow ? [lastMessageRow.id] : []),
     ...(citationAlwaysRender?.keys ?? []),
     ...(fullscreenAppRowId === null ? [] : [fullscreenAppRowId]),
     ...new Set(
@@ -812,7 +833,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
     shouldRestorePosition: shouldRestoreVisibleContentPosition,
   };
   const timelineListFooter = (
-    <TimelineListFooter composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}>
+    <TimelineListFooter
+      composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}
+      onGrow={onFooterGrow}
+    >
       {footer}
     </TimelineListFooter>
   );
@@ -904,7 +928,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     if (restoringThreadPosition || state?.data !== rows) return;
     const isAtEnd = resolveTimelineIsAtEnd(state);
     const position = state.data.length ? resolveWorkGroupScrollAnchor(state) : undefined;
-    if (position && isAtEnd !== undefined && !paintOnly) {
+    if (position && isAtEnd !== undefined) {
       const index = state.indexByKey(position.rowId);
       const row = index === undefined ? undefined : state.elementAtIndex(index);
       const element = listRef.current?.getScrollableNode();
@@ -1075,7 +1099,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // starts from a baseline instead of a fresh, silent region.
   const activityAnnouncer = (
     <ThreadActivityAnnouncer
-      threadKey={paintOnly || !announceTurnStatus ? null : listIdentityKey}
+      threadKey={announceTurnStatus ? listIdentityKey : null}
       status={awaitingUser ?? (isWorking ? "working" : "idle")}
       requestId={awaitingRequestId}
       runId={announcedRun?.runId ?? null}
@@ -1387,6 +1411,10 @@ function TimelineHistoryControl(props: MessagesTimelineHistoryControls) {
       </div>
     </div>
   );
+}
+
+function isMessageRow(row: MessagesTimelineRow) {
+  return row.kind === "message" && row.message.role !== "system";
 }
 
 function keyExtractor(item: MessagesTimelineRow) {

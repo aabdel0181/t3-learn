@@ -23,8 +23,6 @@ export function ThreadTimeline({
   activeThreadKey,
   syncing,
   detailLoading,
-  readyMarkdownCwd,
-  readyWorkspaceRoot,
   holdTimeline = true,
   ...timelineProps
 }: Omit<ComponentProps<typeof MessagesTimeline>, "timelineEntries"> & {
@@ -36,11 +34,9 @@ export function ThreadTimeline({
   activeThreadKey: string | null;
   syncing: boolean;
   detailLoading: boolean;
-  readyMarkdownCwd: string | null;
-  readyWorkspaceRoot: string | null;
   /**
-   * Off for a side chat's timeline, which renders beside the lesson's: held, it
-   * would become the last ready timeline a thread switch paints while loading.
+   * Off for a side chat's timeline, which renders beside the lesson's and stays
+   * out of the remembered-timeline cache that thread switches paint from.
    */
   holdTimeline?: boolean;
 }) {
@@ -50,13 +46,13 @@ export function ThreadTimeline({
     visibleTurnItems,
   });
   const entries = draftEntries ?? serverEntries;
-  const displayed = holdTimeline
+  const displayedEntries = holdTimeline
     ? resolveThreadSwitchTimeline({
         loading: entries.length === 0 && syncing,
         activeThreadKey,
         nextEntries: entries,
         rememberedForActive: peekRememberedThreadTimeline<typeof entries>(activeThreadKey),
-      }).entries
+      })
     : entries;
   useLayoutEffect(() => {
     if (
@@ -67,12 +63,7 @@ export function ThreadTimeline({
     ) {
       return;
     }
-    rememberReadyThreadTimeline({
-      threadKey: activeThreadKey,
-      entries,
-      markdownCwd: readyMarkdownCwd,
-      workspaceRoot: readyWorkspaceRoot,
-    });
-  }, [activeThreadKey, detailLoading, entries, holdTimeline, readyMarkdownCwd, readyWorkspaceRoot]);
-  return <MessagesTimeline {...timelineProps} timelineEntries={displayed} />;
+    rememberReadyThreadTimeline({ threadKey: activeThreadKey, entries });
+  }, [activeThreadKey, detailLoading, entries, holdTimeline]);
+  return <MessagesTimeline {...timelineProps} timelineEntries={displayedEntries} />;
 }

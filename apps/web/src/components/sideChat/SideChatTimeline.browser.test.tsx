@@ -17,11 +17,7 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
 
 import { render } from "../../../test/render";
 import { makeStreamingTimelineFixture } from "../../test-fixtures";
-import {
-  peekHeldThreadTimeline,
-  peekRememberedThreadTimeline,
-  resetHeldThreadTimeline,
-} from "../ChatView.logic";
+import { peekRememberedThreadTimeline, resetHeldThreadTimeline } from "../ChatView.logic";
 import { SideChatTimeline } from "./SideChatTimeline";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -58,7 +54,7 @@ function timelineContainer() {
   return container;
 }
 
-it("shows the side chat's replies without entering the lesson's held timeline", async () => {
+it("shows the side chat's replies without entering the remembered-timeline cache", async () => {
   setup();
   const fixture = makeStreamingTimelineFixture("A Box is a bounded space of numbers.");
   state.visibleTurnItems = fixture.visibleTurnItems;
@@ -71,7 +67,6 @@ it("shows the side chat's replies without entering the lesson's held timeline", 
 
   await expect.element(screen.getByText("A Box is a bounded space of numbers.")).toBeVisible();
   expect(peekRememberedThreadTimeline(scopedThreadKey(sideChatRef))).toBeNull();
-  expect(peekHeldThreadTimeline()).toBeNull();
 });
 
 it("offers no fork on a side chat's finished reply", async () => {
