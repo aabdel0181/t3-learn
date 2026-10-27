@@ -1201,7 +1201,7 @@ effectIt.effect(
             strategy: "manual_context",
             status: "ready",
             summaryMessageId: null,
-            summaryText: "Earlier opening context",
+            summaryText: "Summary of the lesson so far:\nLESSON SUMMARY",
             createdByProviderInstanceId: null,
             createdAt: run.requestedAt,
             updatedAt: run.requestedAt,

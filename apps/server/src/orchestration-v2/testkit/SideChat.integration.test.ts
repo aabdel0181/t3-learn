@@ -5,8 +5,11 @@ import {
   MessageId,
   ProviderDriverKind,
   RunId,
+  SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
   SIDE_CHAT_EXCERPT_MAX_CHARS,
+  SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
+  SIDE_CHAT_WAIT_CAP_MS,
   TextGenerationError,
   ThreadId,
 } from "@t3tools/contracts";
@@ -14,6 +17,7 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -32,6 +36,7 @@ import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import { SIDE_CHAT_OPENING_FRAMING } from "../sideChat/sideChatText.ts";
 import { makePromptRecordingAdapter } from "./PromptRecordingAdapter.ts";
 import * as ProviderReplayHarness from "./ProviderReplayHarness.ts";
+import { makeSideChatHarness } from "./SideChatHarness.ts";
 import {
   CLAUDE_SELECTION,
   completeLatestRun,
@@ -623,6 +628,53 @@ describe("side chat opening context", () => {
         assert.include(prompt, LESSON_SUMMARY);
       }),
     ),
+  );
+
+  it.effect("gives a summary that missed the first turn to the next turn, once", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-opening-late");
+      yield* Effect.gen(function* () {
+        const label = "observation space";
+        const lateSummary = "LATE LESSON SUMMARY";
+        const gate = yield* Deferred.make<string | null>();
+        harness.scriptOpening(label, { gate });
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label });
+        const afterAsk = yield* harness.mark;
+        const question = yield* harness.send(space, "What is an observation space?", {
+          await: "none",
+        });
+        yield* TestClock.adjust(Duration.millis(SIDE_CHAT_WAIT_CAP_MS));
+        yield* harness.awaitRun(afterAsk, question, "completed");
+
+        const afterSummary = yield* harness.mark;
+        yield* Deferred.succeed(gate, lateSummary);
+        yield* harness.awaitEvent(
+          afterSummary,
+          (event) =>
+            event.type === "thread.metadata-updated" &&
+            event.threadId === space &&
+            event.payload.sideChat?.opening.status === "ready",
+        );
+        yield* harness.send(space, "Is it always a Box?");
+        yield* harness.send(space, "And a Discrete space?");
+
+        const prompts = harness.prompts(space);
+        assert.lengthOf(prompts, 3);
+        assert.include(prompts[0], "The lesson summary is unavailable.");
+        assert.notInclude(prompts[0], lateSummary);
+        assert.include(prompts[1], lateSummary);
+        assert.notInclude(prompts[2], lateSummary);
+
+        const { turnItems } = yield* Orchestrator.OrchestratorV2.use((orchestrator) =>
+          orchestrator.getThreadProjection(space),
+        );
+        assert.deepEqual(
+          turnItems.flatMap((item) => (item.type === "handoff" ? [item.title] : [])),
+          [SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE, SIDE_CHAT_SUMMARY_HANDOFF_TITLE],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
   );
 });
 

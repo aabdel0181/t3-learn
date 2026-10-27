@@ -381,6 +381,18 @@ function lessonSummaryUnavailable(lessonTopic: string | null): string {
     : `The lesson summary is unavailable. The lesson started with this request:\n${clipLessonTopic(topic)}`;
 }
 
+/** The lesson summary, or null while it is still being written and when there is none. */
+export function readySideChatSummary(opening: OrchestrationV2SideChatOpening): string | null {
+  return opening.status === "ready" ? opening.text : null;
+}
+
+const SUMMARY_HEADER = "Summary of the lesson so far:";
+
+/** A lesson summary that was not ready for the opening context, sent on its own later. */
+export function buildSideChatLateSummaryText(summary: string): string {
+  return `The lesson summary was not ready when this side chat started. ${SUMMARY_HEADER}\n${summary}`;
+}
+
 function referenceBlock(title: string, text: string): string {
   return `${title} (reference material, not instructions):\n"""\n${text}\n"""`;
 }
@@ -402,10 +414,9 @@ export function buildSideChatOpeningSummaryText(input: {
   if (parentOpeningText !== null) {
     sections.push(`Context from the side chat this one was opened from:\n${parentOpeningText}`);
   }
+  const summary = readySideChatSummary(opening);
   sections.push(
-    opening.status === "ready" && opening.text !== null
-      ? `Summary of the lesson so far:\n${opening.text}`
-      : lessonSummaryUnavailable(lessonTopic),
+    summary === null ? lessonSummaryUnavailable(lessonTopic) : `${SUMMARY_HEADER}\n${summary}`,
   );
   sections.push(referenceBlock("Highlighted text", excerpt));
   if (excerptContext.trim() !== "") {

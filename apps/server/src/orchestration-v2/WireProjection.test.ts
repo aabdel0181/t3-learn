@@ -7,8 +7,10 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
   SIDE_CHAT_NOTES_HANDOFF_TITLE,
+  SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
   ThreadId,
   TurnItemId,
   type OrchestrationV2DomainEvent,
@@ -96,7 +98,12 @@ describe("orchestration V2 wire projection", () => {
       strategy: "manual_context" as const,
       summary: "WHAT_THE_AI_WAS_GIVEN",
     });
-    for (const title of [SIDE_CHAT_CONTEXT_HANDOFF_TITLE, SIDE_CHAT_NOTES_HANDOFF_TITLE]) {
+    for (const title of [
+      SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+      SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
+      SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
+      SIDE_CHAT_NOTES_HANDOFF_TITLE,
+    ]) {
       const item = handoff(title);
       expect(projectTurnItemForWire(item)).not.toHaveProperty("summary");
       expect(projectTurnItemForDetail(item)).toMatchObject({ summary: "WHAT_THE_AI_WAS_GIVEN" });

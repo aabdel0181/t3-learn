@@ -5,10 +5,13 @@ import {
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2Run,
   type OrchestrationV2SideChat,
+  type OrchestrationV2SideChatOpening,
   type OrchestrationV2TurnItem,
   type ProviderThreadId,
   type RunId,
+  SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
   SIDE_CHAT_WAIT_CAP_MS,
   type ThreadId,
   type TurnItemId,
@@ -19,6 +22,7 @@ import * as Option from "effect/Option";
 
 import type { PendingOrchestrationEffectV2 } from "../EffectOutbox.ts";
 import type * as ProjectionStore from "../ProjectionStore.ts";
+import { buildSideChatLateSummaryText, readySideChatSummary } from "./sideChatText.ts";
 
 /** The outbox id of a side chat's opening summary. The open command's id is its request id. */
 export function sideChatOpeningEffectId(requestId: string): string {
@@ -55,6 +59,34 @@ export function isSideChatOpeningHandoff(
   handoff: Pick<OrchestrationV2ContextHandoff, "id" | "targetRunId">,
 ): boolean {
   return handoff.id === sideChatOpeningHandoffId(handoff.targetRunId);
+}
+
+/** The lesson summary handed to `runId` because it missed the opening context. */
+export function sideChatLateSummaryHandoffId(runId: RunId): ContextHandoffId {
+  return ContextHandoffId.make(`side-chat-late-summary:${runId}`);
+}
+
+/** Whether `handoff` is a lesson summary that some run of a side chat received late. */
+export function isSideChatLateSummaryHandoff(
+  handoff: Pick<OrchestrationV2ContextHandoff, "id" | "targetRunId">,
+): boolean {
+  return handoff.id === sideChatLateSummaryHandoffId(handoff.targetRunId);
+}
+
+/**
+ * The lesson summary still owed to a side chat whose opening context went out without it, or null:
+ * no context went out yet (it will carry the summary), the summary is not ready, or a handoff
+ * already carried its text. The text is the record, so a summary is sent at most once.
+ */
+export function owedSideChatSummary(
+  opening: OrchestrationV2SideChatOpening,
+  contextHandoffs: ReadonlyArray<
+    Pick<OrchestrationV2ContextHandoff, "id" | "targetRunId" | "summaryText">
+  >,
+): string | null {
+  const summary = readySideChatSummary(opening);
+  if (summary === null || !contextHandoffs.some(isSideChatOpeningHandoff)) return null;
+  return contextHandoffs.some((handoff) => handoff.summaryText.includes(summary)) ? null : summary;
 }
 
 export interface SideChatContextHandoff {
@@ -132,15 +164,41 @@ export function buildSideChatOpeningContext(input: {
   readonly rootNodeId: NodeId;
   readonly providerThreadId: ProviderThreadId;
   readonly summaryText: string;
+  /** Whether `summaryText` carries the lesson summary rather than the fallback. */
+  readonly withSummary: boolean;
   readonly turnItemId: TurnItemId;
   readonly createdAt: DateTime.Utc;
 }): SideChatContextHandoff {
+  const { withSummary, ...rest } = input;
   return buildSideChatContextHandoff({
-    ...input,
+    ...rest,
     id: sideChatOpeningHandoffId(input.run.id),
-    title: SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+    title: withSummary ? SIDE_CHAT_CONTEXT_HANDOFF_TITLE : SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
     ordinalOffset: -1,
     coveredRunOrdinals: { from: 1, to: 1 },
+  });
+}
+
+/**
+ * A lesson summary owed to a side chat (`owedSideChatSummary`), handed to `run`. A run gets either
+ * this or an opening context, so it takes the opening's place in the timeline.
+ */
+export function buildSideChatLateSummary(input: {
+  readonly run: OrchestrationV2Run;
+  readonly rootNodeId: NodeId;
+  readonly providerThreadId: ProviderThreadId;
+  readonly summary: string;
+  readonly turnItemId: TurnItemId;
+  readonly createdAt: DateTime.Utc;
+}): SideChatContextHandoff {
+  const { summary, ...rest } = input;
+  return buildSideChatContextHandoff({
+    ...rest,
+    id: sideChatLateSummaryHandoffId(input.run.id),
+    title: SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
+    ordinalOffset: -1,
+    coveredRunOrdinals: { from: input.run.ordinal, to: input.run.ordinal },
+    summaryText: buildSideChatLateSummaryText(summary),
   });
 }
 
@@ -155,7 +213,7 @@ export const loadSideChatOpeningSources = Effect.fn("loadSideChatOpeningSources"
 ) {
   // Finding the first request reads every user message of the lesson, so only without a summary.
   const lessonTopic =
-    sideChat.opening.status === "ready" && sideChat.opening.text !== null
+    readySideChatSummary(sideChat.opening) !== null
       ? null
       : ((yield* projectionStore.getThreadRecords(sideChat.lessonThreadId, ["messages"], {
           messageRoles: ["user"],

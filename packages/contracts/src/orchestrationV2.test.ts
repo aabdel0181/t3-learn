@@ -29,9 +29,11 @@ import {
   OrchestrationV2ThreadShellJson,
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
+  SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
   SIDE_CHAT_EXCERPT_MAX_CHARS,
   SIDE_CHAT_NOTES_HANDOFF_TITLE,
+  SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
   sideChatHandoffTitle,
   threadShellSideChatOf,
 } from "./orchestrationV2.ts";
@@ -902,6 +904,12 @@ describe("sideChatHandoffTitle", () => {
     );
     expect(sideChatHandoffTitle(handoff(SIDE_CHAT_NOTES_HANDOFF_TITLE, "manual_context"))).toBe(
       "Side-chat notes included",
+    );
+    expect(
+      sideChatHandoffTitle(handoff(SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE, "manual_context")),
+    ).toBe("Side chat context (summary unavailable)");
+    expect(sideChatHandoffTitle(handoff(SIDE_CHAT_SUMMARY_HANDOFF_TITLE, "manual_context"))).toBe(
+      "Lesson summary",
     );
   });
 

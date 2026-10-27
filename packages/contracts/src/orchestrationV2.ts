@@ -389,6 +389,10 @@ export const SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS = 24_000;
 
 /** Titles of the handoff turn items that carry side chat text. The server writes them, the web renders them. */
 export const SIDE_CHAT_CONTEXT_HANDOFF_TITLE = "Side chat context";
+/** The opening context sent before the lesson summary was ready. */
+export const SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE = "Side chat context (summary unavailable)";
+/** A lesson summary that missed the opening context, sent on its own with a later turn. */
+export const SIDE_CHAT_SUMMARY_HANDOFF_TITLE = "Lesson summary";
 export const SIDE_CHAT_NOTES_HANDOFF_TITLE = "Side-chat notes included";
 
 /** Where in the lesson the highlighted text sat. Offsets are UTF-16 positions, as in `AssistantCitation`. */
@@ -1756,6 +1760,8 @@ export type OrchestrationV2TurnItem = typeof OrchestrationV2TurnItem.Type;
 
 const SIDE_CHAT_HANDOFF_TITLES: ReadonlySet<string> = new Set([
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
+  SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
+  SIDE_CHAT_SUMMARY_HANDOFF_TITLE,
   SIDE_CHAT_NOTES_HANDOFF_TITLE,
 ]);
 

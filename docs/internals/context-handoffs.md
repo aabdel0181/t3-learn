@@ -30,11 +30,12 @@ keep 240-character `compactText` lines there for display, and legacy v1 imports 
 suffix built within a 32,000-character budget. Neither is a limit on what portable handoffs
 deliver.
 
-Side chats deliver two handoffs: the opening context of a side chat's fresh provider thread, and
-the notes a lesson receives with a user's message ([side chats](./side-chats.md)). Both use
-`manual_context` with `history` undefined and their whole content in `summaryText`, so
-`selectHistory` has nothing to trim and each arrives whole or not at all. Notes are optional at
-delivery. When the summaries do not all fit, `deliverContextHandoffs` drops the whole notes
-handoff, logs it, and plans the rest without it, so notes never fail the lesson's turn and never
-push out the opening context. Notes count as delivered when they are attached, not when they reach
-the provider, so notes dropped for budget are not offered again once the run completes.
+Side chats deliver three handoffs: the opening context of a side chat's fresh provider thread, a
+lesson summary that missed that context, and the notes a lesson receives with a user's message
+([side chats](./side-chats.md)). All use `manual_context` with `history` undefined and their whole
+content in `summaryText`, so `selectHistory` has nothing to trim and each arrives whole or not at
+all. Notes and late summaries are optional at delivery. When the summaries do not all fit,
+`deliverContextHandoffs` drops those handoffs whole, logs it, and plans the rest without them, so
+they never fail a turn and never push out the opening context. They count as delivered when they
+are attached, not when they reach the provider, so one dropped for budget is not offered again once
+the run completes.
