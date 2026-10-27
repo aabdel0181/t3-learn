@@ -12,7 +12,7 @@ import {
   pickedQuery,
   rankMessageMatches,
 } from "@t3tools/shared/paletteSearch";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { type EnvironmentId, isSideChatThread, type ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageSquareIcon } from "lucide-react";
@@ -223,6 +223,12 @@ export function useCommandPaletteThreadItems(input: {
         // Opens the thread with find on the word at the matched message, so it is in view.
         run: async () => {
           await item.run();
+          // A side chat opens in its lesson's panel, which hosts no find.
+          const matched = threads.find(
+            (thread) =>
+              thread.environmentId === match.environmentId && thread.id === match.threadId,
+          );
+          if (matched !== undefined && isSideChatThread(matched)) return;
           openThreadFindOnQuery(
             scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
             findForMessageMatch(match, messageSearch.query),

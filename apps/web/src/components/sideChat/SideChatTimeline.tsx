@@ -102,6 +102,7 @@ export function SideChatTimeline(props: {
         turnDiffSummaries={[]}
         activeThreadEnvironmentId={props.sideChatRef.environmentId}
         routeThreadKey={sideChatKey}
+        threadFind={false}
         onOpenThread={props.onOpenThread}
         {...(props.onOpenSideChat === undefined ? {} : { onOpenSideChat: props.onOpenSideChat })}
         onRollbackCheckpoint={noop}

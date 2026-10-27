@@ -116,6 +116,7 @@ vi.mock(import("../../hooks/useSettings"), async (importOriginal) => ({
 import { act, render, type Screen } from "../../../test/render";
 import { useClosedViewStore } from "../../closedViewStore";
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { attachThreadFindTimeline, closeThreadFind, openThreadFind } from "../chat/threadFindStore";
 import {
   type SideChatSurface,
   selectThreadRightPanelState,
@@ -889,6 +890,31 @@ it("goes to the source of a sent side-chat citation in the panel, not on its rou
   await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
   expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
+});
+
+it("leaves the lesson's find alone while the side chat's timeline shows", async () => {
+  setupSide1History();
+  const lessonKey = scopedThreadKey(LESSON_REF);
+  const navigateLesson = vi.fn();
+  using _lessonTimeline = {
+    [Symbol.dispose]: attachThreadFindTimeline({
+      threadKey: lessonKey,
+      readPosition: () => undefined,
+      navigate: navigateLesson,
+    }),
+  };
+  CSS.highlights.set("t3-thread-find", new Highlight());
+  using _highlights = { [Symbol.dispose]: () => CSS.highlights.delete("t3-thread-find") };
+  await using screen = await render(<Panel onFocusLesson={() => {}} />, {
+    router: LESSON_PATH,
+  });
+  using _find = { [Symbol.dispose]: closeThreadFind };
+
+  await expect.element(screen.getByText("Inspect")).toBeInTheDocument();
+  openThreadFind(lessonKey);
+
+  expect(navigateLesson).toHaveBeenCalledOnce();
+  expect(CSS.highlights.has("t3-thread-find")).toBe(true);
 });
 
 it("types into the side chat when focus is elsewhere in the panel", async () => {

@@ -70,6 +70,8 @@ const SearchRequest = Schema.Struct({
   projectId: Schema.NullOr(ProjectId),
   /** Threads the caller already lists, left out before the hit limit. */
   excludedThreadIds: TokenList,
+  /** An agent's search never finds side chats, so they must not use up its hit limit. */
+  excludeSideChats: Schema.optional(Schema.Boolean),
 });
 const SearchRow = Schema.Struct({
   messageRowid: Schema.Number,
@@ -160,7 +162,13 @@ export function buildSearchSnippet(text: string, matchStart: number): string {
 // The scan folds ASCII case only, so accent variants and non-ASCII case variants may not match.
 export const messageHitsQuery = (
   sql: SqlClient.SqlClient,
-  { match, substrings, projectId, excludedThreadIds }: typeof SearchRequest.Encoded,
+  {
+    match,
+    substrings,
+    projectId,
+    excludedThreadIds,
+    excludeSideChats,
+  }: typeof SearchRequest.Encoded,
 ) => sql`
     WITH eligible AS MATERIALIZED (
       SELECT threads.thread_id, threads.project_id
@@ -174,6 +182,7 @@ export const messageHitsQuery = (
         AND threads.thread_id NOT IN (SELECT value FROM json_each(${excludedThreadIds}))
         AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
           IS NOT 'subagent'
+        ${excludeSideChats === true ? sql`AND json_extract(threads.payload_json, '$.sideChat') IS NULL` : sql``}
     )
     ${
       match === null
@@ -415,6 +424,7 @@ export const make = Effect.gen(function* () {
       readonly excludedThreadIds?: ReadonlySet<ThreadId>;
       /** Off for an agent's search, which has no use for the user's picks. */
       readonly picks?: boolean;
+      readonly excludeSideChats?: boolean;
     },
   ) {
     // One message per thread: the best word match, then what the user wrote,
@@ -446,6 +456,7 @@ export const make = Effect.gen(function* () {
               ...messageSearch,
               projectId: input.projectId,
               excludedThreadIds: [...(input.excludedThreadIds ?? [])],
+              excludeSideChats: input.excludeSideChats === true,
             });
       }),
     );
@@ -559,6 +570,7 @@ export const make = Effect.gen(function* () {
       projectId: input.projectId ?? null,
       excludedThreadIds: shown,
       picks: false,
+      excludeSideChats: true,
     });
     const messageHits = matches
       .filter((match) => subjectById.has(match.threadId))

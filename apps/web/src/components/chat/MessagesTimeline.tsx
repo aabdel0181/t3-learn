@@ -231,6 +231,8 @@ interface MessagesTimelineProps {
   paintOnly?: boolean;
   /** Off where another region already speaks the thread's status, like a subagent's bar. */
   announceTurnStatus?: boolean;
+  /** Off beside the thread's own timeline, as in a side chat, so the thread's find stays its own. */
+  threadFind?: boolean;
   onOpenTurnDiff?: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   /** Marks the side chats anchored in assistant replies and opens them; omitted, none are marked. */
@@ -343,6 +345,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   routeThreadKey,
   displayThreadKey,
   paintOnly = false,
+  threadFind = true,
   announceTurnStatus = true,
   onOpenTurnDiff,
   onOpenThread,
@@ -1161,7 +1164,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   useThreadFindPositionReader({
     threadKey: listIdentityKey,
     navigate: navigateTimeline,
-    timelineViewportElement,
+    // Find keeps one timeline slot, which must stay with the thread's own timeline.
+    timelineViewportElement: threadFind ? timelineViewportElement : null,
     findFoldRunIds,
     timelineEntries,
     latestRun,
@@ -1173,6 +1177,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
 
   useThreadFindNavigation({
+    enabled: threadFind,
     // Find reveals its match only after the opening restore settles; both
     // scroll the list directly, so the restore would otherwise pull it back.
     listReady: findListReady && !restoringThreadPosition,

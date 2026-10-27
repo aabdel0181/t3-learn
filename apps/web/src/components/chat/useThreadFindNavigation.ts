@@ -172,6 +172,7 @@ function revealThreadFindMatch(
 }
 
 export function useThreadFindNavigation({
+  enabled = true,
   container,
   query,
   match,
@@ -183,6 +184,7 @@ export function useThreadFindNavigation({
   listReady,
   historyControls,
 }: {
+  enabled?: boolean;
   container: HTMLElement | null;
   query: string;
   match: ThreadFindMatch | null;
@@ -273,6 +275,7 @@ export function useThreadFindNavigation({
   );
 
   useThreadFindHighlights({
+    enabled,
     container,
     query,
     activeRowId: match?.entryId ?? null,

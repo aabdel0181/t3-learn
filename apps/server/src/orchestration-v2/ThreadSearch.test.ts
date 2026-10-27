@@ -914,6 +914,39 @@ it.layer(layerTest)("ThreadSearch.searchThreads", (it) => {
     }),
   );
 
+  it.effect("finds a message match behind many stronger side-chat hits", () =>
+    Effect.gen(function* () {
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const search = yield* ThreadSearch.ThreadSearch;
+      const project = ProjectId.make("project:crowded-agent");
+      yield* createProject(project);
+      const lesson = ThreadId.make("thread:crowded-agent-lesson");
+      const parser = ThreadId.make("thread:crowded-agent-parser");
+      yield* Effect.forEach(
+        [
+          thread(lesson, project, { title: "Lesson" }),
+          thread(parser, project, { title: "Parser rewrite" }),
+          message(parser, "parser-recursion", "assistant", "notes that mention recursion once"),
+          ...Array.from({ length: 60 }, (_, index) => {
+            const id = ThreadId.make(`thread:crowded-agent-side-chat-${index}`);
+            return [
+              thread(id, project, { title: `Side chat ${index}`, sideChatOf: lesson }),
+              message(id, `side-chat-${index}-a`, "user", "recursion", { minute: 2 }),
+              message(id, `side-chat-${index}-b`, "user", "recursion recursion", { minute: 3 }),
+            ];
+          }).flat(),
+        ],
+        projections.apply,
+        { discard: true },
+      );
+      const { matches } = yield* search.searchThreads({ query: "recursion" });
+      assert.deepEqual(
+        matches.map((match) => match.threadId),
+        [parser],
+      );
+    }),
+  );
+
   it.effect("leaves titled threads out before the hit limit", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
