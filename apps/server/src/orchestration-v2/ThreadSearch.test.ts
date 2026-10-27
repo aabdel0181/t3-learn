@@ -951,7 +951,15 @@ it.layer(layerTest)("ThreadSearch.searchThreads", (it) => {
           match.threadId.startsWith("thread:crowded-agent-side-chat"),
         ),
       );
-      const list = yield* search.search({ query: "recursion", excludeSideChats: true });
+      const list = yield* ThreadSearch.searchThreadsWithOlderSettledRows({
+        request: { query: "recursion", excludeSideChats: true },
+        search: search.search,
+        searchOlderSettled: search.searchOlderSettled,
+        sql: yield* SqlClient.SqlClient,
+        readThreads: (threadIds) =>
+          projections.readShellSnapshot({ location: "active", threadIds }),
+        latestSequence: Effect.succeed(0),
+      });
       assert.deepEqual(
         list.matches.map((match) => match.threadId),
         [parser],

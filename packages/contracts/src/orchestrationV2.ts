@@ -3645,7 +3645,10 @@ export const OrchestrationV2SearchThreadsInput = Schema.Struct({
   environmentLabel: Schema.optionalKey(Schema.String),
   /** Skips message search, for pickers that match titles only. */
   titlesOnly: Schema.optionalKey(Schema.Boolean),
-  /** Leaves side chats out before the hit limit, for lists that never show them. */
+  /**
+   * Leaves side chats out before the hit limit, for lists that never show them. Unlike the keys
+   * above it goes to every server; one without side chats ignores it.
+   */
   excludeSideChats: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationV2SearchThreadsInput = typeof OrchestrationV2SearchThreadsInput.Type;
