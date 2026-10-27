@@ -21,16 +21,22 @@ output_file="$root/.github/workflows/t3-learn-ci.yml"
 
 # blacksmith-6vcpu-macos-26 is Apple silicon; GitHub's macos-26 is arm64 too.
 # Lint always runs and Check already needs it, so the drift guard lives there.
-# Test Web runs on 8 vCPU upstream and 4 slower ones here. With a worker per
-# core, the heaviest file previews miss their 15s test and 1s waitFor windows,
-# so the fork runs two workers and allows the longer run.
+# Test Web runs on one 8 vCPU runner upstream. Browser test files share one
+# Chromium page, and on a slower 4 vCPU runner the heaviest file previews then
+# miss their 15s test and waitFor windows, so the fork splits Test Web across
+# three runners. vp run passes a `--` through, so the flag follows the script.
 transform='
 s/^name: CI$/name: T3 Learn CI/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-ubuntu-2404$/\1runs-on: ubuntu-24.04/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-macos-26$/\1runs-on: macos-26/
 /^  test_web:$/,/^  [a-z_]+:$/{
-  s/^(    timeout-minutes:) 10$/\1 20/
-  s/^(        run: vp run --filter @t3tools\/web test)$/\1 -- --maxWorkers=2/
+  s/^(    name: Test Web)$/\1 ${{ matrix.shard }}/
+  /^    runs-on: ubuntu-24.04$/a\
+    strategy:\
+      fail-fast: false\
+      matrix:\
+        shard: [1, 2, 3]
+  s/^(        run: vp run --filter @t3tools\/web test)$/\1 --shard ${{ matrix.shard }}\/${{ strategy.job-total }}/
 }
 /^      - name: Reject repository-owned PR assets$/i\
       - name: Require t3-learn-ci.yml to match ci.yml\
@@ -67,8 +73,10 @@ count() { grep -c "$1" <<<"$generated" || true; }
 [[ $(count '^    name: Check$') -eq 1 ]] || fail "aggregate Check job missing"
 [[ $(count '^      - name: Require t3-learn-ci.yml to match ci.yml$') -eq 1 ]] ||
   fail "drift guard not inserted into Lint"
-[[ $(count '^        run: vp run --filter @t3tools/web test -- --maxWorkers=2$') -eq 1 ]] ||
-  fail "Test Web worker cap not applied"
+[[ $(count '^    name: Test Web \${{ matrix.shard }}$') -eq 1 ]] ||
+  fail "Test Web shards not applied"
+[[ $(count '^        run: vp run --filter @t3tools/web test --shard ') -eq 1 ]] ||
+  fail "Test Web shard flag not applied"
 # Any runner label, including one set through a matrix or an input.
 if grep -nE 'blacksmith-[0-9]+vcpu-' <<<"$generated" >&2; then
   fail "unmapped Blacksmith runner"
