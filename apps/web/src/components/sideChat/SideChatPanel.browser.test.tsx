@@ -33,6 +33,8 @@ const state = vi.hoisted(() => ({
   noMarks: [] as ReadonlyArray<unknown>,
   canOperate: true,
   dispatch: (async () => undefined) as (...args: never) => Promise<unknown>,
+  /** Each citation activation the panel's timeline asked to reveal, by its key. */
+  citedHistoryRequests: [] as Array<{ key: string; threadId: string; messageId: string }>,
 }));
 
 vi.mock(import("../../state/entities"), async (importOriginal) => ({
@@ -62,6 +64,20 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
     ref === null
       ? state.noMarks
       : (state.marks[`${ref.threadId}:${messageId}`] ?? state.noMarks)) as never,
+}));
+
+// The real procedure pages the cited thread's history from a server the test does not serve.
+vi.mock(import("../chat/citationProcedure"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useCitedHistory: ((
+    request: { key: string; citation: { threadId: string; messageId: string } } | null,
+  ) => {
+    if (request !== null && !state.citedHistoryRequests.some((seen) => seen.key === request.key)) {
+      const { threadId, messageId } = request.citation;
+      state.citedHistoryRequests.push({ key: request.key, threadId, messageId });
+    }
+    return { _tag: "loading" };
+  }) as never,
 }));
 
 vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) => ({
@@ -112,7 +128,6 @@ import {
   makeThreadProjectionFixture,
 } from "../../test-fixtures";
 import type { Thread } from "../../types";
-import { toastManager } from "../ui/toast";
 import { askInSideChat } from "./openSideChat";
 import { pendingSideChatThreadIds, usePendingSideChatStore } from "./pendingSideChatStore";
 import { SideChatMapSurface } from "./SideChatMap";
@@ -236,6 +251,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
   state.visibleTurnItems = [];
   state.marks = {};
   state.canOperate = true;
+  state.citedHistoryRequests = [];
   useRightPanelStore.setState({
     byThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
@@ -252,6 +268,11 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
 function showSideChat(topThreadId: string, threadId: string) {
   useRightPanelStore.getState().openSideChat(LESSON_REF, { topThreadId, threadId });
 }
+
+/** The replies the panel's timeline was asked to reveal, one per activation. */
+const citedReplies = () =>
+  state.citedHistoryRequests.map(({ threadId, messageId }) => ({ threadId, messageId }));
+const SIDE_1_REPLY = { threadId: "side-1", messageId: "side-1-reply" };
 
 const surfaces = () =>
   selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces;
@@ -749,7 +770,6 @@ it("brings the lesson into view to reveal a top-level side chat's highlight ther
 it("reveals a nested highlight in its parent side chat inside the panel", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
-  // side-1's history lacks the cited reply, so each reveal ends in one warning.
   state.projections = {
     "side-1": sideChatProjection(SIDE_1),
     "nested-1": sideChatProjection(NESTED_1),
@@ -758,22 +778,19 @@ it("reveals a nested highlight in its parent side chat inside the panel", async 
     .visibleTurnItems satisfies ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
   showSideChat("side-1", "nested-1");
   await using screen = await renderPanel();
-  using toast = vi.spyOn(toastManager, "add");
-  const revealWarnings = () =>
-    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
 
   await expect.element(revealButton(screen)).toHaveTextContent("Box");
   await revealButton(screen).click();
 
   expect(surfaces()).toMatchObject([{ id: "side-chat:side-1", threadId: "side-1" }]);
-  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+  await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
 
   // Walking forward and back returns to side-1 without revealing the highlight again.
   await crumb(screen, "Box").click();
   await expect.element(crumb(screen, "Box")).toHaveAttribute("aria-current", "page");
   await crumb(screen, "observation space").click();
   await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
-  expect(revealWarnings()).toHaveLength(1);
+  expect(citedReplies()).toEqual([SIDE_1_REPLY]);
 });
 
 it("quotes a selection cited inside the panel into the side chat's draft, not the lesson's", async () => {
@@ -833,7 +850,7 @@ const SIDE_1_CITATION: AssistantCitation = {
   suffix: ".",
 };
 
-/** side-1 with its history loaded; a reply cited from it is missing, so a reveal ends in one warning. */
+/** side-1 with its history loaded, and a reply cited from it. */
 function setupSide1History(userText = "Inspect") {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1];
@@ -852,13 +869,10 @@ it("reveals a side-chat reply cited in its draft in the panel, not on the side c
     .getState()
     .setPrompt(sideChatRef("side-1"), `${serializeAssistantCitation(SIDE_1_CITATION)} `);
   await using screen = await renderPanel({ router: LESSON_PATH });
-  using toast = vi.spyOn(toastManager, "add");
-  const revealWarnings = () =>
-    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
 
   await screen.getByRole("link", { name: "View cited assistant text: a bounded space" }).click();
 
-  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+  await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
   expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
 });
@@ -866,16 +880,13 @@ it("reveals a side-chat reply cited in its draft in the panel, not on the side c
 it("goes to the source of a sent side-chat citation in the panel, not on its route", async () => {
   setupSide1History(`${serializeAssistantCitation(SIDE_1_CITATION)} what is this?`);
   await using screen = await renderPanel({ router: LESSON_PATH });
-  using toast = vi.spyOn(toastManager, "add");
-  const revealWarnings = () =>
-    toast.mock.calls.filter(([options]) => options.title === "The cited response is unavailable");
 
   await screen
     .getByRole("button", { name: "Quoted assistant text: a bounded space. Show details" })
     .click();
   await page.getByRole("link", { name: "Go to source" }).click();
 
-  await vi.waitFor(() => expect(revealWarnings()).toHaveLength(1));
+  await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
   expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
 });
