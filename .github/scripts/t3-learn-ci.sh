@@ -21,10 +21,17 @@ output_file="$root/.github/workflows/t3-learn-ci.yml"
 
 # blacksmith-6vcpu-macos-26 is Apple silicon; GitHub's macos-26 is arm64 too.
 # Lint always runs and Check already needs it, so the drift guard lives there.
+# Test Web runs on 8 vCPU upstream and 4 slower ones here. With a worker per
+# core, the heaviest file previews miss their 15s test and 1s waitFor windows,
+# so the fork runs two workers and allows the longer run.
 transform='
 s/^name: CI$/name: T3 Learn CI/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-ubuntu-2404$/\1runs-on: ubuntu-24.04/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-macos-26$/\1runs-on: macos-26/
+/^  test_web:$/,/^  [a-z_]+:$/{
+  s/^(    timeout-minutes:) 10$/\1 20/
+  s/^(        run: vp run --filter @t3tools\/web test)$/\1 -- --maxWorkers=2/
+}
 /^      - name: Reject repository-owned PR assets$/i\
       - name: Require t3-learn-ci.yml to match ci.yml\
         run: bash .github/scripts/t3-learn-ci.sh && git diff --exit-code -- .github/workflows/t3-learn-ci.yml\
@@ -60,6 +67,8 @@ count() { grep -c "$1" <<<"$generated" || true; }
 [[ $(count '^    name: Check$') -eq 1 ]] || fail "aggregate Check job missing"
 [[ $(count '^      - name: Require t3-learn-ci.yml to match ci.yml$') -eq 1 ]] ||
   fail "drift guard not inserted into Lint"
+[[ $(count '^        run: vp run --filter @t3tools/web test -- --maxWorkers=2$') -eq 1 ]] ||
+  fail "Test Web worker cap not applied"
 # Any runner label, including one set through a matrix or an input.
 if grep -nE 'blacksmith-[0-9]+vcpu-' <<<"$generated" >&2; then
   fail "unmapped Blacksmith runner"
