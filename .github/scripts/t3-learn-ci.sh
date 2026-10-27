@@ -5,8 +5,14 @@
 # conflict with every upstream sync, so the fork keeps ci.yml untouched (and
 # disabled) and runs this generated copy on GitHub-hosted runners instead.
 #
-# Rerun after every upstream sync that touches ci.yml:
+# Rerun after every upstream sync and commit the result if it changed:
 #   bash .github/scripts/t3-learn-ci.sh
+# Lint fails while the committed copy differs from this script's output.
+#
+# ci-changes.cjs runs the macOS job only when ci.yml (not this script or its
+# output) changes, so a PR that changes the macOS runner mapping skips it.
+# Prove such a change with `gh workflow run t3-learn-ci.yml --ref <branch>` and
+# a passing Mobile Native Static Analysis job before merging.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -14,15 +20,25 @@ source_file="$root/.github/workflows/ci.yml"
 output_file="$root/.github/workflows/t3-learn-ci.yml"
 
 # blacksmith-6vcpu-macos-26 is Apple silicon; GitHub's macos-26 is arm64 too.
-# workflow_dispatch runs every job on demand: ci-changes has no base commit to
-# diff against and fails open.
+# Lint always runs and Check already needs it, so the drift guard lives there.
 transform='
 s/^name: CI$/name: T3 Learn CI/
-s/^on:$/on:\
-  workflow_dispatch:/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-ubuntu-2404$/\1runs-on: ubuntu-24.04/
 s/^( *)runs-on: blacksmith-[0-9]+vcpu-macos-26$/\1runs-on: macos-26/
+/^      - name: Reject repository-owned PR assets$/i\
+      - name: Require t3-learn-ci.yml to match ci.yml\
+        run: bash .github/scripts/t3-learn-ci.sh && git diff --exit-code -- .github/workflows/t3-learn-ci.yml\
+
 '
+# workflow_dispatch runs every job on demand: ci-changes has no base commit to
+# diff against and fails open. A second copy of the key would invalidate the
+# workflow, so add it only while upstream has none.
+if ! grep -q '^  workflow_dispatch:' "$source_file"; then
+  transform+='
+s/^on:$/on:\
+  workflow_dispatch:/
+'
+fi
 
 generated="$(
   printf '%s\n' \
@@ -38,10 +54,14 @@ fail() {
   echo "t3-learn-ci.sh: $*; update the transform for the new ci.yml." >&2
   exit 1
 }
-grep -q '^name: T3 Learn CI$' <<<"$generated" || fail "workflow name not rewritten"
-grep -q '^  workflow_dispatch:$' <<<"$generated" || fail "workflow_dispatch not added"
-grep -q '^    name: Check$' <<<"$generated" || fail "aggregate Check job missing"
-if grep -n 'blacksmith-[0-9]*vcpu' <<<"$generated" | grep 'runs-on'; then
+count() { grep -c "$1" <<<"$generated" || true; }
+[[ $(count '^name: T3 Learn CI$') -eq 1 ]] || fail "workflow name not rewritten"
+[[ $(count '^  workflow_dispatch:') -eq 1 ]] || fail "expected exactly one workflow_dispatch trigger"
+[[ $(count '^    name: Check$') -eq 1 ]] || fail "aggregate Check job missing"
+[[ $(count '^      - name: Require t3-learn-ci.yml to match ci.yml$') -eq 1 ]] ||
+  fail "drift guard not inserted into Lint"
+# Any runner label, including one set through a matrix or an input.
+if grep -nE 'blacksmith-[0-9]+vcpu-' <<<"$generated" >&2; then
   fail "unmapped Blacksmith runner"
 fi
 
