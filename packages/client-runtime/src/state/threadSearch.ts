@@ -66,6 +66,8 @@ export const ThreadSearchScope = Schema.Struct({
   projectIds: Schema.optionalKey(Schema.Array(ProjectId)),
   environmentLabels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   titlesOnly: Schema.optionalKey(Schema.Boolean),
+  /** For lists that hide side chats, so side-chat hits never use up the server's limit. */
+  excludeSideChats: Schema.optionalKey(Schema.Boolean),
 });
 export type ThreadSearchScope = typeof ThreadSearchScope.Type;
 
@@ -139,6 +141,7 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
         const result = get(
           options.getSearchAtom(environmentId, {
             query,
+            ...(scope.excludeSideChats === true ? { excludeSideChats: true } : {}),
             ...(before === null
               ? {}
               : {

@@ -147,6 +147,10 @@ it("asks environments that omit older settled threads for their rows, with the c
   inputs.length = 0;
   registry.get(search.results(makeThreadSearchKey([envB], "needle")));
   expect(inputs).toEqual([[envB, { query: "needle" }]]);
+  // A list that hides side chats asks every environment to leave them out of its hits.
+  inputs.length = 0;
+  registry.get(search.results(makeThreadSearchKey([envB], "needle", { excludeSideChats: true })));
+  expect(inputs).toEqual([[envB, { query: "needle", excludeSideChats: true }]]);
 
   registry.dispose();
 });

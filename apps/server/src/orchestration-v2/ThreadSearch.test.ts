@@ -944,6 +944,18 @@ it.layer(layerTest)("ThreadSearch.searchThreads", (it) => {
         matches.map((match) => match.threadId),
         [parser],
       );
+      // The palette still finds side chats; lists that hide them ask for real threads only.
+      const palette = yield* search.search({ query: "recursion" });
+      assert.isTrue(
+        palette.matches.some((match) =>
+          match.threadId.startsWith("thread:crowded-agent-side-chat"),
+        ),
+      );
+      const list = yield* search.search({ query: "recursion", excludeSideChats: true });
+      assert.deepEqual(
+        list.matches.map((match) => match.threadId),
+        [parser],
+      );
     }),
   );
 

@@ -379,8 +379,11 @@ export function HomeScreen(props: HomeScreenProps) {
     searchEnvironmentIds,
     props.searchQuery,
     v2ScopedProjectGroup === null
-      ? {}
-      : { projectIds: v2ScopedProjectGroup.projectRefs.map((ref) => ref.projectId) },
+      ? { excludeSideChats: true }
+      : {
+          excludeSideChats: true,
+          projectIds: v2ScopedProjectGroup.projectRefs.map((ref) => ref.projectId),
+        },
   );
   const threadSearchMatchByKey = useThreadListSearchMatches(props.threads, threadSearch);
   const v2ProjectTitleByProjectKey = new Map(

@@ -233,8 +233,11 @@ function ThreadNavigationSidebarPane(
     searchEnvironmentIds,
     props.searchQuery,
     selectedProjectScope === null
-      ? {}
-      : { projectIds: selectedProjectScope.projectRefs.map((ref) => ref.projectId) },
+      ? { excludeSideChats: true }
+      : {
+          excludeSideChats: true,
+          projectIds: selectedProjectScope.projectRefs.map((ref) => ref.projectId),
+        },
   );
   // This map reaches LegendList's extraData, which re-renders every row whenever it changes
   // identity; the hook keeps it stable.

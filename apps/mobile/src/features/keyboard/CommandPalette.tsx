@@ -254,7 +254,9 @@ export function CommandPalette(props: {
   const search = useThreadSearch(
     searchEnvironmentIds,
     query.startsWith(">") ? "" : query,
-    environmentLabels === undefined ? {} : { environmentLabels },
+    environmentLabels === undefined
+      ? { excludeSideChats: true }
+      : { excludeSideChats: true, environmentLabels },
   );
   const contentMatchByKey = useMemo(
     () =>

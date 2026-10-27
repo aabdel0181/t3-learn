@@ -1038,8 +1038,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     searchEnvironmentIds,
     threadSearchQuery,
     scopedProjectGroup === null
-      ? {}
+      ? { excludeSideChats: true }
       : {
+          excludeSideChats: true,
           projectIds: scopedProjectGroup.memberProjectRefs.map(
             (projectRef) => projectRef.projectId,
           ),
