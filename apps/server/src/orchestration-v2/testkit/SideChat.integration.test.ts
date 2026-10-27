@@ -630,6 +630,33 @@ describe("side chat opening context", () => {
     ),
   );
 
+  it.effect("gives a summary that was ready for the first turn to that turn only", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-opening-on-time");
+      yield* Effect.gen(function* () {
+        const label = "observation space";
+        const summary = "ON TIME LESSON SUMMARY";
+        harness.scriptOpening(label, { text: summary });
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label });
+        yield* harness.send(space, "What is an observation space?");
+        yield* harness.send(space, "Is it always a Box?");
+
+        const prompts = harness.prompts(space);
+        assert.lengthOf(prompts, 2);
+        assert.include(prompts[0], summary);
+        assert.notInclude(prompts[1], summary);
+        const { turnItems } = yield* Orchestrator.OrchestratorV2.use((orchestrator) =>
+          orchestrator.getThreadProjection(space),
+        );
+        assert.deepEqual(
+          turnItems.flatMap((item) => (item.type === "handoff" ? [item.title] : [])),
+          [SIDE_CHAT_CONTEXT_HANDOFF_TITLE],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("gives a summary that missed the first turn to the next turn, once", () =>
     Effect.gen(function* () {
       const harness = yield* makeSideChatHarness("side-chat-opening-late");
@@ -675,6 +702,72 @@ describe("side chat opening context", () => {
         );
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.scoped),
+  );
+  it.effect("gives a fresh native thread a late summary only through its opening context", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const entered = yield* Deferred.make<void>();
+        const gate = yield* Deferred.make<void>();
+        const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-opening-late-replaced", {
+          failResume: true,
+          generateSideChatText: () =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Deferred.await(gate)),
+              Effect.as({ text: LESSON_SUMMARY }),
+            ),
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* createLesson({ worktreePath: cwd });
+          yield* openOnObservation;
+          // The turn start becomes claimable after the opening, so the first claim takes the opening.
+          yield* TestClock.adjust("1 millis");
+          yield* orchestrator.dispatch(
+            sideChatMessageCommand({
+              commandId: "command:side-chat:ask",
+              threadId: SIDE_CHAT_THREAD_ID,
+              text: "What is an observation space?",
+            }),
+          );
+          const opening = yield* worker.runOnce.pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          const turnStart = yield* worker.runOnce.pipe(
+            Effect.forkChild({ startImmediately: true }),
+          );
+          yield* TestClock.adjust(Duration.millis(SIDE_CHAT_WAIT_CAP_MS));
+          assert.isTrue(yield* Fiber.join(turnStart));
+          yield* Deferred.succeed(gate, undefined);
+          yield* Fiber.join(opening);
+          yield* worker.drain();
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID);
+
+          // The turn that takes the late summary is interrupted, so later turns carry its handoffs.
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-box", "Is it always a Box?");
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID, "interrupted");
+          // A live session answers resume itself; detaching it makes the next turn really try.
+          const { providerSessions } = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.lengthOf(providerSessions, 1);
+          yield* orchestrator.dispatch({
+            type: "provider-session.detach",
+            commandId: CommandId.make("command:side-chat:detach"),
+            threadId: SIDE_CHAT_THREAD_ID,
+            providerSessionId: providerSessions[0]!.id,
+          });
+          yield* worker.drain();
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-discrete", "And Discrete?");
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID);
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-binary", "And MultiBinary?");
+        }).pipe(Effect.provide(layer));
+
+        const sideChatPrompts = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.lengthOf(sideChatPrompts, 4);
+        assert.notInclude(sideChatPrompts[0], LESSON_SUMMARY);
+        assert.include(sideChatPrompts[1], LESSON_SUMMARY);
+        assert.lengthOf(sideChatPrompts[2]!.split(LESSON_SUMMARY), 2);
+        assert.notInclude(sideChatPrompts[3], LESSON_SUMMARY);
+      }),
+    ),
   );
 });
 

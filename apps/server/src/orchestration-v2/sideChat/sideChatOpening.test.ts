@@ -15,7 +15,7 @@ import {
   sideChatLateSummaryHandoffId,
   sideChatOpeningHandoffId,
 } from "./sideChatOpening.ts";
-import { buildSideChatLateSummaryText } from "./sideChatText.ts";
+import { buildSideChatLateSummaryText, buildSideChatOpeningSummaryText } from "./sideChatText.ts";
 
 describe("awaitWithinSideChatWaitCap", () => {
   it.effect("stops waiting for a side-chat opening at SIDE_CHAT_WAIT_CAP_MS", () =>
@@ -52,15 +52,20 @@ describe("owedSideChatSummary", () => {
   });
   const firstRun = RunId.make("run-1");
   const secondRun = RunId.make("run-2");
+  const openingText = (status: OrchestrationV2SideChatOpening["status"]) =>
+    buildSideChatOpeningSummaryText({
+      opening: opening(status),
+      excerpt: "observation space",
+      excerptContext: "",
+      lessonTopic: "Teach me RL environments.",
+      parentOpeningText: null,
+    });
   const fallbackOpening = {
     id: sideChatOpeningHandoffId(firstRun),
     targetRunId: firstRun,
-    summaryText: "The lesson summary is unavailable.",
+    summaryText: openingText("pending"),
   };
-  const openingWithSummary = {
-    ...fallbackOpening,
-    summaryText: `Summary of the lesson so far:\n${summary}`,
-  };
+  const openingWithSummary = { ...fallbackOpening, summaryText: openingText("ready") };
   const lateSummary = {
     id: sideChatLateSummaryHandoffId(secondRun),
     targetRunId: secondRun,

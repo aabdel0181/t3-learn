@@ -41,8 +41,10 @@ taking the workspace lease, which the side chat shares with the lesson. A contex
 summary gets the fallback title, and the summary rides the next turn on its own once it lands. It is
 owed only while no handoff of the side chat contains its text
 ([`owedSideChatSummary`](../../apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts)), so it
-goes out at most once and never after an opening that carried it. The text is the record because the
-summary can land while a turn start, which holds no lock, is writing a fallback opening.
+is written at most once and never after an opening that carried it. A later fresh native thread gets
+the summary in its own opening, which drops a late summary still carried from a stopped run. The text
+is the record because the summary can land while a turn start, which holds no lock, is writing a
+fallback opening.
 
 Notes attach at run start, not dispatch, so a queued message sees notes that became ready meanwhile.
 [`awaitNotesForRunStart`](../../apps/server/src/orchestration-v2/sideChat/SideChatLifecycleService.ts)

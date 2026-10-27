@@ -89,6 +89,29 @@ export function owedSideChatSummary(
   return contextHandoffs.some((handoff) => handoff.summaryText.includes(summary)) ? null : summary;
 }
 
+/**
+ * Whether an opening context sent to `providerThreadId` carries the lesson summary. Such an opening
+ * went to a fresh native thread after any late summary was written, so it makes them redundant.
+ */
+export function sideChatOpeningCarriesSummary(
+  opening: OrchestrationV2SideChatOpening,
+  contextHandoffs: ReadonlyArray<
+    Pick<OrchestrationV2ContextHandoff, "id" | "targetRunId" | "toProviderThreadId" | "summaryText">
+  >,
+  providerThreadId: ProviderThreadId,
+): boolean {
+  const summary = readySideChatSummary(opening);
+  return (
+    summary !== null &&
+    contextHandoffs.some(
+      (handoff) =>
+        isSideChatOpeningHandoff(handoff) &&
+        handoff.toProviderThreadId === providerThreadId &&
+        handoff.summaryText.includes(summary),
+    )
+  );
+}
+
 export interface SideChatContextHandoff {
   readonly handoff: OrchestrationV2ContextHandoff;
   readonly turnItem: OrchestrationV2TurnItem;
@@ -180,8 +203,8 @@ export function buildSideChatOpeningContext(input: {
 }
 
 /**
- * A lesson summary owed to a side chat (`owedSideChatSummary`), handed to `run`. A run gets either
- * this or an opening context, so it takes the opening's place in the timeline.
+ * A lesson summary owed to a side chat (`owedSideChatSummary`), handed to `run`. A run that has its
+ * own opening context does not get one, so it takes the opening's place in the timeline.
  */
 export function buildSideChatLateSummary(input: {
   readonly run: OrchestrationV2Run;

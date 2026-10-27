@@ -69,6 +69,7 @@ import {
   isSideChatOpeningHandoff,
   loadSideChatOpeningSources,
   owedSideChatSummary,
+  sideChatOpeningCarriesSummary,
   type SideChatContextHandoff,
   sideChatLateSummaryHandoffId,
   sideChatOpeningEffectId,
@@ -917,11 +918,14 @@ export const layer: Layer.Layer<
       // retry, or the run after one that never sent its opening, finds it among `handoffs`.
       const sideChat = projection.thread.sideChat;
       const openingHandoffId = sideChatOpeningHandoffId(run.id);
+      const hasOwnOpening = projection.contextHandoffs.some(
+        (handoff) => handoff.id === openingHandoffId,
+      );
       let sideChatContext: SideChatContextHandoff | undefined;
       if (
         sideChat !== undefined &&
         (providerThread.nativeThreadRef === null || !sameNativeThread) &&
-        !projection.contextHandoffs.some((handoff) => handoff.id === openingHandoffId) &&
+        !hasOwnOpening &&
         !handoffs.some(isSideChatOpeningHandoff)
       ) {
         const sources = yield* loadSideChatOpeningSources(projectionStore, sideChat).pipe(
@@ -950,8 +954,9 @@ export const layer: Layer.Layer<
           }),
           createdAt: now,
         });
-      } else if (sideChat !== undefined) {
-        // An opening sent before the summary was ready held the fallback; the summary follows alone.
+      } else if (sideChat !== undefined && !hasOwnOpening) {
+        // An opening sent before the summary was ready held the fallback; the summary follows alone,
+        // on a later run than the opening's own retries so the two keep their timeline order.
         const summary = owedSideChatSummary(sideChat.opening, projection.contextHandoffs);
         if (summary !== null) {
           sideChatContext = buildSideChatLateSummary({
@@ -995,6 +1000,20 @@ export const layer: Layer.Layer<
         effectiveHandoffs = isSideChatOpeningHandoff(sideChatContext.handoff)
           ? [sideChatContext.handoff, ...effectiveHandoffs]
           : [...effectiveHandoffs, sideChatContext.handoff];
+      }
+      // A late summary carried from a stopped run would repeat the summary that a fresh native
+      // thread's opening already carries.
+      if (
+        sideChat !== undefined &&
+        sideChatOpeningCarriesSummary(
+          sideChat.opening,
+          [...projection.contextHandoffs, ...effectiveHandoffs],
+          providerThread.id,
+        )
+      ) {
+        effectiveHandoffs = effectiveHandoffs.filter(
+          (handoff) => !isSideChatLateSummaryHandoff(handoff),
+        );
       }
       const threadUsage = loadedProviderThread.contextUsage ?? providerThread.contextUsage;
       const previousUsage = measuredContext

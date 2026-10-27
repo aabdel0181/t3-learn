@@ -53,7 +53,11 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
-import { sideChatOpeningEffectId, sideChatOpeningHandoffId } from "./sideChat/sideChatOpening.ts";
+import {
+  sideChatLateSummaryHandoffId,
+  sideChatOpeningEffectId,
+  sideChatOpeningHandoffId,
+} from "./sideChat/sideChatOpening.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -1214,6 +1218,51 @@ effectIt.effect(
       expect(harness.startRootRun).toHaveBeenCalledOnce();
       expect(openingSummaryText(harness.events)).toEqual([]);
     }),
+);
+
+effectIt.effect("leaves a summary that landed before a retried start for the next run", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "What is an observation space?",
+      failReadsAfterRunning: true,
+      sideChat: {
+        ...pendingSideChat,
+        opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
+      },
+    });
+    const projection = harness.projection();
+    const run = projection.runs.at(-1)!;
+    harness.setProjection({
+      ...projection,
+      contextHandoffs: [
+        {
+          id: sideChatOpeningHandoffId(run.id),
+          transferId: null,
+          threadId: run.threadId,
+          targetRunId: run.id,
+          fromProviderThreadIds: [],
+          toProviderThreadId: projection.providerThreads.at(-1)!.id,
+          coveredRunOrdinals: { from: 1, to: 1 },
+          strategy: "manual_context",
+          status: "ready",
+          summaryMessageId: null,
+          summaryText: "The lesson summary is unavailable.",
+          createdByProviderInstanceId: null,
+          createdAt: run.requestedAt,
+          updatedAt: run.requestedAt,
+        },
+      ],
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+    expect(
+      harness.events.flatMap((event) =>
+        event.type === "context-handoff.updated" ? [event.payload.id] : [],
+      ),
+    ).not.toContain(sideChatLateSummaryHandoffId(run.id));
+  }),
 );
 
 // regression: #15784 superseded provider startups kept running
