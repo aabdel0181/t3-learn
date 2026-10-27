@@ -60,11 +60,7 @@ import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
-import {
-  backgroundWorkBannerItem,
-  childInputBannerItem,
-  goalBannerItem,
-} from "./ThreadActivityBanners";
+import { backgroundWorkNowItem, childInputNowItem, goalNowItem } from "./ThreadActivityBanners";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 
@@ -87,7 +83,7 @@ interface ThreadLifecycleInput {
   readonly serverConfig: EnvironmentServerConfig | null;
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
-  readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkBannerItem>[0]["tasks"];
+  readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkNowItem>[0]["tasks"];
   readonly activePendingApproval: PendingThreadRequests["activePendingApproval"];
   readonly activePendingUserInput: PendingThreadRequests["activePendingUserInput"];
   readonly localCheckoutBranchMismatch: {
@@ -448,7 +444,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       : onOpenRelatedThread(threadId);
   };
   const onOpenChildThreadStable = useStableCallback(onOpenChildThread);
-  const childInputBanner = childInputBannerItem({
+  const childInputNow = childInputNowItem({
     childThreadInputs,
     parentAwaitingUser: Boolean(
       activePendingApproval || activePendingUserInput || activeThreadShell?.hasPendingUserInput,
@@ -518,9 +514,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   };
   const sendStandaloneCommandStable = useStableCallback(sendStandaloneCommand);
   const activeGoal = activeThreadShell?.goal ?? null;
-  const goalBanner =
+  const goalNow =
     activeThread && activeGoal !== null
-      ? goalBannerItem({
+      ? goalNowItem({
           threadId: activeThread.id,
           goal: activeGoal,
           isWorking,
@@ -528,8 +524,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         })
       : null;
 
-  const backgroundWorkBanner = activeThread
-    ? backgroundWorkBannerItem({
+  const backgroundWorkNow = activeThread
+    ? backgroundWorkNowItem({
         threadId: activeThread.id,
         tasks: activeBackgroundTasks,
         stopDisabled: !canOperateThread || isStoppingBackgroundWork,
@@ -610,9 +606,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     shortcuts,
     acknowledgeActiveThreadWoke,
     activeBranchMismatchKey,
-    backgroundWorkBanner,
-    childInputBanner,
-    goalBanner,
+    backgroundWorkNow,
+    childInputNow,
+    goalNow,
     handleSwitchCheckoutToThread,
     handleSwitchCheckoutToThreadStable,
     isRestoringThreadBranch,

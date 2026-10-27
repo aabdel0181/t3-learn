@@ -81,8 +81,6 @@ export function SideChatTimeline(props: {
         activeThreadKey={sideChatKey}
         syncing={props.detailLoading}
         detailLoading={props.detailLoading}
-        readyMarkdownCwd={workspaceRoot ?? null}
-        readyWorkspaceRoot={workspaceRoot ?? null}
         citationRequest={props.citationRequest}
         citationHistory={citationHistory}
         onCiteAssistantText={props.onCiteAssistantText}

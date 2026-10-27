@@ -93,6 +93,9 @@ import { SideChatTimeline } from "./SideChatTimeline";
 
 const NO_PROVIDERS: Parameters<typeof deriveProviderInstanceEntries>[0] = [];
 const NO_MESSAGES: ReadonlyArray<ChatMessage> = [];
+// The banner surface attaches under a ComposerSurface; the side chat's plain composer floats it.
+const FLOATING_BANNER_CLASS =
+  "mx-2 mt-2 shrink-0 [--chat-composer-attachment-overlap:0px] before:rounded-2xl before:mask-t-from-black";
 
 /** A side chat in the lesson's right panel, walked in place through its nested side chats. */
 export function SideChatPanel(props: {
@@ -548,10 +551,9 @@ export function SideChatPanel(props: {
         </p>
         {activePendingApproval ? (
           <ComposerBanner.Root
-            placement="floating"
             variant="warning"
             density="spacious"
-            className="mx-2 mt-2 shrink-0"
+            className={FLOATING_BANNER_CLASS}
           >
             <ComposerBanner.Row layout="approval">
               <ComposerBanner.Icon>
@@ -576,7 +578,14 @@ export function SideChatPanel(props: {
             </ComposerBanner.Row>
           </ComposerBanner.Root>
         ) : pendingUserInputs.length > 0 ? (
-          <ComposerBanner.Root placement="floating" variant="info" className="mx-2 mt-2 shrink-0">
+          <ComposerBanner.Root
+            variant="info"
+            className={cn(
+              FLOATING_BANNER_CLASS,
+              "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>[data-slot=button]:last-child]:rounded-ee-xl",
+              "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>:last-child>[data-slot=button]:last-of-type]:rounded-ee-xl",
+            )}
+          >
             <ComposerPendingUserInputPanel
               pendingUserInputs={pendingUserInputs}
               cwd={workspaceRoot}
