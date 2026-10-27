@@ -63,6 +63,9 @@ jobs:
   # file, docs included. The `Check` job at the end of this file passes only
   # when every other job passes or was skipped by `changes`.
   lint:
+    permissions:
+      contents: read
+      id-token: write
     name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -89,6 +92,8 @@ jobs:
 
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       # electron's install.js (run by ensure:electron) reads this cache before it
       # downloads from GitHub. The key changes only with the Electron version.
@@ -115,6 +120,9 @@ jobs:
         run: vp check
 
   build:
+    permissions:
+      contents: read
+      id-token: write
     name: Build and Typecheck
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.build != 'false' || needs.changes.outputs.typecheck != 'false') }}
@@ -146,6 +154,8 @@ jobs:
 
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       # electron's install.js (run by ensure:electron) reads this cache before it
       # downloads from GitHub. The key changes only with the Electron version.
@@ -204,6 +214,9 @@ jobs:
   # dependency layers. The concurrency limit stays at the default 4 so peak load
   # per runner is unchanged.
   test:
+    permissions:
+      contents: read
+      id-token: write
     name: Test
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
@@ -244,6 +257,8 @@ jobs:
 
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       # electron's install.js (run by ensure:electron) reads this cache before it
       # downloads from GitHub. The key changes only with the Electron version.
@@ -285,10 +300,17 @@ jobs:
   # started last and ran alone for about 40s after everything else finished.
   # release.yml mirrors this test, test_web, and test_server split.
   test_web:
-    name: Test Web
+    permissions:
+      contents: read
+      id-token: write
+    name: Test Web ${{ matrix.shard }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -302,6 +324,8 @@ jobs:
 
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       # The browser project runs React tests in headless Chromium. Same cache key as
       # test_server, so both jobs share one downloaded browser.
@@ -329,7 +353,7 @@ jobs:
           fi
 
       - name: Test
-        run: vp run --filter @t3tools/web test
+        run: vp run --filter @t3tools/web test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   # apps/server sets `fileParallelism: false`, so its test files run strictly
   # one at a time. Sharding spreads them over separate runners instead of
@@ -340,6 +364,9 @@ jobs:
   # The shards are the longest jobs, so they gate themselves instead of waiting
   # ~15s for `changes`: a shard the change cannot affect stops after checkout.
   test_server:
+    permissions:
+      contents: read
+      id-token: write
     name: Test Server ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -366,6 +393,8 @@ jobs:
       - name: Setup Vite+
         if: steps.changes.outputs.test_server != 'false'
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       # No Electron setup here: `t3` (apps/server) has no Electron dependency
       # and none of its tests touch the runtime. Only the non-server `test`
@@ -402,7 +431,18 @@ jobs:
         env:
           T3CODE_TRANSFER_BUDGET_REPORT_PATH: ${{ runner.temp }}/t3code-transfer-budget.md
           T3CODE_TRANSFER_BUDGET_RESULT_PATH: ${{ runner.temp }}/thread-transfer-result.json
-        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: >-
+          vp run test:cached -- --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+          --uncached apps/server/integration/transferBudgetV2.integration.test.ts
+          --verify-hits 1 --report "${{ runner.temp }}/test-cache-${{ matrix.shard }}.json" apps/server
+
+      - name: Upload test cache measurements
+        if: always() && steps.changes.outputs.test_server != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-cache-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-cache-${{ matrix.shard }}.json
+          if-no-files-found: error
 
       # integration/transferBudgetV2.integration.test.ts writes the report; exactly one shard
       # produces these files. Gating the upload on their presence keeps a
@@ -502,6 +542,9 @@ jobs:
         run: vp run lint:mobile
 
   release_smoke:
+    permissions:
+      contents: read
+      id-token: write
     name: Release Smoke
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.release_smoke != 'false' }}
@@ -519,6 +562,8 @@ jobs:
 
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
+        with:
+          task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
       - name: Exercise release-only workflow steps
         run: node scripts/release-smoke.ts

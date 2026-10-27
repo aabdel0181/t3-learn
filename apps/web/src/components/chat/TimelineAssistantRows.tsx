@@ -85,12 +85,14 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             onUnresolvedChange={setUnresolvedSideChatMarks}
           />
         ) : null}
-        <AssistantChangedFilesSection
-          turnSummary={row.assistantTurnDiffSummary}
-          routeThreadKey={ctx.routeThreadKey}
-          resolvedTheme={ctx.resolvedTheme}
-          onOpenTurnDiff={ctx.onOpenTurnDiff}
-        />
+        {ctx.onOpenTurnDiff ? (
+          <AssistantChangedFilesSection
+            turnSummary={row.assistantTurnDiffSummary}
+            routeThreadKey={ctx.routeThreadKey}
+            resolvedTheme={ctx.resolvedTheme}
+            onOpenTurnDiff={ctx.onOpenTurnDiff}
+          />
+        ) : null}
         {row.showAssistantMeta || unresolvedSideChatsChip !== null ? (
           <div className="mt-1.5 flex items-center gap-2">
             {unresolvedSideChatsChip}
@@ -126,8 +128,8 @@ function AssistantForkButton({
     capabilities: support.providerSession?.capabilities,
   });
 
-  const { onForkFromRun } = ctx;
-  if (onForkFromRun === undefined || !canFork || projectedItem.item.runId === null) return null;
+  const onForkFromRun = ctx.onForkFromRun;
+  if (!canFork || onForkFromRun === undefined || projectedItem.item.runId === null) return null;
   const runId = projectedItem.item.runId;
 
   return (
@@ -281,6 +283,9 @@ export function HtmlRenderTimelineRow({
   const { onAppFullscreenChange } = ctx;
   const onFullscreenChange = (fullscreen: boolean) => onAppFullscreenChange(row.id, fullscreen);
 
+  if (ctx.renderHtmlRender) {
+    return <div className="min-w-0 px-1">{ctx.renderHtmlRender(row)}</div>;
+  }
   return (
     <div className="min-w-0 px-1">
       <HtmlRenderFrame

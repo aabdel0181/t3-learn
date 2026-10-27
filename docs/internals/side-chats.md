@@ -5,8 +5,11 @@ nearest ancestor thread that is not a side chat. It is an ordinary thread with a
 field: a `fork` of its anchor with `forkedFrom: null` and no context transfer. The app thread holds the
 text (excerpt, summary, note); shells reach every client, so they carry a slim copy from
 `threadShellSideChatOf`, which both
-[ProjectionStore](../../apps/server/src/orchestration-v2/ProjectionStore.ts) builders must call. The
-parent's `sideChatNoteDeliveries` maps each child to the note `requestId` it last received.
+[ProjectionStore](../../apps/server/src/orchestration-v2/ProjectionStore.ts) builders must call. Shells
+that leave out older settled threads never leave out a side chat, since the lesson's marks and Map read
+it there: `isOlderSettledThreadShell`, the ShellStream cut and the older-settled SQL in ProjectionStore
+and ThreadSearch must agree. The parent's `sideChatNoteDeliveries` maps each child to the note
+`requestId` it last received.
 
 Open and Done are dedicated commands, not flags on `thread.fork` or `thread.merge_back`, so an older
 server rejects them instead of quietly forking. Internal completions are dropped unless their

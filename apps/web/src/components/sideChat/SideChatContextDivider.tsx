@@ -1,7 +1,7 @@
 import type { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
 import { useState } from "react";
 
-import { useTurnItemDetail } from "../../state/queries";
+import { type TurnItemDetailSource, useTurnItemDetail } from "../../state/queries";
 import { TimelineSystemDivider } from "../chat/TimelineSystemDivider";
 
 /**
@@ -14,6 +14,8 @@ export function SideChatContextDivider(props: {
   readonly threadId: ThreadId;
   readonly itemId: TurnItemId;
   readonly revision: string;
+  /** Unset, the detail is read from the environment; the guest page reads it through its own route. */
+  readonly source?: TurnItemDetailSource | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
   const detail = useTurnItemDetail(
@@ -25,6 +27,7 @@ export function SideChatContextDivider(props: {
           revision: props.revision,
         }
       : null,
+    props.source,
   );
   const item = detail.data?.item;
   const summary = item?.type === "handoff" ? item.summary : undefined;

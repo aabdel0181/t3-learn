@@ -12,6 +12,7 @@ import { shouldFinishSideChatOnClose } from "../components/sideChat/sideChatPane
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
+import { focusPanelTerminalAfterClose } from "../lib/terminalFocus";
 import { readLocalApi } from "../localApi";
 import { setActivePreviewTab, useThreadPreviewState } from "../previewStateStore";
 import {
@@ -30,10 +31,8 @@ import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
 
 /**
- * Closes right panel surfaces for a thread. A surface's live resources go with
- * it: a browser's preview session, a terminal tab's sessions, and a side chat
- * nobody wrote to. Closing a browser an agent is driving, or a terminal tab,
- * asks first.
+ * Closing releases preview and terminal sessions, and a side chat nobody wrote to.
+ * Agent-driven browsers and terminal tabs require confirmation.
  */
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
@@ -56,9 +55,7 @@ export function useRightPanelSurfaceClose(input: {
   );
 
   const releaseSurfaceResources = (ref: ScopedThreadRef, surface: RightPanelSurface) => {
-    // Without preview access only the local surface goes away. The
-    // server record is in-memory bookkeeping, not a live view, and stays
-    // listed until a client with the scope closes it or the server restarts.
+    // Without preview access, server state remains until an authorized close or restart.
     if (canOperatePreview && surface.kind === "preview" && surface.resourceId) {
       void closePreviewSession({
         closePreview,
@@ -130,6 +127,7 @@ export function useRightPanelSurfaceClose(input: {
     if (nextActiveSurface?.kind === "preview" && nextActiveSurface.resourceId) {
       setActivePreviewTab(threadRef, nextActiveSurface.resourceId);
     }
+    focusPanelTerminalAfterClose(threadRef, activeId);
   };
   const labelFor = (terminalId: string) =>
     terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
