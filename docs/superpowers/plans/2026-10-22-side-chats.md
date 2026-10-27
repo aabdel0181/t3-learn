@@ -5,6 +5,7 @@
 **Goal:** A learner highlights part of an AI reply and chooses **Ask in side chat**. The side chat opens in the right panel beside the lesson and starts from a lesson summary plus the highlight. Its traffic never enters the lesson. **Done** gives the lesson's AI at most a one-to-two-line note on the learner's next message. Side chats nest, and a **Map** tab shows the tree.
 
 **Architecture:**
+
 - **Thread model.** A side chat is an ordinary thread (lineage `fork`, `forkedFrom: null`, no context transfer). It carries an optional `sideChat` struct on the app thread, and the shell carries a slim copy of it.
 - **Commands.** Dedicated `thread.side_chat.*` commands, gated on the client by the `sideChats` capability.
 - **Background text.** The opening summary and the outcome note are written by outbox effects in a capped text-generation lane. They run with the lesson provider's small text model, in an empty temp cwd, and land through internal completion commands guarded by `requestId`.
@@ -73,23 +74,24 @@ git grep -q 'extractAssistantCitationsForProvider' origin/main -- packages/share
 git switch -c feature/side-chats origin/main
 vp run dev --dry-run 2>&1 | grep -o 'baseDir=.*'
 ```
+
 Expected: no output from `git status --porcelain`, then `citation-fix-merged`, then `Switched to a new branch 'feature/side-chats'`, then `baseDir=/home/quokka/.t3/projects/t3-sidechat-dev/.t3`. `--multiple` is required: without it `upstream` is read as a refspec on `origin` (`fatal: couldn't find remote ref upstream`) and `origin/main` stays stale. The citation check looks for the fix's code, which upstream `22840ab9` does not have; grepping the log for "citation" always matches upstream's own citation commits. If `citation-fix-merged` is missing, stop before switching: the citation-fix PR must merge first. Every command below runs in this directory.
 
 ## File Structure
 
-| Area | Files (new unless marked) | Responsibility |
-|---|---|---|
-| Contracts | `packages/contracts/src/orchestrationV2.ts` (mod), `environment.ts` (mod), `keybindings.ts` (mod) | Side-chat schemas, commands, constants, `isSideChatThread`, `threadShellSideChatOf`, capability, keybinding command |
-| Client runtime | `state/models.ts`, `state/threadRelationships.ts`, `state/threadShell.ts`, `operations/commands.ts`, `state/threadCommands.ts` (all mod) | Shell presentation, `deriveSideChatTree`, open/finish ops, navigation and banner rules |
-| Text generation | `packages/provider-core/src/server/textGeneration*.ts` (mod), the provider listings (mod), `apps/server/src/textGeneration/TextGeneration.ts` (mod), `packages/shared/src/serverSettings.ts` (mod) | `generateSideChatText`, temp-cwd isolation, model resolution |
-| Server, pure | `apps/server/src/orchestration-v2/sideChat/sideChatText.ts`, `notes.ts`, `tree.ts`, `sideChatOpening.ts` | Labels, excerpt context, summarizer and note inputs, summary texts, tree walks, effect ids |
-| Server, services | `sideChat/SideChatOpeningService.ts`, `sideChat/SideChatLifecycleService.ts` | Opening summary; outcome note, notes gate and cascade |
-| Server, wiring | `Orchestrator.ts`, `ThreadForkService.ts`, `ThreadManagementService.ts`, `ProjectionStore.ts`, `EffectOutbox.ts`, `EffectWorker.ts`, `ProviderTurnStartService.ts`, `ContextHandoffDelivery.ts`, `runtimeLayer.ts`, plus the per-site files of Task 30 (all mod) | Commands, effects, lane, handoffs, housekeeping |
-| Server testkit | `testkit/sideChatFixtures.ts`, `testkit/PromptRecordingAdapter.ts`, `testkit/SideChatHarness.ts`, `testkit/SideChat.integration.test.ts`, `testkit/SideChatDone.integration.test.ts`, `testkit/SideChatNotes.integration.test.ts` | Seeded fixtures, scripted provider, integration tests |
-| Web, panel | `apps/web/src/components/sideChat/{SideChatPanel,SideChatTimeline,SideChatComposer,SideChatExcerpt,SideChatContextDivider}.tsx`, `sideChatPanel.logic.ts`, `sideChatSelection.ts`, `sideChatNavigation.ts`, `pendingSideChatStore.ts`, `openSideChat.ts`, `useLessonSideChats.ts` | Panel UI, optimistic open, navigation helpers |
-| Web, map and marks | `apps/web/src/lib/sideChatTreeLayout.ts`, `components/sideChat/{SideChatMap,SideChatMarks}.tsx`, `SideChatMap.logic.ts`, `sideChatSelectionRegistry.ts` | Tidy-tree layout, Map, marks, shortcut registry |
-| Web, existing | `AssistantSelectionToolbar.tsx`, `MessagesTimeline*.ts(x)`, `ThreadTimeline.tsx`, `rightPanelStore.ts`, `closedViewStore.ts`, `reopenClosedView.ts`, `RightPanelTabs.tsx`, `RightPanelSurfaceContent.tsx`, `ChatView.tsx`, `state/entities.ts`, `composerFocusRedirect.ts`, `useChatShortcuts.ts`, `useComposerStash.ts`, `CommandPalette*.ts(x)`, `Sidebar.logic.ts`, `ThreadNotificationCoordinator.tsx`, `index.css`, `test-fixtures.ts` (all mod) | Integration points |
-| Mobile | `apps/mobile/src/features/threads/threadListV2.ts` (mod) | Hide side chats (fork build) |
+| Area               | Files (new unless marked)                                                                                                                                                                                                                                                                                                                                                                                                                             | Responsibility                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Contracts          | `packages/contracts/src/orchestrationV2.ts` (mod), `environment.ts` (mod), `keybindings.ts` (mod)                                                                                                                                                                                                                                                                                                                                                     | Side-chat schemas, commands, constants, `isSideChatThread`, `threadShellSideChatOf`, capability, keybinding command |
+| Client runtime     | `state/models.ts`, `state/threadRelationships.ts`, `state/threadShell.ts`, `operations/commands.ts`, `state/threadCommands.ts` (all mod)                                                                                                                                                                                                                                                                                                              | Shell presentation, `deriveSideChatTree`, open/finish ops, navigation and banner rules                              |
+| Text generation    | `packages/provider-core/src/server/textGeneration*.ts` (mod), the provider listings (mod), `apps/server/src/textGeneration/TextGeneration.ts` (mod), `packages/shared/src/serverSettings.ts` (mod)                                                                                                                                                                                                                                                    | `generateSideChatText`, temp-cwd isolation, model resolution                                                        |
+| Server, pure       | `apps/server/src/orchestration-v2/sideChat/sideChatText.ts`, `notes.ts`, `tree.ts`, `sideChatOpening.ts`                                                                                                                                                                                                                                                                                                                                              | Labels, excerpt context, summarizer and note inputs, summary texts, tree walks, effect ids                          |
+| Server, services   | `sideChat/SideChatOpeningService.ts`, `sideChat/SideChatLifecycleService.ts`                                                                                                                                                                                                                                                                                                                                                                          | Opening summary; outcome note, notes gate and cascade                                                               |
+| Server, wiring     | `Orchestrator.ts`, `ThreadForkService.ts`, `ThreadManagementService.ts`, `ProjectionStore.ts`, `EffectOutbox.ts`, `EffectWorker.ts`, `ProviderTurnStartService.ts`, `ContextHandoffDelivery.ts`, `runtimeLayer.ts`, plus the per-site files of Task 30 (all mod)                                                                                                                                                                                      | Commands, effects, lane, handoffs, housekeeping                                                                     |
+| Server testkit     | `testkit/sideChatFixtures.ts`, `testkit/PromptRecordingAdapter.ts`, `testkit/SideChatHarness.ts`, `testkit/SideChat.integration.test.ts`, `testkit/SideChatDone.integration.test.ts`, `testkit/SideChatNotes.integration.test.ts`                                                                                                                                                                                                                     | Seeded fixtures, scripted provider, integration tests                                                               |
+| Web, panel         | `apps/web/src/components/sideChat/{SideChatPanel,SideChatTimeline,SideChatComposer,SideChatExcerpt,SideChatContextDivider}.tsx`, `sideChatPanel.logic.ts`, `sideChatSelection.ts`, `sideChatNavigation.ts`, `pendingSideChatStore.ts`, `openSideChat.ts`, `useLessonSideChats.ts`                                                                                                                                                                     | Panel UI, optimistic open, navigation helpers                                                                       |
+| Web, map and marks | `apps/web/src/lib/sideChatTreeLayout.ts`, `components/sideChat/{SideChatMap,SideChatMarks}.tsx`, `SideChatMap.logic.ts`, `sideChatSelectionRegistry.ts`                                                                                                                                                                                                                                                                                               | Tidy-tree layout, Map, marks, shortcut registry                                                                     |
+| Web, existing      | `AssistantSelectionToolbar.tsx`, `MessagesTimeline*.ts(x)`, `ThreadTimeline.tsx`, `rightPanelStore.ts`, `closedViewStore.ts`, `reopenClosedView.ts`, `RightPanelTabs.tsx`, `RightPanelSurfaceContent.tsx`, `ChatView.tsx`, `state/entities.ts`, `composerFocusRedirect.ts`, `useChatShortcuts.ts`, `useComposerStash.ts`, `CommandPalette*.ts(x)`, `Sidebar.logic.ts`, `ThreadNotificationCoordinator.tsx`, `index.css`, `test-fixtures.ts` (all mod) | Integration points                                                                                                  |
+| Mobile             | `apps/mobile/src/features/threads/threadListV2.ts` (mod)                                                                                                                                                                                                                                                                                                                                                                                              | Hide side chats (fork build)                                                                                        |
 
 ---
 
@@ -98,6 +100,7 @@ Expected: no output from `git status --porcelain`, then `citation-fix-merged`, t
 ### Task 1: Contracts: side chat data model on threads and shells
 
 **Files:**
+
 - Modify `packages/contracts/src/orchestrationV2.ts`:
   - `:39`: import `ASSISTANT_CITATION_CONTEXT_LENGTH` from `./assistantCitations.ts`.
   - `:372`: constants and schemas, before `OrchestrationV2AppThread`.
@@ -109,6 +112,7 @@ Expected: no output from `git status --porcelain`, then `citation-fix-merged`, t
 - Test: `apps/web/src/components/ChatView.logic.test.ts`. Add a new `describe("presentThreadShellFromProjection")` at the end.
 
 **Interfaces:**
+
 - Consumes: `ASSISTANT_CITATION_CONTEXT_LENGTH` (= 32), and `ThreadId`, `MessageId`, `TurnItemId`, `NonNegativeInt`, `TrimmedNonEmptyString`, `IsoDateTime` from `./baseSchemas.ts`.
 - Produces (exported from `@t3tools/contracts`):
   - Constants: `SIDE_CHAT_EXCERPT_MAX_CHARS = 4_000`, `SIDE_CHAT_EXCERPT_CONTEXT_MAX_CHARS = 1_500`, `SIDE_CHAT_LABEL_MAX_CHARS = 120`, `SIDE_CHAT_NOTE_MAX_CHARS = 300`, `SIDE_CHAT_SUMMARY_MAX_CHARS = 2_000`, `SIDE_CHAT_WAIT_CAP_MS = 15_000`, `SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS = 24_000`.
@@ -125,31 +129,82 @@ Expected: no output from `git status --porcelain`, then `citation-fix-merged`, t
 
 ```ts
 describe("side chats", () => {
-  const anchor = { threadId: "thread-lesson", messageId: "message-lesson-reply", start: 120, end: 137, prefix: "the agent reads the ", suffix: " and picks an action" };
+  const anchor = {
+    threadId: "thread-lesson",
+    messageId: "message-lesson-reply",
+    start: 120,
+    end: 137,
+    prefix: "the agent reads the ",
+    suffix: " and picks an action",
+  };
   const storedSideChat = {
-    lessonThreadId: "thread-lesson", anchor, excerpt: "observation space",
+    lessonThreadId: "thread-lesson",
+    anchor,
+    excerpt: "observation space",
     excerptContext: "Each step, the agent reads the observation space and picks an action.",
     label: "observation space",
     opening: { status: "ready", text: "Lesson: RL environments with Gym.", requestId: "opening-1" },
-    done: { at: "2026-10-22T10:00:00.000Z", outcome: { status: "ready", note: "Define terms before using them.", requestId: "outcome-1" } },
+    done: {
+      at: "2026-10-22T10:00:00.000Z",
+      outcome: { status: "ready", note: "Define terms before using them.", requestId: "outcome-1" },
+    },
   };
-  const slim = { lessonThreadId: "thread-lesson", anchor, label: "observation space", state: "done", noteStatus: "ready", excerptLength: 17 };
+  const slim = {
+    lessonThreadId: "thread-lesson",
+    anchor,
+    label: "observation space",
+    state: "done",
+    noteStatus: "ready",
+    excerptLength: 17,
+  };
   const storedThread = {
-    createdBy: "user", creationSource: "web", id: "thread-side-chat", projectId: "project-1", title: "observation space",
-    providerInstanceId: "codex", modelSelection: { instanceId: "codex", model: "gpt-5-codex" }, runtimeMode: "full-access",
-    interactionMode: "default", branch: null, worktreePath: null, activeProviderThreadId: null,
-    lineage: { parentThreadId: "thread-lesson", relationshipToParent: "fork", rootThreadId: "thread-lesson" },
-    forkedFrom: null, createdAt: DateTime.formatIso(now), updatedAt: DateTime.formatIso(now), archivedAt: null, deletedAt: null,
+    createdBy: "user",
+    creationSource: "web",
+    id: "thread-side-chat",
+    projectId: "project-1",
+    title: "observation space",
+    providerInstanceId: "codex",
+    modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: {
+      parentThreadId: "thread-lesson",
+      relationshipToParent: "fork",
+      rootThreadId: "thread-lesson",
+    },
+    forkedFrom: null,
+    createdAt: DateTime.formatIso(now),
+    updatedAt: DateTime.formatIso(now),
+    archivedAt: null,
+    deletedAt: null,
   };
-  const storedShell = { ...storedThread, latestRunId: null, activeRunId: null, status: "idle", pendingRuntimeRequest: null,
-    latestVisibleMessage: null, latestUserMessageAt: null, hasActionableProposedPlan: false, itemCount: 0, visibleItemCount: 0,
-    settledOverride: null, settledAt: null };
+  const storedShell = {
+    ...storedThread,
+    latestRunId: null,
+    activeRunId: null,
+    status: "idle",
+    pendingRuntimeRequest: null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: null,
+    hasActionableProposedPlan: false,
+    itemCount: 0,
+    visibleItemCount: 0,
+    settledOverride: null,
+    settledAt: null,
+  };
   const decodeThread = Schema.decodeUnknownSync(OrchestrationV2AppThreadJson);
   const decodeShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShellJson);
   const decodeSideChat = Schema.decodeUnknownSync(OrchestrationV2SideChat);
 
   it("round-trips a stored side chat and its parent's note deliveries", () => {
-    const thread = decodeThread({ ...storedThread, sideChat: storedSideChat, sideChatNoteDeliveries: { "thread-nested": "outcome-1" } });
+    const thread = decodeThread({
+      ...storedThread,
+      sideChat: storedSideChat,
+      sideChatNoteDeliveries: { "thread-nested": "outcome-1" },
+    });
     expect(thread.sideChat).toEqual(storedSideChat);
     expect(thread.sideChatNoteDeliveries).toEqual({ "thread-nested": "outcome-1" });
     expect(isSideChatThread(thread)).toBe(true);
@@ -163,29 +218,51 @@ describe("side chats", () => {
   });
 
   it("holds excerpts, context, labels, notes and anchors to their limits", () => {
-    expect(decodeSideChat({ ...storedSideChat, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS) }).excerpt).toHaveLength(4000);
-    expect(decodeSideChat({ ...storedSideChat, deliveredNote: "They had not met Box." }).deliveredNote).toBe("They had not met Box.");
+    expect(
+      decodeSideChat({ ...storedSideChat, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS) })
+        .excerpt,
+    ).toHaveLength(4000);
+    expect(
+      decodeSideChat({ ...storedSideChat, deliveredNote: "They had not met Box." }).deliveredNote,
+    ).toBe("They had not met Box.");
     for (const invalid of [
-      { excerpt: "" }, { excerpt: "x".repeat(4001) }, { excerptContext: "x".repeat(1501) }, { label: "x".repeat(121) },
-      { label: "   " }, { deliveredNote: "x".repeat(301) }, { anchor: { ...anchor, prefix: "x".repeat(33) } },
-      { anchor: { ...anchor, start: -1 } }, { opening: { ...storedSideChat.opening, status: "summarizing" } },
-    ]) expect(() => decodeSideChat({ ...storedSideChat, ...invalid })).toThrow();
+      { excerpt: "" },
+      { excerpt: "x".repeat(4001) },
+      { excerptContext: "x".repeat(1501) },
+      { label: "x".repeat(121) },
+      { label: "   " },
+      { deliveredNote: "x".repeat(301) },
+      { anchor: { ...anchor, prefix: "x".repeat(33) } },
+      { anchor: { ...anchor, start: -1 } },
+      { opening: { ...storedSideChat.opening, status: "summarizing" } },
+    ])
+      expect(() => decodeSideChat({ ...storedSideChat, ...invalid })).toThrow();
   });
 
   it("keeps the excerpt, context, summary and note off the shell", () => {
     const sideChat = decodeSideChat(storedSideChat);
     expect(threadShellSideChatOf(sideChat)).toEqual(slim);
-    expect(threadShellSideChatOf({ ...sideChat, done: null })).toEqual({ ...slim, state: "open", noteStatus: null });
-    const shell = decodeShell({ ...storedShell, sideChat: { ...slim, excerpt: "x", excerptContext: "y", opening: storedSideChat.opening } });
+    expect(threadShellSideChatOf({ ...sideChat, done: null })).toEqual({
+      ...slim,
+      state: "open",
+      noteStatus: null,
+    });
+    const shell = decodeShell({
+      ...storedShell,
+      sideChat: { ...slim, excerpt: "x", excerptContext: "y", opening: storedSideChat.opening },
+    });
     expect(shell.sideChat).toEqual(slim);
   });
 
   it("lets clients from before side chats decode a shell that carries one", () => {
-    const decodeOld = Schema.decodeUnknownSync(OrchestrationV2ThreadShellJson.mapFields(Struct.omit(["sideChat"])));
+    const decodeOld = Schema.decodeUnknownSync(
+      OrchestrationV2ThreadShellJson.mapFields(Struct.omit(["sideChat"])),
+    );
     expect(decodeOld({ ...storedShell, sideChat: slim })).not.toHaveProperty("sideChat");
   });
 });
 ```
+
 In `ChatView.logic.test.ts`, add `it("gives a direct-linked side chat the slim shell side chat, not its text")`. Call `presentThreadShellFromProjection(EnvironmentId.make("environment-local"), projection.thread.id, { ...projection, thread: { ...projection.thread, sideChat: <full struct, opening pending, done null> } }, { updatedAt: projection.updatedAt, lastVisitedAt: null })` with `projection = makeThreadProjectionFixture()`. Then `expect(shell.source.sideChat).toEqual({ lessonThreadId, anchor, label: "observation space", state: "open", noteStatus: null, excerptLength: 17 })`.
 
 - [ ] **Step 2: Run the tests and confirm they fail.** Run `vp test run packages/contracts/src/orchestrationV2.test.ts -t "side chats"` and `vp test run apps/web/src/components/ChatView.logic.test.ts -t "presentThreadShellFromProjection"`. Expected: FAIL. `OrchestrationV2SideChat`, `isSideChatThread` and `threadShellSideChatOf` are undefined, and the web shell carries the full struct.
@@ -194,21 +271,32 @@ In `ChatView.logic.test.ts`, add `it("gives a direct-linked side chat the slim s
 
 ```ts
 export const OrchestrationV2SideChatAnchor = Schema.Struct({
-  threadId: ThreadId, messageId: MessageId, turnItemId: Schema.optional(TurnItemId),
-  start: NonNegativeInt, end: NonNegativeInt,
+  threadId: ThreadId,
+  messageId: MessageId,
+  turnItemId: Schema.optional(TurnItemId),
+  start: NonNegativeInt,
+  end: NonNegativeInt,
   prefix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
   suffix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
 });
 export const OrchestrationV2SideChatOpening = Schema.Struct({
-  status: Schema.Literals(["pending", "ready", "fallback", "failed"]), text: Schema.NullOr(Schema.String), requestId: Schema.String,
+  status: Schema.Literals(["pending", "ready", "fallback", "failed"]),
+  text: Schema.NullOr(Schema.String),
+  requestId: Schema.String,
 });
 export const OrchestrationV2SideChatOutcome = Schema.Struct({
-  status: Schema.Literals(["generating", "ready", "none", "failed"]), note: Schema.NullOr(Schema.String),
-  requestId: Schema.String, error: Schema.optional(Schema.String),
+  status: Schema.Literals(["generating", "ready", "none", "failed"]),
+  note: Schema.NullOr(Schema.String),
+  requestId: Schema.String,
+  error: Schema.optional(Schema.String),
 });
 export const OrchestrationV2SideChat = Schema.Struct({
-  lessonThreadId: ThreadId, anchor: OrchestrationV2SideChatAnchor,
-  excerpt: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(SIDE_CHAT_EXCERPT_MAX_CHARS)),
+  lessonThreadId: ThreadId,
+  anchor: OrchestrationV2SideChatAnchor,
+  excerpt: Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.isMaxLength(SIDE_CHAT_EXCERPT_MAX_CHARS),
+  ),
   excerptContext: Schema.String.check(Schema.isMaxLength(SIDE_CHAT_EXCERPT_CONTEXT_MAX_CHARS)),
   label: TrimmedNonEmptyString.check(Schema.isMaxLength(SIDE_CHAT_LABEL_MAX_CHARS)),
   opening: OrchestrationV2SideChatOpening,
@@ -216,11 +304,15 @@ export const OrchestrationV2SideChat = Schema.Struct({
   deliveredNote: Schema.optional(Schema.String.check(Schema.isMaxLength(SIDE_CHAT_NOTE_MAX_CHARS))),
 });
 export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
-  lessonThreadId: ThreadId, anchor: OrchestrationV2SideChatAnchor, label: OrchestrationV2SideChat.fields.label,
-  state: Schema.Literals(["open", "done"]), noteStatus: Schema.NullOr(OrchestrationV2SideChatOutcome.fields.status),
+  lessonThreadId: ThreadId,
+  anchor: OrchestrationV2SideChatAnchor,
+  label: OrchestrationV2SideChat.fields.label,
+  state: Schema.Literals(["open", "done"]),
+  noteStatus: Schema.NullOr(OrchestrationV2SideChatOutcome.fields.status),
   excerptLength: NonNegativeInt,
 });
 ```
+
 - `isSideChatThread` returns `thread.sideChat != null`.
 - `threadShellSideChatOf` derives `state` from `done === null`, `noteStatus` from `done?.outcome.status ?? null`, and `excerptLength` from `excerpt.length`.
 - In `ChatView.logic.ts`, right after `...projection.thread,`, add `sideChat: projection.thread.sideChat === undefined ? undefined : threadShellSideChatOf(projection.thread.sideChat),`.
@@ -237,6 +329,7 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 ### Task 2: Contracts: side chat commands, with routing kept compiling
 
 **Files:**
+
 - Modify `packages/contracts/src/orchestrationV2.ts`:
   - `:2959`: two public members of `OrchestrationV2Command`, after `thread.merge_back`.
   - `:3080`: three internal members of `OrchestrationV2InternalCommand`, after `secret_request.record`.
@@ -245,6 +338,7 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 - Test: `packages/contracts/src/orchestrationV2.test.ts`, inside `describe("side chats")`.
 
 **Interfaces:**
+
 - Consumes: `OrchestrationV2SideChatAnchor`, `OrchestrationV2SideChat.fields.excerpt` (Task 1), and the file-local `OrchestrationV2CreationFields`.
 - Produces:
   - Public `thread.side_chat.open`: `{ type; createdBy; creationSource; commandId: CommandId; threadId: ThreadId /* new, client-allocated */; anchorThreadId: ThreadId; anchor; excerpt: string /* 1..4000 */; createdAt?: DateTime.Utc }`.
@@ -260,25 +354,63 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-  it("accepts side chat open and done from clients", () => {
-    const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
-    const open = { type: "thread.side_chat.open", commandId: "c-open", createdBy: "user", creationSource: "web",
-      threadId: "thread-side-chat", anchorThreadId: "thread-lesson", anchor, excerpt: "observation space" };
-    expect(decodeCommand(open)).toMatchObject({ type: "thread.side_chat.open", anchorThreadId: "thread-lesson", anchor, excerpt: "observation space" });
-    expect(decodeCommand({ type: "thread.side_chat.done", commandId: "c-done", createdBy: "user", creationSource: "web", threadId: "thread-side-chat", discard: true }))
-      .toMatchObject({ type: "thread.side_chat.done", discard: true });
-    expect(() => decodeCommand({ ...open, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS + 1) })).toThrow();
-    expect(() => decodeCommand({ ...open, excerpt: "" })).toThrow();
+it("accepts side chat open and done from clients", () => {
+  const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
+  const open = {
+    type: "thread.side_chat.open",
+    commandId: "c-open",
+    createdBy: "user",
+    creationSource: "web",
+    threadId: "thread-side-chat",
+    anchorThreadId: "thread-lesson",
+    anchor,
+    excerpt: "observation space",
+  };
+  expect(decodeCommand(open)).toMatchObject({
+    type: "thread.side_chat.open",
+    anchorThreadId: "thread-lesson",
+    anchor,
+    excerpt: "observation space",
   });
+  expect(
+    decodeCommand({
+      type: "thread.side_chat.done",
+      commandId: "c-done",
+      createdBy: "user",
+      creationSource: "web",
+      threadId: "thread-side-chat",
+      discard: true,
+    }),
+  ).toMatchObject({ type: "thread.side_chat.done", discard: true });
+  expect(() =>
+    decodeCommand({ ...open, excerpt: "x".repeat(SIDE_CHAT_EXCERPT_MAX_CHARS + 1) }),
+  ).toThrow();
+  expect(() => decodeCommand({ ...open, excerpt: "" })).toThrow();
+});
 
-  it("refuses side chat completions and note attachment from clients", () => {
-    const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
-    for (const internal of [
-      { type: "thread.side_chat.opening.complete", commandId: "c1", threadId: "t", requestId: "r", status: "ready", text: "s" },
-      { type: "thread.side_chat.outcome.complete", commandId: "c2", threadId: "t", requestId: "r", status: "none", note: null },
-      { type: "thread.side_chat.notes.attach", commandId: "c3", threadId: "t", runId: "run-1" },
-    ]) expect(() => decodeCommand(internal)).toThrow();
-  });
+it("refuses side chat completions and note attachment from clients", () => {
+  const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
+  for (const internal of [
+    {
+      type: "thread.side_chat.opening.complete",
+      commandId: "c1",
+      threadId: "t",
+      requestId: "r",
+      status: "ready",
+      text: "s",
+    },
+    {
+      type: "thread.side_chat.outcome.complete",
+      commandId: "c2",
+      threadId: "t",
+      requestId: "r",
+      status: "none",
+      note: null,
+    },
+    { type: "thread.side_chat.notes.attach", commandId: "c3", threadId: "t", runId: "run-1" },
+  ])
+    expect(() => decodeCommand(internal)).toThrow();
+});
 ```
 
 - [ ] **Step 2: Run the tests and confirm the first one fails.** Run `vp test run packages/contracts/src/orchestrationV2.test.ts -t "side chat open and done|refuses side chat"`. Expected: "accepts…" FAILS because the `type` is unknown. "refuses…" passes already, and stays as a guard against moving the internal commands into the public union.
@@ -295,6 +427,7 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 ### Task 3: Server: slim side chat on every thread shell
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ProjectionStore.ts`:
   - `:43-70`: import `threadShellSideChatOf`.
   - `:1596-1598`: `threadShellFromProjection`, the memory layer and every projection-based shell.
@@ -302,6 +435,7 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 - Test: `apps/server/src/orchestration-v2/ProjectionStore.test.ts`. Add a new `it.effect.each([["memory", ProjectionStore.layerMemory], ["SQL", layerTest]])` after `:373`. Mirror `"%s shells flag only an active turn blocked solely on T3 thread waits"`, and reuse `addRolledBackRecoveryCandidate`, `providerInstanceId` and `modelSelection`.
 
 **Interfaces:**
+
 - Consumes: `threadShellSideChatOf` and `OrchestrationV2AppThread.sideChat` (Task 1).
 - Produces: shells from `getShellSnapshot`, `getThreadShell` and `threadShellFromProjection` carry `sideChat?: OrchestrationV2ThreadShellSideChat`. Ordinary threads have no `sideChat` key.
 
@@ -323,10 +457,12 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 ### Task 4: Client runtime: present the side chat on environment shells
 
 **Files:**
+
 - Modify `packages/client-runtime/src/state/models.ts`: `:3-18` (type import), `:189` (`EnvironmentThreadShell` field), `:341` (`presentThreadShell`).
 - Test: `packages/client-runtime/src/state/entities.test.ts`. Add a new `it` in `describe("V2 client presentation")`, mirroring the existing `presentThreadShell(environmentId, { ...v2ThreadShell, … })` tests.
 
 **Interfaces:**
+
 - Consumes: `OrchestrationV2ThreadShell.sideChat` and `isSideChatThread` (Task 1).
 - Produces: `EnvironmentThreadShell.sideChat?: OrchestrationV2ThreadShellSideChat | null`.
   - `presentThreadShell` always sets it. It passes the shell's object through without copying, and sets `null` for ordinary threads.
@@ -345,10 +481,12 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 ### Task 5: Client runtime: derive the side chat tree
 
 **Files:**
+
 - Modify `packages/client-runtime/src/state/threadRelationships.ts`. Append after `:248`. The module is exported as `@t3tools/client-runtime/state/thread-relationships`.
 - Test: `packages/client-runtime/src/state/threadRelationships.test.ts`. Add a new `describe("side chat tree")`.
 
 **Interfaces:**
+
 - Consumes: `EnvironmentThreadShell.sideChat` (Task 4).
 - Produces:
   - `interface SideChatTreeRow { readonly threadId: ThreadId; readonly parentId: ThreadId | null; readonly depth: number; readonly label: string; readonly state: "lesson" | "open" | "done"; readonly noteStatus: "generating" | "ready" | "none" | "failed" | null }`
@@ -363,6 +501,7 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
   - `"leaves out other lessons' side chats and ordinary forks"`: the ids are `[lessonId, reward.id]`.
   - `"hangs a side chat whose parent is gone under the lesson, even without the lesson shell"`: an orphan whose parent is `thread-deleted` gives `[{ threadId: lessonId, parentId: null, depth: 0, label: "Lesson", state: "lesson", noteStatus: null }, { threadId: orphan.id, parentId: lessonId, depth: 1, … }]`.
   - `"stops on a parent cycle and keeps both side chats reachable"`: `first` (parent `second`) and `second` (parent `first`) give `[[lesson, null, 0], [first, lesson, 1], [second, first, 2]]`.
+
 - [ ] **Step 2: Run them and confirm they fail.** Run `vp test run packages/client-runtime/src/state/threadRelationships.test.ts -t "side chat tree"`. Expected: FAIL, because `deriveSideChatTree` is not a function.
 - [ ] **Step 3: Implement it with a visited set.**
   - Members are shells with `sideChat?.lessonThreadId === lessonThreadId` and `id !== lessonThreadId`. When an id appears more than once, the first one wins.
@@ -376,11 +515,13 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 ### Task 6: Client runtime: open and finish side chat operations
 
 **Files:**
+
 - Modify `packages/client-runtime/src/operations/commands.ts`. Add input types after `MergeThreadBackInput` (`:216-220`), and functions after `mergeThreadBack` (`:986-998`).
 - Modify `packages/client-runtime/src/state/threadCommands.ts`. Add imports (`:20-60`) and two commands after `mergeBack` (`:348-357`).
 - Test: `packages/client-runtime/src/operations/commands.test.ts`, in `describe("V2 environment commands")`. Mirror `"preserves caller command ids for idempotent V2 commands"` with `makeSupervisor`.
 
 **Interfaces:**
+
 - Consumes: the Task 2 command shapes.
 - Produces:
   - `interface OpenSideChatInput extends ThreadCommandInput { readonly anchorThreadId: ThreadId; readonly anchor: OrchestrationV2SideChatAnchor; readonly excerpt: string }`
@@ -393,11 +534,34 @@ export const OrchestrationV2ThreadShellSideChat = Schema.Struct({
 
 ```ts
 expect(commands).toEqual([
-  { type: "thread.side_chat.open", commandId: "open-1", createdBy: "user", creationSource: "web", threadId: "side-1", anchorThreadId: "lesson-1", anchor, excerpt: "observation space" },
-  { type: "thread.side_chat.done", commandId: "done-1", createdBy: "user", creationSource: "web", threadId: "side-1" },
-  { type: "thread.side_chat.done", commandId: "done-2", createdBy: "user", creationSource: "web", threadId: "side-1", discard: true },
+  {
+    type: "thread.side_chat.open",
+    commandId: "open-1",
+    createdBy: "user",
+    creationSource: "web",
+    threadId: "side-1",
+    anchorThreadId: "lesson-1",
+    anchor,
+    excerpt: "observation space",
+  },
+  {
+    type: "thread.side_chat.done",
+    commandId: "done-1",
+    createdBy: "user",
+    creationSource: "web",
+    threadId: "side-1",
+  },
+  {
+    type: "thread.side_chat.done",
+    commandId: "done-2",
+    createdBy: "user",
+    creationSource: "web",
+    threadId: "side-1",
+    discard: true,
+  },
 ]);
 ```
+
 - [ ] **Step 2: Run it and confirm it fails.** Run `vp test run packages/client-runtime/src/operations/commands.test.ts -t "side chat open and finish"`. Expected: FAIL, because `openSideChat` is not exported.
 - [ ] **Step 3: Implement.** Mirror `forkThreadFromRun`: `allocateCommandId(input)`, `createdBy: "user"`, `creationSource: input.creationSource ?? "web"`. Include `discard` only when it is `true`.
 - [ ] **Step 4: Run the checks and confirm they pass.** Run `vp test run packages/client-runtime/src/operations/commands.test.ts && vp run --filter @t3tools/client-runtime typecheck`. Expected: PASS.
@@ -410,6 +574,7 @@ expect(commands).toEqual([
 ### Task 7: Side-chat text generation operation on every provider
 
 **Files:**
+
 - Modify the provider-core text generation files:
   - `packages/provider-core/src/server/textGeneration.ts:57-117`: types, and the `ProviderTextGeneration` member.
   - `textGenerationPrompts.ts`: imports, and append the prompt builder.
@@ -426,6 +591,7 @@ expect(commands).toEqual([
 - Test: create `packages/provider-core/src/server/textGenerationOperations.test.ts`, mirroring `fromRunner` + `decodeJsonReply` in `GitManager.test.ts:3337-3340`. Extend `packages/provider-core/src/server/textGenerationUtils.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `SIDE_CHAT_NOTE_MAX_CHARS` and `SIDE_CHAT_SUMMARY_MAX_CHARS` (Task 1).
 - Produces:
   - `type SideChatTextKind = "opening_summary" | "outcome_note"`
@@ -477,10 +643,12 @@ expect(commands).toEqual([
 Every provider honours `cwd`, and Codex and Claude load `AGENTS.md` / `CLAUDE.md` from it. Side-chat text must therefore never run in the project.
 
 **Files:**
+
 - Modify `apps/server/src/textGeneration/TextGeneration.ts`: add the helper after `layer`.
 - Test: create `apps/server/src/textGeneration/TextGeneration.test.ts`. Mirror the `Layer.mock(TextGeneration.TextGeneration)` fake in `ThreadTitleRegenerationService.test.ts:89`.
 
 **Interfaces:**
+
 - Consumes: Task 7 types.
 - Produces: `generateIsolatedSideChatText(input: Omit<SideChatTextGenerationInput, "cwd">): Effect.Effect<SideChatTextGenerationResult, TextGenerationError, TextGeneration | FileSystem.FileSystem>`. Every side-chat caller uses this helper, never `generateSideChatText` directly.
 
@@ -496,11 +664,13 @@ Every provider honours `cwd`, and Codex and Claude load `AGENTS.md` / `CLAUDE.md
 ### Task 9: Side-chat text model resolution
 
 **Files:**
+
 - Modify `packages/shared/src/serverSettings.ts:139-161`: add the helper after `resolveSourceControlWriterModelSelection`.
 - Modify `apps/server/src/serverSettings.ts:60-63`: re-export it.
 - Test: `packages/shared/src/serverSettings.test.ts`, next to the writer tests at `:337-445`. Mirror their `ServerProvider` literals.
 
 **Interfaces:**
+
 - Produces: `resolveSideChatTextModel(lessonThread: { readonly providerInstanceId: ProviderInstanceId; readonly projectId: ProjectId }, settings: ServerSettings, providers: ReadonlyArray<ServerProvider> | undefined): ModelSelection`. The rules, in order:
   1. `settings.textGenerationModelSelection`, when it already targets the lesson's instance.
   2. Otherwise `{ instanceId: lesson instance, model: DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider.driver] }`, when that model exists and the snapshot is `enabled`, `isProviderAvailable`, `isProviderTextGenerationCapable` and `resolveProjectProviderInstanceEnabled(settings, projectId, instanceId)`.
@@ -520,10 +690,12 @@ Every provider honours `cwd`, and Codex and Claude load `AGENTS.md` / `CLAUDE.md
 Anchor offsets are rendered-text offsets (`packages/contracts/src/assistantCitations.ts:9`), not Markdown offsets. The server therefore finds the excerpt by its content, and uses the anchor only to choose between repeated matches.
 
 **Files:**
+
 - Create `apps/server/src/orchestration-v2/sideChat/sideChatText.ts`.
 - Test: create `apps/server/src/orchestration-v2/sideChat/sideChatText.test.ts`. Mirror `RestartBackgroundNote.test.ts`: plain `it` from `@effect/vitest`.
 
 **Interfaces:**
+
 - Consumes: `OrchestrationV2SideChatAnchor`, `SIDE_CHAT_EXCERPT_CONTEXT_MAX_CHARS`, `SIDE_CHAT_LABEL_MAX_CHARS`.
 - Produces:
   - `deriveSideChatLabel(excerpt: string): string`. It collapses whitespace, trims, and caps at 120 on a grapheme boundary (≤ 119 graphemes' worth, then `…`).
@@ -557,10 +729,12 @@ Anchor offsets are rendered-text offsets (`packages/contracts/src/assistantCitat
 ### Task 11: Summarizer input and opening context text (pure)
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/sideChat/sideChatText.ts`.
 - Test: `sideChatText.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `OrchestrationV2SideChatOpening`, `SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS`.
 - Produces:
   - `buildSideChatSummarizerInput(input: { readonly messages: ReadonlyArray<{ readonly id: MessageId; readonly role: "user" | "assistant"; readonly text: string }>; readonly anchorMessageId: MessageId; readonly excerpt: string; readonly anchorOpeningText: string | null }): string`, at most 24000 chars.
@@ -594,17 +768,19 @@ Anchor offsets are rendered-text offsets (`packages/contracts/src/assistantCitat
     "Don't change files unless the user explicitly asks you to.",
   ].join("\n");
   ```
-    - The sections are: framing; the optional parent context; the summary (`opening.status === "ready" && text !== null`), else the fallback line with the topic clipped to 1000; the highlighted text; then the text around it, only when non-blank. Join them with `\n\n`.
+  - The sections are: framing; the optional parent context; the summary (`opening.status === "ready" && text !== null`), else the fallback line with the topic clipped to 1000; the highlighted text; then the text around it, only when non-blank. Join them with `\n\n`.
 - [ ] **Step 4: Run the checks and confirm they pass.** Run the test file. Expected: PASS.
 - [ ] **Step 5: Commit.** `git add apps/server/src/orchestration-v2/sideChat/sideChatText.ts apps/server/src/orchestration-v2/sideChat/sideChatText.test.ts && git commit -m "feat(server): build side-chat summarizer input and opening context" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`
 
 ### Task 12: Fork planning: plan side-chat threads, strip side-chat state from forks
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ThreadForkService.ts:1-18,77-115`.
 - Test: `apps/server/src/orchestration-v2/ThreadForkService.test.ts`. Reuse `makeSourceThread`, `makeSourceRun`, `makeSourceProjection` and `planFork`.
 
 **Interfaces:**
+
 - Consumes: `OrchestrationV2SideChat`, and `AppThread.sideChat` / `.sideChatNoteDeliveries`.
 - Produces:
   - Module-private `planForkTargetThread(input: { sourceThread; targetThreadId; title; forkedFrom; createdBy; creationSource; createdAt }): OrchestrationV2AppThread`. This is today's `:85-115` settings copy, with `forkedFrom` taken from the input and `sideChat` / `sideChatNoteDeliveries` removed by destructuring.
@@ -627,12 +803,14 @@ Anchor offsets are rendered-text offsets (`packages/contracts/src/assistantCitat
 ### Task 13: Command provenance and opening completions
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ThreadManagementService.ts:67-110`: `withCreationProvenance` and `existingThreadIdsForCommand`.
 - Modify `apps/server/src/orchestration-v2/Orchestrator.ts`: add `dispatchSideChatOpeningComplete` after `dispatchThreadFork` (`:3840-3925`), and its case in the dispatch switch (`:11256-11568`).
 - Create `apps/server/src/orchestration-v2/testkit/sideChatFixtures.ts`.
 - Test: create `apps/server/src/orchestration-v2/sideChat/SideChatOpeningService.test.ts`. Mirror `makeHarness` in `ThreadTitleRegenerationService.test.ts:41-101`: a paused adapter, and `ProviderReplayHarness.layerWithRegistry(..., { databaseLayer: SqlitePersistence.layerMemory, runEffectWorker: false })`.
 
 **Interfaces:**
+
 - Consumes: the Task 2 commands and `planSideChatThread` (Task 12).
 - Produces:
   - `withCreationProvenance` covers `thread.side_chat.open` and `thread.side_chat.done`.
@@ -669,6 +847,7 @@ Anchor offsets are rendered-text offsets (`packages/contracts/src/assistantCitat
 This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorker.ts:506-522`. A generation problem is recorded as `failed` and never fails the effect, because failed outbox rows pin worktrees (`EffectOutbox.ts:149-155`).
 
 **Files:**
+
 - Create `apps/server/src/orchestration-v2/sideChat/SideChatOpeningService.ts`.
 - Modify `apps/server/src/orchestration-v2/EffectOutbox.ts:109-120`: add the request `Schema.Struct({ type: Schema.Literal("side-chat.opening") })`.
 - Modify `apps/server/src/orchestration-v2/EffectWorker.ts:27,71-99,506-522`: the requirement and the case.
@@ -678,6 +857,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 - Test: `apps/server/src/orchestration-v2/sideChat/SideChatOpeningService.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `generateIsolatedSideChatText` (Task 8), `ServerSettings.resolveSideChatTextModel` (Task 9), `buildSideChatSummarizerInput` (Task 11), and the completion command (Task 13).
 - Produces:
   - `class SideChatOpeningService extends Context.Service<SideChatOpeningService, { readonly execute: (input: { readonly threadId: ThreadId; readonly requestId: CommandId }) => Effect.Effect<void, <errors of threads.getThreadRecords | threads.dispatch>> }>()("t3/orchestration-v2/sideChat/SideChatOpeningService")`, plus `layer`. It requires `ThreadManagementService | ServerSettingsService | ProviderRegistry | TextGeneration | FileSystem`.
@@ -722,6 +902,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 ### Task 15: Text-generation lane with a concurrency cap
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/EffectOutbox.ts`:
   - `:123-134`: `REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS`.
   - `:136-142`: constants.
@@ -729,6 +910,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 - Test: `apps/server/src/orchestration-v2/FoundationPersistence.test.ts`. Add tests next to "runs title generation beside critical work while serializing each lane" (`:1891`), and extend the `it.effect.each` at `:2534-2581`.
 
 **Interfaces:**
+
 - Produces: `TEXT_GENERATION_LANE_EFFECT_TYPES = ["thread-title.generate", "side-chat.opening"] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>` and `TEXT_GENERATION_LANE_MAX_CONCURRENCY = 2`. Task 25 appends `"side-chat.outcome"` to the lane list and the replay-safe list.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -750,6 +932,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 ### Task 16: `thread.side_chat.open`
 
 **Files:**
+
 - Create `apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts`.
 - Modify `apps/server/src/orchestration-v2/Orchestrator.ts`:
   - Add `dispatchSideChatOpen` and its switch case.
@@ -759,6 +942,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 - Test: create `apps/server/src/orchestration-v2/testkit/SideChat.integration.test.ts`. Mirror `ThreadFork.execution.test.ts:28-55`.
 
 **Interfaces:**
+
 - Consumes: `planSideChatThread` (Task 12), `extractExcerptContext` and `deriveSideChatLabel` (Task 10), and the fixtures (Task 13).
 - Produces:
   - `sideChatOpeningEffectId(requestId: string): string`, which returns `` `effect:${requestId}:side-chat.opening` ``.
@@ -808,6 +992,7 @@ This follows the pattern of `ThreadTitleRegenerationService.ts` and `EffectWorke
 The context is built at turn start. Only there is it known whether the native thread is fresh, and only the effect may wait (Task 19). Content goes in `summaryText` with `history` undefined. `deliverContextHandoffs` (`ContextHandoffDelivery.ts:63-70`) already drops a `summaryText` that does not fit, instead of failing the turn.
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts`.
 - Modify `apps/server/src/orchestration-v2/ProviderTurnStartService.ts:26-60`: imports, plus a block right after `sameNativeThread` (`:874-875`).
 - Create `apps/server/src/orchestration-v2/testkit/PromptRecordingAdapter.ts`. Mirror the inline adapter in `SteeringCompletion.integration.test.ts:425-500`.
@@ -815,6 +1000,7 @@ The context is built at turn start. Only there is it known whether the native th
 - Test: `testkit/SideChat.integration.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `buildSideChatOpeningSummaryText` (Task 11), `SIDE_CHAT_CONTEXT_HANDOFF_TITLE` (Task 1), and Tasks 14 and 16.
 - Produces (`sideChatOpening.ts`):
   - `sideChatOpeningHandoffId(runId: RunId): ContextHandoffId`, which returns `` `side-chat-opening:${runId}` ``.
@@ -847,6 +1033,7 @@ The context is built at turn start. Only there is it known whether the native th
   - `"falls back to the lesson topic and the highlight's surroundings when the summary failed"`: the prompt includes `"The lesson summary is unavailable."`, `LESSON_TOPIC` and `OBSERVATION_PARAGRAPH`, and excludes the other lesson messages.
   - `"carries the parent side chat's summary into a nested side chat"`: the fake returns `"NESTED SUMMARY"` when its input includes `"Box space"`. The nested prompt includes `"NESTED SUMMARY"` and `` `Context from the side chat this one was opened from:\n${LESSON_SUMMARY}` ``.
   - `"gives the opening context again after a provider switch inside the side chat"`: run `completeLatestRun`, then send with `CLAUDE_SELECTION`. The switch adapter's prompt includes the framing and `LESSON_SUMMARY`.
+
 - [ ] **Step 2: Run them and confirm they fail.** Run `vp test run apps/server/src/orchestration-v2/testkit/SideChat.integration.test.ts -t "side chat opening context"`. Expected: FAIL, because the prompts are the bare user message.
 - [ ] **Step 3: Implement the block in `ProviderTurnStartService.start`.**
   - It runs when `projection.thread.sideChat !== undefined`, `providerThread.nativeThreadRef === null`, and no handoff with `sideChatOpeningHandoffId(run.id)` exists yet. A retried start finds the ready handoff through `:262-283`.
@@ -862,10 +1049,12 @@ The context is built at turn start. Only there is it known whether the native th
 When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native thread (`:767-855`). It replays only the side chat's own transcript, because handoff items are not history (`handoffBudget.ts:138-168`).
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ProviderTurnStartService.ts`: the Task 17 condition.
 - Test: `testkit/SideChat.integration.test.ts`.
 
 **Interfaces:**
+
 - Produces: the opening context is delivered when `providerThread.nativeThreadRef === null || !sameNativeThread`.
 
 - [ ] **Step 1: Write the failing test** `"gives the opening context again when the native thread is replaced"`. Use `deliveryHarness(..., { failResume: true })`, run `openAndAsk`, run `completeLatestRun`, then send "Is it always a Box?" and drain. There are 2 prompts, and `prompts[1]` includes `LESSON_SUMMARY` and `"What is an observation space?"`.
@@ -877,6 +1066,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 19: Wait (bounded) for an opening summary still being written
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts`.
 - Modify `apps/server/src/orchestration-v2/ProviderTurnStartService.ts`: `:99-116` (layer requirement `| EffectOutbox.EffectOutboxV2`), `:118-133`, and the Task 17 block.
 - Modify `apps/server/src/orchestration-v2/runtimeLayer.ts:164-178`. Add `EffectOutbox.layer`, which is the memoized instance the worker uses, and which `awaitSettled` relies on.
@@ -884,6 +1074,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 - Test: create `apps/server/src/orchestration-v2/sideChat/sideChatOpening.test.ts`. Mirror the `forkChild` + `pollUnsafe` waiter in `FoundationPersistence.test.ts:1861-1889`. Also extend `testkit/SideChat.integration.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `sideChatOpeningEffectId` (Task 16), `EffectOutboxV2Shape.awaitSettled`, and the lane (Task 15).
 - Produces: `awaitWithinSideChatWaitCap<E>(settled: Effect.Effect<void, E>): Effect.Effect<boolean, E>`. It is `true` when the effect settled within `SIDE_CHAT_WAIT_CAP_MS` (`Effect.timeoutOption` + `Option.isSome`).
 
@@ -910,10 +1101,12 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 20: Side-chat note text helpers (pure)
 
 **Files:**
+
 - Create `apps/server/src/orchestration-v2/sideChat/notes.ts`.
 - Test: create `apps/server/src/orchestration-v2/sideChat/notes.test.ts`. Mirror `IdleCompaction.test.ts`, which tests plain functions.
 
 **Interfaces:**
+
 - Consumes: `SIDE_CHAT_NOTE_MAX_CHARS`, `SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS`, `sanitizeSideChatText` (Task 7, from `@t3tools/provider-core/server/textGenerationUtils`; add that subpath export to `packages/provider-core/package.json` if it is missing), and `isNativeMaintenanceCommand` (`CommandPolicy.ts:120`).
 - Produces:
   - `SIDE_CHAT_NOTES_HEADER = "Side-chat notes (the user asked about these separately; don't reply to them directly):"`
@@ -944,10 +1137,12 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 21: Side-chat tree helpers on the server (pure)
 
 **Files:**
+
 - Create `apps/server/src/orchestration-v2/sideChat/tree.ts`.
 - Test: create `tree.test.ts`. Copy the thread fixture from `IdleCompaction.test.ts:31-54`.
 
 **Interfaces:**
+
 - Produces:
   - `sideChatLessonThreadId(thread: Pick<OrchestrationV2AppThread, "id" | "sideChat">): ThreadId`, which is `sideChat?.lessonThreadId ?? id`.
   - `sideChatChildren(threads, parentThreadId): ReadonlyArray<OrchestrationV2AppThread>`. It returns side chats that are not deleted, with `lineage.parentThreadId === parentThreadId`, ordered by `createdAt`, then `id`.
@@ -981,6 +1176,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 22: ProjectionStore lists a lesson's side chats
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ProjectionStore.ts`:
   - `:454-459`: the shape.
   - `:6111-6126`: SQL, next to `getThreadWorktreePaths`.
@@ -990,6 +1186,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 - Test: `ProjectionStore.test.ts`. Use the memory/SQL parity pattern (`:186-190`) and the `thread.created` fixture of `threadWorktreePathsIncludeArchivedOnRequest` (`:662-718`).
 
 **Interfaces:**
+
 - Produces:
   - `ProjectionStoreV2Shape.getSideChatThreads(input: { readonly projectId: ProjectId; readonly lessonThreadId: ThreadId }): Effect.Effect<ReadonlyArray<OrchestrationV2AppThread>, ProjectionStoreV2Error>`. It returns every non-deleted side chat of the lesson, archived ones included, ordered by `createdAt`, then id.
   - `ProjectionStoreV2Shape.hasSideChatChildren(input: { readonly projectId: ProjectId; readonly parentThreadId: ThreadId }): Effect.Effect<boolean, ProjectionStoreV2Error>`. It is `true` when some non-deleted side chat is anchored in that thread (`sideChat.anchor.threadId`). Tasks 26 and 28 call it before loading a tree, so a send or turn start on a thread without side chats never decodes the project's side chats.
@@ -1002,6 +1199,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
   - `side:other-project`.
 
   The result is `[side:a, side:b]`. `hasSideChatChildren` is `true` for the lesson, `false` for `side:b` (no side chats), and `false` for `side:a` (its only side chat is deleted).
+
 - [ ] **Step 2: Run it and confirm it fails.** Run `vp test run apps/server/src/orchestration-v2/ProjectionStore.test.ts -t "lists a lesson's side chats"`. Expected: FAIL, because it is not a function.
 - [ ] **Step 3: Implement.** The SQL uses the existing `(project_id, updated_at)` index, so no migration is needed:
   ```sql
@@ -1026,11 +1224,13 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 23: Side-chat notes never fail a turn's context budget
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/ContextHandoffDelivery.ts:20-133`.
 - Modify `apps/server/src/orchestration-v2/ProviderTurnStartService.ts:1186-1240`: the `deliverContextHandoffs` call.
 - Test: `apps/server/src/orchestration-v2/ContextHandoffBudget.test.ts`, inside `describe("handoff delivery")`. Mirror `"fails before delivery when even the coverage marker cannot fit"` (`:624-642`).
 
 **Interfaces:**
+
 - Consumes: `buildSideChatNotesSummaryText`, `isSideChatNotesHandoff` and `SIDE_CHAT_NOTES_HEADER` (Task 20).
 - Produces: the `deliverContextHandoffs` input gains `readonly optional?: (handoff: OrchestrationV2ContextHandoff) => boolean`.
   - An optional handoff that does not fit is dropped whole, coverage line included, and a warning is logged.
@@ -1054,11 +1254,13 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 24: Live side-chat integration harness
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/testkit/PromptRecordingAdapter.ts` (Task 17). Add the option `replyText?: string` and return `finishHeldTurn(threadId): Effect<void>`.
 - Create `apps/server/src/orchestration-v2/testkit/SideChatHarness.ts`.
 - Test: create `apps/server/src/orchestration-v2/testkit/SideChatDone.integration.test.ts`. Lay it out like `testkit/ThreadMergeBack.integration.test.ts`.
 
 **Interfaces:**
+
 - Consumes:
   - `makePromptRecordingAdapter` (Task 17).
   - The `sideChatTextGeneration` harness option (Task 14). This is the single text-generation option. The harness layers that need text generation (`SideChatOpeningService` now, `SideChatLifecycleService` from Task 25) take this function through `Layer.mock(TextGeneration.TextGeneration)({ generateSideChatText })`.
@@ -1072,27 +1274,28 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
     - `turn.terminal`: completed, with `threadDisposition: "reusable"`.
 
     A turn whose text contains `"[hold]"` is remembered. `finishHeldTurn` replies to and completes it. `interruptTurn` emits interrupted for the held turn. The event shapes follow `publishTerminal` in `SelectionRestart.integration.test.ts:145-176`.
+
   - `SIDE_CHAT_HARNESS_REPLY = "Reply: an observation space is what the agent sees, a Box is a bounded vector, and reward shaping changes the reward."`
   - `type SideChatNoteScript = { readonly text: string | null } | { readonly fail: string } | { readonly gate: Deferred.Deferred<string | null> }`
   - `makeSideChatHarness(name): Effect<SideChatHarness, unknown, Scope | FileSystem | Path>`. Its fields:
 
-    | Field | Behaviour |
-    |---|---|
-    | `layer` | `ProviderReplayHarness.layerWithRegistry({ name }, ProviderAdapterRegistry.layerSingle(adapter), { sideChatTextGeneration })` with the default forked effect daemon, so tests await events and never `drain()` while a note may be generating |
-    | `prompts(threadId)` | The adapter's recorded prompts for the thread |
-    | `outcomeInputs()` / `outcomeInputFor(excerpt)` | Prompts recorded for `outcome_note`. The excerpt is the line after `SIDE_CHAT_OUTCOME_EXCERPT_HEADER` |
-    | `scriptNote(excerpt, ...results)` | Queues results for successive notes. The default is `{ text: null }`. `fail` gives a `TextGenerationError` with that detail, and `gate` awaits the `Deferred` |
-    | `noteRequested(excerpt)` | Resolves once the note writer asks for that note |
-    | `finishHeldTurn(threadId)` | See the adapter above |
-    | `mark` | `eventSink.latestSequence()` |
-    | `awaitEvent(after, predicate)` | `eventSink.stream({ afterSequence })` (replay, then live) until the predicate matches |
-    | `awaitRun(after, messageId, status)` | Waits for a matching `run.updated` |
-    | `awaitOutcome(after, threadId, status)` | Waits for a `thread.metadata-updated` with that outcome status, and returns the payload |
-    | `createLesson(text)` | Creates `lesson:${name}` in `project:${name}` with `worktreePath = checkpointWorkspace(name)` and model `{ instanceId: "codex", model: "side-chat-model" }`, then sends `text` |
-    | `send(threadId, text, { dispatchMode?, scheduledTaskId?, await?: "completed" \| "running" \| "none" })` | Sends a message. It defaults to awaiting `completed`, or `running` when the text contains `"[hold]"` |
-    | `openSideChat({ parentThreadId, label })` | Opens a side chat on `label` in the parent's latest assistant message. The id is `side:<label with spaces as ->`, the commandId is `open:${label}`, and the anchor is built with the 32-unit prefix and suffix around `text.indexOf(label)` |
-    | `finish(threadId, { discard? })` | Dispatches `thread.side_chat.done` with a fresh commandId, `done:${threadId}:${n}`, where `n` increments per call |
-    | `thread(threadId)` | `getThreadProjection(threadId).thread` |
+    | Field                                                                                                   | Behaviour                                                                                                                                                                                                                                     |
+    | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `layer`                                                                                                 | `ProviderReplayHarness.layerWithRegistry({ name }, ProviderAdapterRegistry.layerSingle(adapter), { sideChatTextGeneration })` with the default forked effect daemon, so tests await events and never `drain()` while a note may be generating |
+    | `prompts(threadId)`                                                                                     | The adapter's recorded prompts for the thread                                                                                                                                                                                                 |
+    | `outcomeInputs()` / `outcomeInputFor(excerpt)`                                                          | Prompts recorded for `outcome_note`. The excerpt is the line after `SIDE_CHAT_OUTCOME_EXCERPT_HEADER`                                                                                                                                         |
+    | `scriptNote(excerpt, ...results)`                                                                       | Queues results for successive notes. The default is `{ text: null }`. `fail` gives a `TextGenerationError` with that detail, and `gate` awaits the `Deferred`                                                                                 |
+    | `noteRequested(excerpt)`                                                                                | Resolves once the note writer asks for that note                                                                                                                                                                                              |
+    | `finishHeldTurn(threadId)`                                                                              | See the adapter above                                                                                                                                                                                                                         |
+    | `mark`                                                                                                  | `eventSink.latestSequence()`                                                                                                                                                                                                                  |
+    | `awaitEvent(after, predicate)`                                                                          | `eventSink.stream({ afterSequence })` (replay, then live) until the predicate matches                                                                                                                                                         |
+    | `awaitRun(after, messageId, status)`                                                                    | Waits for a matching `run.updated`                                                                                                                                                                                                            |
+    | `awaitOutcome(after, threadId, status)`                                                                 | Waits for a `thread.metadata-updated` with that outcome status, and returns the payload                                                                                                                                                       |
+    | `createLesson(text)`                                                                                    | Creates `lesson:${name}` in `project:${name}` with `worktreePath = checkpointWorkspace(name)` and model `{ instanceId: "codex", model: "side-chat-model" }`, then sends `text`                                                                |
+    | `send(threadId, text, { dispatchMode?, scheduledTaskId?, await?: "completed" \| "running" \| "none" })` | Sends a message. It defaults to awaiting `completed`, or `running` when the text contains `"[hold]"`                                                                                                                                          |
+    | `openSideChat({ parentThreadId, label })`                                                               | Opens a side chat on `label` in the parent's latest assistant message. The id is `side:<label with spaces as ->`, the commandId is `open:${label}`, and the anchor is built with the 32-unit prefix and suffix around `text.indexOf(label)`   |
+    | `finish(threadId, { discard? })`                                                                        | Dispatches `thread.side_chat.done` with a fresh commandId, `done:${threadId}:${n}`, where `n` increments per call                                                                                                                             |
+    | `thread(threadId)`                                                                                      | `getThreadProjection(threadId).thread`                                                                                                                                                                                                        |
 
 - [ ] **Step 1: Write the failing test** `"the side-chat harness records provider prompts and opens a side chat on the lesson's reply"`. `harness.prompts(lesson)` equals `["Teach me RL environments."]`. After `openSideChat`, the shell's `sideChat.label` is `"observation space"` and its `lessonThreadId` is the lesson.
 - [ ] **Step 2: Run it and confirm it fails.** Run `vp test run apps/server/src/orchestration-v2/testkit/SideChatDone.integration.test.ts`. Expected: FAIL, because the import cannot be resolved.
@@ -1103,6 +1306,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 25: Done ends a side chat and writes its note
 
 **Files:**
+
 - Modify `apps/server/src/orchestration-v2/EffectOutbox.ts`: the request union, replay-safe, and the lane list.
 - Create `apps/server/src/orchestration-v2/sideChat/SideChatLifecycleService.ts`.
 - Modify `EffectWorker.ts:71-99,506-522`, `runtimeLayer.ts:304-322` and `testkit/ProviderReplayHarness.ts:442-506`.
@@ -1111,6 +1315,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 - Test: `testkit/SideChatDone.integration.test.ts` and `FoundationPersistence.test.ts`.
 
 **Interfaces:**
+
 - Consumes: Tasks 2, 7, 9, 20, 21, 22, 24, and `planThreadDeletion` (`ThreadDeletion.ts:17`).
 - Produces:
   - The effect request `{ type: "side-chat.outcome"; requestId: string }`, with id `` `effect:${requestId}:side-chat.outcome` ``. It is in `TEXT_GENERATION_LANE_EFFECT_TYPES` and replay-safe.
@@ -1162,6 +1367,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 26: Notes ride with the parent's next user turn
 
 **Files:**
+
 - Modify `Orchestrator.ts`: `dispatchSideChatNotesAttach` and its `dispatchOnce` case.
 - Modify `sideChat/SideChatLifecycleService.ts`: `awaitNotesForRunStart` and the private `awaitSideChatNotes`.
 - Modify `EffectWorker.ts:141-153`: `provider-turn.start` runs the gate first.
@@ -1169,6 +1375,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 - Test: create `testkit/SideChatNotes.integration.test.ts`, with the same skeleton as `SideChatDone.integration.test.ts`.
 
 **Interfaces:**
+
 - Consumes: Tasks 20, 21, 22, 23 and 25, `SIDE_CHAT_WAIT_CAP_MS` and `SIDE_CHAT_NOTES_HANDOFF_TITLE`.
 - Produces:
   - `SideChatLifecycleService.awaitNotesForRunStart(input: { readonly threadId: ThreadId; readonly runId: RunId }): Effect.Effect<void>`, which never fails.
@@ -1184,6 +1391,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
     3. `turn-item.updated`: a `handoff` item titled `SIDE_CHAT_NOTES_HANDOFF_TITLE` with `ordinal: run.ordinal * 100 - 2` and `summary: summaryText`. The position store places it after the user message (`EventSink.ts:339-361`).
 
     Otherwise it emits the unchanged row. There is no context transfer.
+
   - The gate runs before every `provider-turn.start`, so its cheap checks come first:
     1. Read the run's message and return unless it passes `isUserAuthoredSideChatTrigger`.
     2. Return unless `projections.hasSideChatChildren({ projectId, parentThreadId: threadId })` (Task 22). Only then load the tree with `getSideChatThreads`.
@@ -1224,6 +1432,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 27: Done stops, cascades, chains notes up, and reopens
 
 **Files:**
+
 - Modify `Orchestrator.ts`:
   - `dispatchSideChatDone` and `dispatchSideChatOutcomeComplete`.
   - New `stopSideChatRun` and `applySideChatUserMessage`.
@@ -1233,6 +1442,7 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 - Test: `testkit/SideChatDone.integration.test.ts`.
 
 **Interfaces:**
+
 - Consumes:
   - Tasks 21, 25 (`dispatchLockParentThreadId`) and 26 (`awaitSideChatNotes`).
   - `dispatchThreadStop` (`Orchestrator.ts:10049`) and `isBlockingRun` (`:556`).
@@ -1284,10 +1494,12 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 28: A user message finishes idle side chats below it
 
 **Files:**
+
 - Modify `Orchestrator.ts` (`applySideChatUserMessage`).
 - Test: `testkit/SideChatNotes.integration.test.ts`.
 
 **Interfaces:**
+
 - Produces: after the reopen check, `applySideChatUserMessage` runs Done without a stop on every open side chat in the thread's subtree (`sideChatDescendants`), deepest first. It skips any side chat with a blocking or `queued` run, and adds the comment "a side chat whose AI is still answering stays open". Empty side chats are deleted. The resulting notes follow the Task 26 wait rule.
   - Cheap checks first, because this runs on every message: return unless the message passes `isUserAuthoredSideChatTrigger` (it is on the command, no read), then unless `projectionStore.hasSideChatChildren({ projectId, parentThreadId: thread.id })` (Task 22). Only then call `readSideChatTree`.
   - The thread may itself be a side chat (PRD R5: "the same goes for sending in a side chat that has its own open side chats"). Its subtree is then finished and the notes ride with its own next run.
@@ -1309,12 +1521,14 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 ### Task 29: Archive, unarchive and delete cascade to side chats
 
 **Files:**
+
 - Modify `EffectOutbox.ts`: the request and replay-safe.
 - Modify `Orchestrator.ts`: the `thread.delete` case (`:11296-11318`) and the end of the archive handling in `dispatchThreadMutation` (`:3748-3758`).
 - Modify `sideChat/SideChatLifecycleService.ts` (`cascade`) and `EffectWorker.ts` (the case).
 - Test: `testkit/SideChat.integration.test.ts` (its `openHarness()` of Task 16 runs with `runEffectWorker: false`, so the test drains instead of waiting for events) and `FoundationPersistence.test.ts`.
 
 **Interfaces:**
+
 - Produces:
   - The effect request `{ type: "side-chat.cascade"; action: "archive" | "unarchive" | "delete" }`, with id `` `effect:${commandId}:side-chat.cascade` ``. It is replay-safe, and it is enqueued only when the thread has side-chat children.
   - `SideChatLifecycleService.cascade(input: { readonly threadId: ThreadId; readonly action: "archive" | "unarchive" | "delete"; readonly commandId: CommandId }): Effect.Effect<void>`. It dispatches the same command, with commandId `` `${commandId}:side-chat-cascade:${childId}` ``, to each direct child (`getSideChatThreads` + `sideChatChildren`) that is not already in the target state. Each child's own command cascades further, and per-child failures are logged.
@@ -1336,19 +1550,20 @@ When `resumeThread` fails, `ProviderTurnStartService` binds a fresh native threa
 
 This is the audit of every server `relationshipToParent === "subagent"` site: `grep -rn 'relationshipToParent' apps/server/src packages/shared/src packages/provider-core/src`. The table goes into the PR body (Task 58).
 
-| Site | Decision |
-|---|---|
-| `orchestration-v2/IdleCompaction.ts:53` | change: skip side chats |
-| `orchestration-v2/ShellStream.ts:117`, `ws.ts:1000`, `:1159` | change: side chats join the transcript-quiet set |
-| `orchestration-v2/ThreadManagementService.ts:741` (`t3_thread_list`) | change: side chats are always hidden, even with `includeSubagents` |
-| `relay/AgentAwarenessRelay.ts:519`, `packages/shared/src/agentAwareness.ts:63` | change: no phone activity for side chats |
-| `storageCleanup.ts:161` (`worktreeOwner`) | change: side chats share the lesson's worktree ownership |
-| `serverRuntimeStartup.ts:285` (auto-bootstrap thread) | change: never bootstrap into a side chat |
-| `Orchestrator.dispatchThreadMergeBack` | change: refused (Task 31) |
-| `Orchestrator.ts:10345` (follow-up parent lock) | extended: side-chat commands lock the lesson (Task 25) |
+| Site                                                                                                                                                                                                                                                                                                                                                                                                                                    | Decision                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `orchestration-v2/IdleCompaction.ts:53`                                                                                                                                                                                                                                                                                                                                                                                                 | change: skip side chats                                                      |
+| `orchestration-v2/ShellStream.ts:117`, `ws.ts:1000`, `:1159`                                                                                                                                                                                                                                                                                                                                                                            | change: side chats join the transcript-quiet set                             |
+| `orchestration-v2/ThreadManagementService.ts:741` (`t3_thread_list`)                                                                                                                                                                                                                                                                                                                                                                    | change: side chats are always hidden, even with `includeSubagents`           |
+| `relay/AgentAwarenessRelay.ts:519`, `packages/shared/src/agentAwareness.ts:63`                                                                                                                                                                                                                                                                                                                                                          | change: no phone activity for side chats                                     |
+| `storageCleanup.ts:161` (`worktreeOwner`)                                                                                                                                                                                                                                                                                                                                                                                               | change: side chats share the lesson's worktree ownership                     |
+| `serverRuntimeStartup.ts:285` (auto-bootstrap thread)                                                                                                                                                                                                                                                                                                                                                                                   | change: never bootstrap into a side chat                                     |
+| `Orchestrator.dispatchThreadMergeBack`                                                                                                                                                                                                                                                                                                                                                                                                  | change: refused (Task 31)                                                    |
+| `Orchestrator.ts:10345` (follow-up parent lock)                                                                                                                                                                                                                                                                                                                                                                                         | extended: side-chat commands lock the lesson (Task 25)                       |
 | `EventSink.ts:251`; `Orchestrator.ts:2590,2672,2697,7201,10008,10602,10897,11366`; `RunExecutionService.ts:384`; `PullRequestWatchReactor.ts:410`; `Adapters/ClaudeAdapterV2.ts:1276,9291`; `mcp/toolkits/pullRequests/handlers.ts:272`; `mcp/McpHttpServer.ts:846-851`; `ProjectionStore.ts:615`; `mcp/OrchestratorMcpService.ts:555`; `provider-core/src/server/subagentProjection.ts:71`; `contracts/src/orchestrationV2.ts:447-451` | keep: side-chat runs are interactive user turns, not delegated subagent work |
 
 **Files:**
+
 - Modify the sites marked "change", each with its existing test file:
   - `IdleCompaction.test.ts:136-155`
   - `ShellStream.test.ts:37-77`
@@ -1358,6 +1573,7 @@ This is the audit of every server `relationshipToParent === "subagent"` site: `g
   - `serverRuntimeStartup.test.ts:49-255`
 
 **Interfaces:**
+
 - Consumes: `isSideChatThread`.
 - Produces: `ProjectThreadAwarenessV2Input["thread"]` adds `"sideChat"` to its Pick.
 
@@ -1376,10 +1592,12 @@ This is the audit of every server `relationshipToParent === "subagent"` site: `g
 ### Task 31: Merge-back from a side chat is refused
 
 **Files:**
+
 - Modify `Orchestrator.ts:3944-3965`: `dispatchThreadMergeBack`, after the source projection read.
 - Test: `testkit/SideChatDone.integration.test.ts`.
 
 **Interfaces:**
+
 - Produces: `thread.merge_back` with a side-chat source fails with `OrchestratorDispatchError` and the cause `"Use Done for side chats."`. Every client and MCP tool goes through this handler.
 
 - [ ] **Step 1: Write the failing test** `"merge-back from a side chat is refused with a pointer to Done"`. Dispatch `{ type: "thread.merge_back", createdBy: "user", creationSource: "web", commandId: "merge-side-chat", sourceThreadId: side, targetThreadId: lesson, sourcePoint: { type: "latest_stable" } }` and flip it. The `_tag` is `"OrchestratorDispatchError"`, the cause is `"Use Done for side chats."`, and the lesson's `contextTransfers` is `[]`.
@@ -1393,11 +1611,13 @@ This is the audit of every server `relationshipToParent === "subagent"` site: `g
 The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so the flag can go on.
 
 **Files:**
+
 - Modify `packages/contracts/src/environment.ts:154`.
 - Modify `apps/server/src/environment/ServerEnvironment.ts:268`.
 - Test: `apps/server/src/environment/ServerEnvironment.test.ts:226`, in `"persists the environment id across service restarts"`.
 
 **Interfaces:**
+
 - Produces: `ExecutionEnvironmentCapabilities.sideChats?: boolean` (`Schema.optionalKey(Schema.Boolean)`). A fork server sends `true`. Clients gate Ask, the Map launcher, the palette entries and Done on `capabilities.sideChats === true`.
 
 - [ ] **Step 1: Write the failing test.** `expect(second.capabilities.sideChats).toBe(true);`.
@@ -1413,6 +1633,7 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 ### Task 33: Selection toolbar offers "Ask in side chat" next to Cite
 
 **Files:**
+
 - Modify `apps/web/src/components/chat/AssistantSelectionToolbar.tsx:1-211`.
 - Modify `apps/web/src/components/chat/MessagesTimeline.logic.ts`: append after `:2402`.
 - Modify `apps/web/src/components/chat/MessagesTimeline.tsx`: `:176-182` (props), `:285-288` and `:1069-1075`.
@@ -1420,6 +1641,7 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 - Test: `MessagesTimeline.logic.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `SIDE_CHAT_EXCERPT_MAX_CHARS`.
 - Produces:
   - `AssistantSelectionToolbar` optional props:
@@ -1459,10 +1681,12 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 ### Task 34: Selection toolbar stays inside the right-panel sheet
 
 **Files:**
+
 - Modify `AssistantSelectionToolbar.tsx`: the positioning effect and the portal target.
 - Test: `AssistantSelectionToolbar.browser.test.tsx`.
 
 **Interfaces:**
+
 - Produces: below 980px, the toolbar portals into the `[data-slot="sheet-popup"]` ancestor of its viewport (`ui/sheet.tsx:108`), so the sheet's focus trap and outside-press dismissal don't break Cite or Ask.
 
 - [ ] **Step 1: Write the failing test** `"stays inside the right-panel sheet so the sheet's focus trap keeps it usable"`. Render `Reply` inside a fixed `data-slot="sheet-popup"` div and select. `toolbar().element().parentElement` is the sheet element.
@@ -1476,6 +1700,7 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 ### Task 35: Right-panel side-chat and Map surfaces (store, version 15, reopen, tab titles)
 
 **Files:**
+
 - Modify `apps/web/src/rightPanelStore.ts`:
   - `:15-24`: the kinds.
   - `:36-83`: the union.
@@ -1488,7 +1713,9 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 - Test: `rightPanelStore.test.ts`, `closedViewStore.test.ts`, `reopenClosedView.test.ts`.
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: string; trail?: string[] }   // id = side-chat:<top-level side chat>
   | { id: "thread-map"; kind: "thread-map" }
@@ -1543,19 +1770,42 @@ The server now handles `thread.side_chat.open` and `thread.side_chat.done`, so t
 One selector serves the panel, the Map, the reconcile pass and the overlap check.
 
 **Files:**
+
 - Modify `apps/web/src/state/entities.ts`: append after `:449`, next to `relationshipShellsAtomFamily` (`:430-449`).
 - Modify `apps/web/src/test-fixtures.ts`: append after `makeThreadFixture` (`:138`).
 - Test: create `apps/web/src/state/entities.sideChatShells.test.ts`. Mirror `entities.relationshipShells.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `EnvironmentThreadShell.sideChat` (Task 4) and `environmentThreadShells.quietThreadShellsAtom`.
 - Produces:
+
   ```ts
-  export function selectSideChatTreeShells(lessonRef: ScopedThreadRef, shells: ReadonlyArray<EnvironmentThreadShell>): ReadonlyArray<EnvironmentThreadShell>;
-  export function useSideChatTreeShells(lessonRef: ScopedThreadRef | null): ReadonlyArray<EnvironmentThreadShell>;   // [] for null
-  export function readSideChatTreeShells(lessonRef: ScopedThreadRef): ReadonlyArray<EnvironmentThreadShell>;
+  export function selectSideChatTreeShells(
+    lessonRef: ScopedThreadRef,
+    shells: ReadonlyArray<EnvironmentThreadShell>,
+  ): ReadonlyArray<EnvironmentThreadShell>;
+  export function useSideChatTreeShells(
+    lessonRef: ScopedThreadRef | null,
+  ): ReadonlyArray<EnvironmentThreadShell>; // [] for null
+  export function readSideChatTreeShells(
+    lessonRef: ScopedThreadRef,
+  ): ReadonlyArray<EnvironmentThreadShell>;
   // test-fixtures.ts
-  export function makeSideChatThreadFixture(input: { readonly id: ThreadId; readonly lessonId: ThreadId; readonly parentId?: ThreadId; readonly messageId?: MessageId; readonly start?: number; readonly end?: number; readonly label?: string; readonly state?: "open" | "done"; readonly noteStatus?: "generating" | "ready" | "none" | "failed" | null; readonly environmentId?: EnvironmentId; readonly createdAt?: string; readonly archivedAt?: string }): Thread;
+  export function makeSideChatThreadFixture(input: {
+    readonly id: ThreadId;
+    readonly lessonId: ThreadId;
+    readonly parentId?: ThreadId;
+    readonly messageId?: MessageId;
+    readonly start?: number;
+    readonly end?: number;
+    readonly label?: string;
+    readonly state?: "open" | "done";
+    readonly noteStatus?: "generating" | "ready" | "none" | "failed" | null;
+    readonly environmentId?: EnvironmentId;
+    readonly createdAt?: string;
+    readonly archivedAt?: string;
+  }): Thread;
   ```
   - The selector keeps shells in the lesson's environment that are not archived or deleted, where `id === lessonRef.threadId || sideChat?.lessonThreadId === lessonRef.threadId`, in input order. The lesson shell comes along so `deriveSideChatTree` can label the root.
   - The atom family is keyed by `threadKey(ref)` and labelled `web-side-chat-tree-shells:${key}`. It returns the previous array when `arrayElementsEqual` holds, so streaming ticks never re-render readers.
@@ -1570,25 +1820,69 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 37: Side-chat panel logic (paths, breadcrumb, status lines, anchor citation)
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/sideChatPanel.logic.ts`.
 - Test: create `sideChatPanel.logic.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `SideChatTreeRow` (Task 5).
 - Produces:
+
   ```ts
-  export type SideChatCrumb = { readonly threadId: string; readonly label: string; readonly role: "lesson" | "ancestor" | "current" | "forward" };
-  export function sideChatPath(rows: ReadonlyArray<SideChatTreeRow>, threadId: string): ReadonlyArray<SideChatTreeRow>; // lesson … threadId; [] if absent; cycle-safe
-  export function sideChatSurfacePath(rows: ReadonlyArray<SideChatTreeRow>, threadId: string): ReadonlyArray<string>; // without the lesson
-  export function topSideChatId(rows: ReadonlyArray<SideChatTreeRow>, threadId: string): string | null;
-  export function sideChatBreadcrumb(rows: ReadonlyArray<SideChatTreeRow>, threadId: string, trail: ReadonlyArray<string> | undefined): ReadonlyArray<SideChatCrumb>;
-  export function sideChatStatusLine(sideChat: Pick<OrchestrationV2ThreadShellSideChat, "state" | "noteStatus"> | undefined, note: string | null): string | null;
-  export function sideChatComposerStatus(input: { readonly shellExists: boolean; readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null; readonly runActive: boolean }): "Starting side chat…" | "Preparing context…" | null;
-  export function sideChatAnchorCitation(environmentId: EnvironmentId, anchor: OrchestrationV2SideChatAnchor, excerpt: string): AssistantCitation;
-  export function sideChatAwaitingInput(shells: ReadonlyArray<Pick<EnvironmentThreadShell, "id" | "sideChat" | "hasPendingApprovals" | "hasPendingUserInput">>): ThreadId | null;
+  export type SideChatCrumb = {
+    readonly threadId: string;
+    readonly label: string;
+    readonly role: "lesson" | "ancestor" | "current" | "forward";
+  };
+  export function sideChatPath(
+    rows: ReadonlyArray<SideChatTreeRow>,
+    threadId: string,
+  ): ReadonlyArray<SideChatTreeRow>; // lesson … threadId; [] if absent; cycle-safe
+  export function sideChatSurfacePath(
+    rows: ReadonlyArray<SideChatTreeRow>,
+    threadId: string,
+  ): ReadonlyArray<string>; // without the lesson
+  export function topSideChatId(
+    rows: ReadonlyArray<SideChatTreeRow>,
+    threadId: string,
+  ): string | null;
+  export function sideChatBreadcrumb(
+    rows: ReadonlyArray<SideChatTreeRow>,
+    threadId: string,
+    trail: ReadonlyArray<string> | undefined,
+  ): ReadonlyArray<SideChatCrumb>;
+  export function sideChatStatusLine(
+    sideChat: Pick<OrchestrationV2ThreadShellSideChat, "state" | "noteStatus"> | undefined,
+    note: string | null,
+  ): string | null;
+  export function sideChatComposerStatus(input: {
+    readonly shellExists: boolean;
+    readonly openingStatus: OrchestrationV2SideChatOpening["status"] | null;
+    readonly runActive: boolean;
+  }): "Starting side chat…" | "Preparing context…" | null;
+  export function sideChatAnchorCitation(
+    environmentId: EnvironmentId,
+    anchor: OrchestrationV2SideChatAnchor,
+    excerpt: string,
+  ): AssistantCitation;
+  export function sideChatAwaitingInput(
+    shells: ReadonlyArray<
+      Pick<
+        EnvironmentThreadShell,
+        "id" | "sideChat" | "hasPendingApprovals" | "hasPendingUserInput"
+      >
+    >,
+  ): ThreadId | null;
   export function appendComposerSnippet(prompt: string, text: string): string;
-  export function shouldFinishSideChatOnClose(shell: Pick<EnvironmentThreadShell, "sideChat" | "latestUserMessageAt"> | null): boolean;
-  export function lessonSideChatWaitLabel(input: { readonly lessonThreadId: ThreadId; readonly activityRunStatus: OrchestrationV2Run["status"] | null; readonly shells: ReadonlyArray<Pick<EnvironmentThreadShell, "sideChat">> }): "Adding side-chat note…" | null;
+  export function shouldFinishSideChatOnClose(
+    shell: Pick<EnvironmentThreadShell, "sideChat" | "latestUserMessageAt"> | null,
+  ): boolean;
+  export function lessonSideChatWaitLabel(input: {
+    readonly lessonThreadId: ThreadId;
+    readonly activityRunStatus: OrchestrationV2Run["status"] | null;
+    readonly shells: ReadonlyArray<Pick<EnvironmentThreadShell, "sideChat">>;
+  }): "Adding side-chat note…" | null;
   ```
 
 - [ ] **Step 1: Write the failing tests.** The rows are lesson `"Learning RL environments"`, `side-1` "observation space", `nested-1` "Box" under side-1, and `side-2` "reward".
@@ -1597,13 +1891,14 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
   - `sideChatSurfacePath(rows, "nested-1")` is `["side-1","nested-1"]`. `topSideChatId(rows, "nested-1")` is `"side-1"`, and for the lesson it is `null`.
   - `sideChatStatusLine` cases:
 
-    | Input | Line |
-    |---|---|
-    | open | `null` |
-    | done / generating | `"Writing note…"` |
-    | done / ready, with a note | `"Sent to lesson: <note>"` |
-    | done / none | `"No note needed"` |
-    | done / failed | `"Couldn't write the note"` |
+    | Input                     | Line                        |
+    | ------------------------- | --------------------------- |
+    | open                      | `null`                      |
+    | done / generating         | `"Writing note…"`           |
+    | done / ready, with a note | `"Sent to lesson: <note>"`  |
+    | done / none               | `"No note needed"`          |
+    | done / failed             | `"Couldn't write the note"` |
+
   - `sideChatComposerStatus`:
     - No shell gives `"Starting side chat…"`.
     - Pending with a run active gives `"Preparing context…"`.
@@ -1621,10 +1916,12 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 38: Optimistic open, overlap reuse and panel navigation helpers
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/sideChatSelection.ts`, `sideChatNavigation.ts`, `pendingSideChatStore.ts` and `openSideChat.ts`.
 - Tests: create `sideChatSelection.test.ts` and `openSideChat.test.ts`. Mirror `reopenClosedView.test.ts`: `AsyncResult` from `effect/reactivity`, `Cause`, and store resets in `setup()`.
 
 **Interfaces:**
+
 - Consumes:
   - Task 6: `OpenSideChatInput`.
   - Task 35: the store actions.
@@ -1632,6 +1929,7 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
   - Task 37: `topSideChatId` and `sideChatSurfacePath`.
   - `deriveSideChatTree`, `newThreadId`, `squashAtomCommandFailure`, `isAtomCommandInterrupted`, `AtomCommandResult`, and `useComposerDraftStore.clearComposerContent`.
 - Produces:
+
   ```ts
   // sideChatSelection.ts
   export function sideChatAnchorFromCitation(citation: AssistantCitation): OrchestrationV2SideChatAnchor;
@@ -1682,12 +1980,14 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 39: SideChatTimeline (ThreadTimeline without the held-timeline cache)
 
 **Files:**
+
 - Modify `apps/web/src/components/chat/ThreadTimeline.tsx:19-65`: the `holdTimeline` prop.
 - Create `apps/web/src/components/sideChat/SideChatTimeline.tsx`.
 - Modify `apps/web/src/index.css:2450-2457`: a sibling rule in the same `@layer components`.
 - Test: create `SideChatTimeline.browser.test.tsx`. Mirror the sized container in `MessagesTimeline.browser.test.tsx` and the hoisted `state` and entity mocks in `QueuedRunsControl.browser.test.tsx`.
 
 **Interfaces:**
+
 - Consumes: Task 33 props, `deriveThreadActivityRun`, `deriveThreadStructureRuntime`, `deriveRunlessWorkStartedAt`, `derivePhase`, `isLatestRunSettled` and `openExpandedImagePreview`.
 - Produces:
   - `ThreadTimeline` gains `holdTimeline?: boolean` (default `true`). With `false` it skips `resolveThreadSwitchTimeline` and `rememberReadyThreadTimeline`.
@@ -1709,20 +2009,49 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 40: Shared send plan for the side-chat composer
 
 **Files:**
+
 - Modify `apps/web/src/components/chat/composerSend.logic.ts`: append after `:81`.
 - Test: `composerSend.logic.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `formatOutgoingPrompt`, `withMessageContext` and `deriveComposerSendState` (`ChatView.logic.ts:1379,1578,848`), `getComposerPromptLengthValidationMessage`, and `ProviderInstanceEntry`.
 - Produces:
+
   ```ts
   export type SideChatSendPlan =
-    | { readonly _tag: "Blocked"; readonly reason: "no-operate-scope" | "in-flight" | "starting" | "provider-unavailable" | "run-active" | "empty" }
+    | {
+        readonly _tag: "Blocked";
+        readonly reason:
+          | "no-operate-scope"
+          | "in-flight"
+          | "starting"
+          | "provider-unavailable"
+          | "run-active"
+          | "empty";
+      }
     | { readonly _tag: "AnswerPendingInput" }
     | { readonly _tag: "Invalid"; readonly message: string }
-    | { readonly _tag: "Ready"; readonly outgoingText: string; readonly message: { readonly text: string; readonly context?: OrchestrationMessageContext } };
-  export function planSideChatSend(input: { canOperate: boolean; sendInFlight: boolean; shellReady: boolean; answeringPendingUserInput: boolean; providerEntry: Pick<ProviderInstanceEntry, "driverKind" | "enabled" | "isAvailable" | "models"> | undefined; model: string; runActive: boolean; prompt: string; supportsInlineMessageContext: boolean }): SideChatSendPlan;
+    | {
+        readonly _tag: "Ready";
+        readonly outgoingText: string;
+        readonly message: { readonly text: string; readonly context?: OrchestrationMessageContext };
+      };
+  export function planSideChatSend(input: {
+    canOperate: boolean;
+    sendInFlight: boolean;
+    shellReady: boolean;
+    answeringPendingUserInput: boolean;
+    providerEntry:
+      | Pick<ProviderInstanceEntry, "driverKind" | "enabled" | "isAvailable" | "models">
+      | undefined;
+    model: string;
+    runActive: boolean;
+    prompt: string;
+    supportsInlineMessageContext: boolean;
+  }): SideChatSendPlan;
   ```
+
   The checks run in this order: scope, in-flight, starting, pending-input answer, provider, run active, empty, then length.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -1738,18 +2067,43 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 41: SideChatComposer
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatComposer.tsx`.
 - Test: create `SideChatComposer.browser.test.tsx`. Mirror the editor in `ComposerPromptEditorTiptap.citationDraft.browser.test.tsx` and the hoisted `vi.mock` of `use-orchestration-command` and `session` in `QueuedRunsControl.browser.test.tsx`.
 
 **Interfaces:**
+
 - Consumes:
   - Task 40: `planSideChatSend`.
   - Task 37: `sideChatComposerStatus` and `appendComposerSnippet`.
   - `ComposerPromptEditor`, `EMPTY_COMPOSER_CONTEXT_RECORDS` (`composerContextPresentation.tsx:84`), `draftSendState`, `threadEnvironment.startTurn`, `useOrchestrationCommand`, `useEnvironmentScope`, `composerSubmissionIntentForKey`, `formatAssistantCitationForComposer`, `primaryServerKeybindingsAtom` and `useEnvironmentSettings(env, (s) => s.sendShortcut)`.
 - Produces:
+
   ```ts
-  export interface SideChatComposerHandle { readonly focusAtEnd: () => void; readonly insertTextAtEnd: (text: string) => boolean; readonly citeAssistantText: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean }
-  export function SideChatComposer(props: { sideChatRef: ScopedThreadRef; shell: EnvironmentThreadShell | null; providerEntry: ProviderInstanceEntry | undefined; openingStatus: OrchestrationV2SideChatOpening["status"] | null; runActive: boolean; answeringPendingUserInput: boolean; autoFocus: boolean; handleRef: React.RefObject<SideChatComposerHandle | null>; onAdvancePendingUserInput: () => void; onOptimisticMessage: (message: ChatMessage) => void; onOptimisticMessageFailed: (messageId: MessageId) => void; onPageScrollKeyDown: (key: "PageUp" | "PageDown") => void; onPageScrollKeyUp: (key: string) => void; onPageScrollRelease: () => void }): React.ReactElement;
+  export interface SideChatComposerHandle {
+    readonly focusAtEnd: () => void;
+    readonly insertTextAtEnd: (text: string) => boolean;
+    readonly citeAssistantText: (
+      citation: AssistantCitation,
+      sourceAnchor: AssistantCitationSourceAnchor,
+    ) => boolean;
+  }
+  export function SideChatComposer(props: {
+    sideChatRef: ScopedThreadRef;
+    shell: EnvironmentThreadShell | null;
+    providerEntry: ProviderInstanceEntry | undefined;
+    openingStatus: OrchestrationV2SideChatOpening["status"] | null;
+    runActive: boolean;
+    answeringPendingUserInput: boolean;
+    autoFocus: boolean;
+    handleRef: React.RefObject<SideChatComposerHandle | null>;
+    onAdvancePendingUserInput: () => void;
+    onOptimisticMessage: (message: ChatMessage) => void;
+    onOptimisticMessageFailed: (messageId: MessageId) => void;
+    onPageScrollKeyDown: (key: "PageUp" | "PageDown") => void;
+    onPageScrollKeyUp: (key: string) => void;
+    onPageScrollRelease: () => void;
+  }): React.ReactElement;
   ```
   - The editor is `aria-label="Side chat message"` with placeholder "Ask a follow-up…". The send button is `aria-label="Send side chat message"`.
   - Blocked reasons go on the button's `aria-description`: `"Starting side chat…"`, `"Wait for this answer to finish"` and `"This side chat's provider is unavailable"`.
@@ -1775,16 +2129,19 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
   4. On failure, mark the row failed, restore the draft, and unless interrupted toast "Couldn't send to the side chat".
 
   `useImperativeHandle` provides the handle. An effect `[autoFocus, sideChatKey]` calls `focusAtEnd`.
+
 - [ ] **Step 4: Run the checks and confirm they pass.** Run the tests, then `vp run --filter @t3tools/web typecheck`. Expected: PASS.
 - [ ] **Step 5: Commit.** `git add apps/web/src/components/sideChat/SideChatComposer.tsx apps/web/src/components/sideChat/SideChatComposer.browser.test.tsx && git commit -m "feat(web): slim side-chat composer" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`
 
 ### Task 42: SideChatExcerpt (pinned, three lines, reveal)
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatExcerpt.tsx`.
 - Test: create `SideChatExcerpt.browser.test.tsx`.
 
 **Interfaces:**
+
 - Produces: `SideChatExcerpt(props: { readonly text: string; readonly onReveal: () => void })`.
   - The quote is a button named `"Show this highlight where it was asked"`, clamped with `line-clamp-3`.
   - A `"Show more"` / `"Show less"` toggle with `aria-expanded` appears only when the clamped text overflows. Overflow is measured with `observeResize` while collapsed.
@@ -1801,17 +2158,26 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 ### Task 43: Input isolation for `[data-side-chat-panel]`
 
 **Files:**
+
 - Modify `apps/web/src/components/chat/composerFocusRedirect.ts:61-89`, `useChatShortcuts.ts:63-80`, `useComposerStash.ts:697-722` and `ChatView.tsx:2686` (`composerFocus`). `usePasteToFocusComposer.ts` needs no change: its default `"lesson"` scope refuses panel pastes.
 - Test: `useChatShortcuts.browser.test.tsx`, and create `composerFocusRedirect.browser.test.tsx`.
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export const SIDE_CHAT_PANEL_SELECTOR = "[data-side-chat-panel]";
   export type ComposerInputScope = "lesson" | "side-chat";
   export function shouldRedirectInputToComposer(event: Event, scope?: ComposerInputScope): boolean; // default "lesson"
-  export function shouldTypeToFocusComposer(event: KeyboardEvent, scope?: ComposerInputScope): boolean;
-  export function pasteTextToFocusComposer(event: ClipboardEvent, scope?: ComposerInputScope): string | null;
+  export function shouldTypeToFocusComposer(
+    event: KeyboardEvent,
+    scope?: ComposerInputScope,
+  ): boolean;
+  export function pasteTextToFocusComposer(
+    event: ClipboardEvent,
+    scope?: ComposerInputScope,
+  ): string | null;
   export function isLessonComposerFocused(element: Element | null): boolean;
   ```
   - `"lesson"` refuses events whose path is inside the panel, and `"side-chat"` accepts only those.
@@ -1838,12 +2204,14 @@ One selector serves the panel, the Map, the reconcile pass and the overlap check
 Today the `handoff` turn item renders as `EnvironmentHandoffRow`, a provider-switch row (`V2LifecycleRow.tsx:132-140`). The design needs collapsed "Side chat context" and "Side-chat notes included" dividers that expand to show what the AI was given, and an "Adding side-chat note…" working label in the lesson.
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatContextDivider.tsx`.
 - Modify `apps/web/src/components/chat/TimelineSystemDivider.tsx`: its action `<button>` only receives `aria-label` and `onClick`, so add the optional prop `actionExpanded?: boolean`, rendered as `aria-expanded={props.actionExpanded}` on that button (absent when undefined, so existing dividers render unchanged).
 - Modify `apps/web/src/components/chat/V2LifecycleRow.logic.ts`, `V2LifecycleRow.tsx:132`, `timelineRowContext.ts:69-78` (`TimelineRowActivityState`), `TimelineWorkGroupRows.tsx:286-300` (`WorkingTimelineRow`) and `MessagesTimeline.tsx:186-196,946-951` (prop and activity state).
 - Test: `V2LifecycleRow.logic.test.ts`, and create `SideChatContextDivider.browser.test.tsx`.
 
 **Interfaces:**
+
 - Consumes: `SIDE_CHAT_CONTEXT_HANDOFF_TITLE` and `SIDE_CHAT_NOTES_HANDOFF_TITLE` (Task 1).
 - Produces:
   - `sideChatHandoffDividerLabel(item: OrchestrationV2TurnItem): string | null`. It returns the item's title when `item.type === "handoff"`, `item.strategy === "manual_context"`, and the title is one of the two constants. Otherwise it returns `null`.
@@ -1864,12 +2232,14 @@ Today the `handoff` turn item renders as `EnvironmentHandoffRow`, a provider-swi
 ### Task 45: SideChatPanel (breadcrumb, Done, Discard, status, pending requests)
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatPanel.tsx`.
 - Modify `components/chat/RightPanelSurfaceContent.tsx:61-80`: the required `sideChat` prop and `case "side-chat"`.
 - Modify `components/ChatView.tsx:3066-3116`: pass `sideChat={{ onFocusLesson: focusComposerStable }}`, where `focusComposerStable` is defined at `:1777`.
 - Test: create `SideChatPanel.browser.test.tsx`. Mirror the mocks in `QueuedRunsControl.browser.test.tsx`: `entities` (`useSideChatTreeShells`, `useQuietThreadShell`, `useQuietThreadProjection`, `useThreadVisibleTurnItems`, `useThreadCheckpointSummaries`), plus `use-orchestration-command`, `use-atom-command` and `session`, all with spread originals and a `setup()` reset.
 
 **Interfaces:**
+
 - Consumes:
   - Task 35: store actions, `SideChatSurface`, `sideChatSurfaceTopThreadId`.
   - Task 36: `useSideChatTreeShells`.
@@ -1889,7 +2259,7 @@ Today the `handoff` turn item renders as `EnvironmentHandoffRow`, a provider-swi
     - A `"More side chat actions"` menu with a `"Discard"` item.
     - The status line uses `role="status"`.
 
-- [ ] **Step 1: Write the failing tests.** `sideChatShell(id, anchorThreadId, label, overrides = {})` returns `{ ...makeSideChatThreadFixture({ id, lessonId: LESSON_ID, parentId: anchorThreadId, messageId: \`${anchorThreadId}-reply\`, label }), ...overrides }`. `renderPanel()` uses a 900×480 container. `crumb(name)` queries inside the nav.
+- [ ] **Step 1: Write the failing tests.** `sideChatShell(id, anchorThreadId, label, overrides = {})` returns `{ ...makeSideChatThreadFixture({ id, lessonId: LESSON_ID, parentId: anchorThreadId, messageId: \`${anchorThreadId}-reply\`, label }), ...overrides }`. `renderPanel()`uses a 900×480 container.`crumb(name)` queries inside the nav.
   - `"shows a starting side chat with its excerpt and puts the cursor in its composer"`: render with `{ router: LESSON_PATH }` (`LESSON_PATH = "/environment-local/lesson-1"`, the lesson's route). With a pending entry and no shell, "Starting side chat…" is visible, the reveal button text is "observation space", the composer textbox is focused, and `screen.router?.state.location.pathname` still equals `LESSON_PATH` (Ask opens the panel without a route change).
   - `"Done on a nested side chat returns to its parent without waiting for the note"`: dispatch is called with `{ environmentId, input: { threadId: "nested-1" } }`, and the surfaces become `[{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", trail: ["side-1","nested-1"] }]`.
   - `"Done on a top-level side chat closes its tab and remembers it for reopening"`: the surfaces are `[]`, and the closed-view entry is `{ kind: "panel-tab", threadRef: LESSON_REF, surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" } }`.
@@ -1932,6 +2302,7 @@ Today the `handoff` turn item renders as `EnvironmentHandoffRow`, a provider-swi
 This covers the capability gate, reconciliation, tab labels, panel availability, auto-opening a side chat that is waiting for input, the note wait label, and throwing away an empty side chat when its tab closes.
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/useLessonSideChats.ts`.
 - Test: create `useLessonSideChats.browser.test.tsx`, with the mocks of Task 45.
 - Modify `apps/web/src/components/ChatView.tsx`:
@@ -1942,12 +2313,14 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 - Modify `apps/web/src/hooks/useRightPanelSurfaceClose.ts:30-67` (`releaseSurfaceResources`). The decision is `shouldFinishSideChatOnClose`, tested in Task 37. The hook only wires it, so it gets no test of its own (AGENTS: no wiring tests).
 
 **Interfaces:**
+
 - Consumes: Tasks 35, 36, 37 (`sideChatAwaitingInput`, `topSideChatId`, `lessonSideChatWaitLabel`, `shouldFinishSideChatOnClose`), 38 and 44, `isSideChatThread`, `readThreadShell` and `useStableCallback`.
 - Produces:
+
   ```ts
   export function useLessonSideChats(input: {
     readonly lessonRef: ScopedThreadRef | null; // null for drafts and for a route that is itself a side chat
-    readonly supported: boolean;                // capabilities.sideChats === true
+    readonly supported: boolean; // capabilities.sideChats === true
     readonly bootstrapComplete: boolean;
     readonly activityRunStatus: OrchestrationV2Run["status"] | null;
   }): {
@@ -1955,7 +2328,9 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
     readonly labelsById: ReadonlyMap<string, string>;
     readonly askPending: boolean;
     readonly noteWaitLabel: "Adding side-chat note…" | null;
-    readonly onAskInSideChat: ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean) | undefined;
+    readonly onAskInSideChat:
+      | ((citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean)
+      | undefined;
   };
   ```
 
@@ -1989,18 +2364,44 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 ### Task 47: Side-chat map layout (`layoutSideChatTree`)
 
 **Files:**
+
 - Create `apps/web/src/lib/sideChatTreeLayout.ts`.
 - Test: create `sideChatTreeLayout.test.ts`. Mirror `lib/turnDiffTree.test.ts`, which tests a pure function.
 
 **Interfaces:**
+
 - Consumes: `SideChatTreeRow` (Task 5). Rows come root first, in preorder.
 - Produces:
+
   ```ts
-  export interface SideChatTreeLayoutOptions { readonly nodeWidth: number; readonly nodeHeight: number; readonly gapX: number; readonly gapY: number }
-  export interface SideChatTreeLayoutNode { readonly threadId: ThreadId; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
-  export interface SideChatTreeLayoutEdge { readonly from: ThreadId; readonly to: ThreadId; readonly path: string }
-  export interface SideChatTreeLayout { readonly nodes: Array<SideChatTreeLayoutNode>; readonly edges: Array<SideChatTreeLayoutEdge>; readonly width: number; readonly height: number }
-  export function layoutSideChatTree(rows: ReadonlyArray<SideChatTreeRow>, opts: SideChatTreeLayoutOptions): SideChatTreeLayout;
+  export interface SideChatTreeLayoutOptions {
+    readonly nodeWidth: number;
+    readonly nodeHeight: number;
+    readonly gapX: number;
+    readonly gapY: number;
+  }
+  export interface SideChatTreeLayoutNode {
+    readonly threadId: ThreadId;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }
+  export interface SideChatTreeLayoutEdge {
+    readonly from: ThreadId;
+    readonly to: ThreadId;
+    readonly path: string;
+  }
+  export interface SideChatTreeLayout {
+    readonly nodes: Array<SideChatTreeLayoutNode>;
+    readonly edges: Array<SideChatTreeLayoutEdge>;
+    readonly width: number;
+    readonly height: number;
+  }
+  export function layoutSideChatTree(
+    rows: ReadonlyArray<SideChatTreeRow>,
+    opts: SideChatTreeLayoutOptions,
+  ): SideChatTreeLayout;
   ```
 
 - [ ] **Step 1: Write the failing tests.** Use `OPTS = { nodeWidth: 112, nodeHeight: 26, gapX: 8, gapY: 48 }` and `box(id, x, y) = { threadId: id, x, y, width: 112, height: 26 }`.
@@ -2026,10 +2427,12 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 ### Task 48: Map keyboard, status and fit logic
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatMap.logic.ts`.
 - Test: create `SideChatMap.logic.test.ts`. Mirror `components/RightPanelTabs.test.tsx`.
 
 **Interfaces:**
+
 - Produces:
   - `SIDE_CHAT_MAP_LAYOUT: SideChatTreeLayoutOptions = { nodeWidth: 112, nodeHeight: 26, gapX: 8, gapY: 48 }`
   - `resolveSideChatMapKeyTarget(rows, fromThreadId: ThreadId, key: string): ThreadId | null`
@@ -2048,17 +2451,18 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
   - From `a1`: Right and Down give null.
   - Enter gives null, and an unknown thread gives null.
 
-  | Row | Status | Description |
-  |---|---|---|
-  | lesson | `null` | `"Lesson"` |
-  | open | `in_progress` | `"Open"` |
-  | done / generating | `pending` | `"Done, writing note"` |
-  | done / failed | `failed` | `"Done, couldn't write the note"` |
-  | done / ready | `completed` | `"Done, note ready"` |
-  | done / none | `completed` | `"Done, no note needed"` |
-  | done / null | n/a | `"Done"` |
+  | Row               | Status        | Description                       |
+  | ----------------- | ------------- | --------------------------------- |
+  | lesson            | `null`        | `"Lesson"`                        |
+  | open              | `in_progress` | `"Open"`                          |
+  | done / generating | `pending`     | `"Done, writing note"`            |
+  | done / failed     | `failed`      | `"Done, couldn't write the note"` |
+  | done / ready      | `completed`   | `"Done, note ready"`              |
+  | done / none       | `completed`   | `"Done, no note needed"`          |
+  | done / null       | n/a           | `"Done"`                          |
 
   `fitSideChatMapScale(472, 236)` is `0.5`. `(352, 600)` is `1`. Zero for either width gives `1`.
+
 - [ ] **Step 2: Run them and confirm they fail.** Run `vp test run apps/web/src/components/sideChat/SideChatMap.logic.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.** `fitSideChatMapScale` returns `contentWidth <= 0 || availableWidth <= 0 ? 1 : Math.min(1, availableWidth / contentWidth)`.
 - [ ] **Step 4: Run the tests and confirm they pass.** Expected: PASS.
@@ -2067,6 +2471,7 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 ### Task 49: `SideChatMap` surface, Map launcher entry and panel actions
 
 **Files:**
+
 - Create `apps/web/src/components/sideChat/SideChatMap.tsx`.
 - Test: create `SideChatMap.browser.test.tsx`. Mirror `components/UsageToggleShortcut.browser.test.tsx`.
 - Modify `components/chat/RightPanelSurfaceContent.tsx` (`case "thread-map"`).
@@ -2075,6 +2480,7 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 - Modify `components/ChatView.tsx:2389-2408,3866-3881`.
 
 **Interfaces:**
+
 - Consumes: Tasks 47 and 48, `useSideChatTreeShells` (Task 36), `revealSideChat` (Task 38), `deriveSideChatTree`, `ThreadRelationshipIcon`, `Toggle`, `Tooltip`, `observeResize` and `useComposerHandleContext`.
 - Produces:
   - `SideChatMap(props: { readonly rows: ReadonlyArray<SideChatTreeRow>; readonly currentThreadId: ThreadId; readonly onOpenSideChat: (threadId: ThreadId) => void; readonly onFocusLesson: () => void })` and `SideChatMapSurface(props: { readonly threadRef: ScopedThreadRef })`.
@@ -2116,10 +2522,12 @@ This covers the capability gate, reconciliation, tab labels, panel availability,
 Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `findAssistantCitationText`, which needs the quote, cannot place marks.
 
 **Files:**
+
 - Modify `apps/web/src/lib/assistantTextSelection.ts:272-294`. Extract the range-building tail of `resolveAssistantCitationRange` into a private `rangeForMatch`.
 - Test: `apps/web/src/lib/assistantTextSelection.test.ts`. Add a new describe after `:415`.
 
 **Interfaces:**
+
 - Produces:
   - `type AssistantTextAnchor = Pick<AssistantTextSelector, "start" | "end" | "prefix" | "suffix">`
   - `findAssistantAnchorText(text: string, anchor: AssistantTextAnchor): { start: number; end: number } | null`
@@ -2128,7 +2536,7 @@ Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `
 - [ ] **Step 1: Write the failing tests.** Build `anchor` with `createAssistantTextSelector` on "An observation space is what the agent can see.".
   - `"finds an anchor by its context after earlier text shifts it"`: the result is `{ start: 3, end: 20 }`, and `{ start: 16, end: 33 }` after the text is prefixed with "Recap first. ".
   - `"does not guess when the context repeats or no longer matches"`: `null` for the text twice, and `null` for "An action space…".
-  - `"anchors a whole-message selection only while the message keeps its length"`: for `text = "observation space"` and the selector of the whole message (`{ start: 0, end: 17, prefix: "", suffix: "" }`), `findAssistantAnchorText(text, anchor)` is `{ start: 0, end: 17 }`, and `findAssistantAnchorText(\`${text}!\`, anchor)` (one character longer) is `null`.
+  - `"anchors a whole-message selection only while the message keeps its length"`: for `text = "observation space"` and the selector of the whole message (`{ start: 0, end: 17, prefix: "", suffix: "" }`), `findAssistantAnchorText(text, anchor)` is `{ start: 0, end: 17 }`, and `findAssistantAnchorText(\`${text}!\`, anchor)`(one character longer) is`null`.
 - [ ] **Step 2: Run them and confirm they fail.** Run `vp test run apps/web/src/lib/assistantTextSelection.test.ts -t "findAssistantAnchorText"`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
   - The length is `end − start`. Reject non-integers and non-positive lengths.
@@ -2141,6 +2549,7 @@ Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `
 ### Task 51: Marks in assistant rows (`SideChatMarks`)
 
 **Files:**
+
 - Modify `apps/web/src/state/entities.ts`: the marks selector and atom.
 - Create `apps/web/src/components/sideChat/SideChatMarks.tsx`.
 - Modify `components/chat/TimelineAssistantRows.tsx:26-74`, `timelineRowContext.ts:23-67`, `MessagesTimeline.tsx:176-330,897-934` and `components/sideChat/SideChatTimeline.tsx` / `SideChatPanel.tsx` (the `onOpenSideChat` prop).
@@ -2148,8 +2557,10 @@ Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `
 - Test: `apps/web/src/state/entities.sideChatShells.test.ts`, and create `SideChatMarks.browser.test.tsx`. Mirror `chat/AssistantCitationChip.browser.test.tsx`.
 
 **Interfaces:**
+
 - Consumes: `makeSideChatThreadFixture` (Task 36), `resolveAssistantAnchorRange` (Task 50), `openSideChatSurfaceStable` (Task 49), `navigateSideChat` and `sideChatSurfacePath` (Tasks 35 and 37), and `observeResize`.
 - Produces:
+
   ```ts
   // entities.ts
   export interface SideChatMark { readonly threadId: ThreadId; readonly label: string; readonly state: "open" | "done"; readonly anchor: OrchestrationV2SideChatAnchor }
@@ -2196,21 +2607,56 @@ Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `
 ### Task 52: Side-chat navigation targets and command palette entries
 
 **Files:**
+
 - Modify `apps/web/src/components/sideChat/sideChatNavigation.ts` (Task 38).
 - Modify `components/CommandPalette.tsx:514-519`, and add after `:1344`.
 - Modify `CommandPaletteThreadItems.tsx:141-146` and `CommandPalette.logic.ts:377` (widen `runThread` to `Pick<SidebarThreadSummary, "environmentId" | "id" | "sideChat">`).
 - Test: create `sideChatNavigation.test.ts`. Mirror `components/Sidebar.logic.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `revealSideChat` and `leaveSideChat` (Task 38), and `threadEnvironment.finishSideChat` through `useAtomCommand`.
 - Produces:
+
   ```ts
-  export interface ThreadOpenTarget { readonly routeThreadId: ThreadId; readonly sideChatThreadId: ThreadId | null }
-  export function resolveThreadOpenTarget(thread: { readonly id: ThreadId; readonly sideChat?: { readonly lessonThreadId: ThreadId } | null | undefined }): ThreadOpenTarget;
-  export function sideChatLessonRef(thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId; readonly sideChat?: { readonly lessonThreadId: ThreadId } | null | undefined }): ScopedThreadRef;
-  export function openThreadTarget(input: { readonly navigate: ReturnType<typeof useNavigate>; readonly environmentId: EnvironmentId; readonly target: ThreadOpenTarget; readonly currentThreadRef?: ScopedThreadRef | null }): Promise<void>; // revealSideChat first, then navigate unless already on the lesson
-  export function isSideChatNotificationQuiet(input: { readonly environmentId: EnvironmentId; readonly thread: { readonly sideChat?: { readonly lessonThreadId: ThreadId } | null }; readonly activeEnvironmentId: string | undefined; readonly activeThreadId: string | undefined; readonly documentActive: boolean }): boolean;
-  export function resolveFinishableSideChat(input: { readonly surfaces: ReadonlyArray<RightPanelSurface>; readonly activeSurfaceId: string | null; readonly shells: ReadonlyArray<Pick<EnvironmentThreadShell, "environmentId" | "id" | "sideChat">>; readonly environmentId: EnvironmentId }): { readonly threadId: ThreadId; readonly label: string; readonly surface: SideChatSurface } | null; // the active side-chat surface, when its side chat is open
+  export interface ThreadOpenTarget {
+    readonly routeThreadId: ThreadId;
+    readonly sideChatThreadId: ThreadId | null;
+  }
+  export function resolveThreadOpenTarget(thread: {
+    readonly id: ThreadId;
+    readonly sideChat?: { readonly lessonThreadId: ThreadId } | null | undefined;
+  }): ThreadOpenTarget;
+  export function sideChatLessonRef(thread: {
+    readonly environmentId: EnvironmentId;
+    readonly id: ThreadId;
+    readonly sideChat?: { readonly lessonThreadId: ThreadId } | null | undefined;
+  }): ScopedThreadRef;
+  export function openThreadTarget(input: {
+    readonly navigate: ReturnType<typeof useNavigate>;
+    readonly environmentId: EnvironmentId;
+    readonly target: ThreadOpenTarget;
+    readonly currentThreadRef?: ScopedThreadRef | null;
+  }): Promise<void>; // revealSideChat first, then navigate unless already on the lesson
+  export function isSideChatNotificationQuiet(input: {
+    readonly environmentId: EnvironmentId;
+    readonly thread: { readonly sideChat?: { readonly lessonThreadId: ThreadId } | null };
+    readonly activeEnvironmentId: string | undefined;
+    readonly activeThreadId: string | undefined;
+    readonly documentActive: boolean;
+  }): boolean;
+  export function resolveFinishableSideChat(input: {
+    readonly surfaces: ReadonlyArray<RightPanelSurface>;
+    readonly activeSurfaceId: string | null;
+    readonly shells: ReadonlyArray<
+      Pick<EnvironmentThreadShell, "environmentId" | "id" | "sideChat">
+    >;
+    readonly environmentId: EnvironmentId;
+  }): {
+    readonly threadId: ThreadId;
+    readonly label: string;
+    readonly surface: SideChatSurface;
+  } | null; // the active side-chat surface, when its side chat is open
   ```
   - The palette action `"action:open-side-chat-map"`, titled "Open side-chat map", runs `open(lessonRef, "thread-map")` and navigates to the lesson when needed. Its search terms are `["side chat", "map", "tree", "diagram", "detours"]`.
   - The palette action `"action:finish-side-chat"`, titled "Finish side chat (Done)" with the label as its description, runs `leaveSideChat(lessonRef, surface, rows)`, then `finishSideChat`. It throws the squashed failure unless interrupted.
@@ -2234,6 +2680,7 @@ Shells carry the anchor's offsets and 32-unit context, but not the excerpt, so `
 The default is `mod+alt+s` with `when: "!terminalFocus"`. Every `mod+shift+<letter>` that fits is taken or unsafe: `l` is `composer.previousWorktree`, `s` is `thread.settle`, `a` is `composer.mode`, and `ctrl+shift+i` opens DevTools (`DesktopApplicationMenu.ts:254`). AltGr+S is already refused (`packages/shared/src/keybindings.ts:129-134`).
 
 **Files:**
+
 - Modify `packages/contracts/src/keybindings.ts:59-116`: append to `STATIC_KEYBINDING_COMMANDS`.
 - Modify `packages/shared/src/keybindings.ts:207`.
 - Modify `apps/server/src/keybindings.ts:461-575` (`syncDefaultKeybindingsOnStartup`): both disk writes (the fresh-file `writeConfigAtomically(DEFAULT_KEYBINDINGS)` at `:469` and the `missingDefaults` backfill) skip rules whose command starts with `sideChat.`.
@@ -2243,6 +2690,7 @@ The default is `mod+alt+s` with `when: "!terminalFocus"`. Every `mod+shift+<lett
 - Tests: create `sideChatSelectionRegistry.test.ts` (mirror `lib/terminalCloseConfirm.test.ts`). Extend `apps/web/src/keybindings.test.ts`, `settings/KeybindingsSettings.logic.test.ts` and `apps/server/src/keybindings.test.ts` (next to `"upserts missing default keybindings on startup without overriding existing command rules"`, `:210`).
 
 **Interfaces:**
+
 - Consumes: the Ask handler and blocked state of `AssistantSelectionToolbar` (Task 33).
 - Produces:
   - The `KeybindingCommand` literal `"sideChat.askSelection"`, with the default `{ key: "mod+alt+s", command: "sideChat.askSelection", when: "!terminalFocus" }`. The default lives in `DEFAULT_KEYBINDINGS`, so `mergeWithDefaultKeybindings` applies it in memory, but the server's startup sync never writes it to disk (Global Constraints).
@@ -2271,11 +2719,13 @@ The default is `mod+alt+s` with `when: "!terminalFocus"`. Every `mod+shift+<lett
 ### Task 54: Client-runtime housekeeping (navigation, lesson input banner, merge-back)
 
 **Files:**
+
 - Modify `packages/client-runtime/src/state/threadShell.ts`: `:9`, `:48-62`, `:86-94`, `:284-308` and `:411`.
 - Modify `packages/client-runtime/src/state/threadRelationships.ts:36-43`.
 - Test: `threadShell.test.ts` (after `:216`) and `threadRelationships.test.ts` (after `:280`).
 
 **Interfaces:**
+
 - Produces:
   - `navigationThreadShellsAtom` omits side chats.
   - `childThreadInputsAtom(lessonRef)` includes side chats with a live approval or question. Nested ones come through their parent side chat.
@@ -2300,10 +2750,12 @@ The default is `mod+alt+s` with `when: "!terminalFocus"`. Every `mod+shift+<lett
 ### Task 55: Web housekeeping (sidebar, Lineage, banner, notifications) and the per-site record
 
 **Files:**
+
 - Modify `components/Sidebar.logic.ts:10,515-552`, `state/entities.ts:399-428` (`selectThreadRelationshipShells`), `chat/ThreadRelationshipsControl.tsx:282-285`, `chat/useThreadLifecycle.tsx:444-451` and `ThreadNotificationCoordinator.tsx:162-236`.
 - Test: `Sidebar.logic.test.ts` (`describe("sidebar thread lineage helpers")`) and `state/entities.relationshipShells.test.ts`.
 
 **Interfaces:**
+
 - Consumes: `makeSideChatThreadFixture` (Task 36), `resolveThreadOpenTarget`, `openThreadTarget` and `isSideChatNotificationQuiet` (Task 52), and Task 54.
 - Produces:
   - `isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineage" | "sideChat">)`, renamed from `isSidebarSubagentThread`.
@@ -2314,19 +2766,19 @@ The default is `mod+alt+s` with `when: "!terminalFocus"`. Every `mod+shift+<lett
 
 Client-side per-site record, for the PR body (Task 58):
 
-| Site | Decision |
-|---|---|
-| `Sidebar.logic.ts:515-552` | hide; `resolveSidebarRowThreadId` → lesson (this task) |
-| `client-runtime threadShell.ts:411` (navigation) | hide (Task 54) |
-| `threadShell.ts:284-308` (child inputs) | bubble to the lesson banner, which opens the panel (Task 54, this task) |
-| `threadShell.ts:48-84` (`pendingSubagentRequestsByThread`) | no change: the lesson's sidebar status stays its own |
-| `threadRelationships.ts:39` (merge-back target) | `null` for side chats (Task 54) |
-| `threadRelationships.ts:92` (edge kind) | no change: web drops side chats before building the graph |
-| `ThreadRelationshipsControl.tsx:236,282-305,313,437` | hide side chats from Lineage (this task) |
-| `ThreadNotificationCoordinator.tsx:131` | quiet while the lesson is on screen; "Open" → lesson + panel (this task) |
+| Site                                                                                                                                                                                                                                  | Decision                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `Sidebar.logic.ts:515-552`                                                                                                                                                                                                            | hide; `resolveSidebarRowThreadId` → lesson (this task)                   |
+| `client-runtime threadShell.ts:411` (navigation)                                                                                                                                                                                      | hide (Task 54)                                                           |
+| `threadShell.ts:284-308` (child inputs)                                                                                                                                                                                               | bubble to the lesson banner, which opens the panel (Task 54, this task)  |
+| `threadShell.ts:48-84` (`pendingSubagentRequestsByThread`)                                                                                                                                                                            | no change: the lesson's sidebar status stays its own                     |
+| `threadRelationships.ts:39` (merge-back target)                                                                                                                                                                                       | `null` for side chats (Task 54)                                          |
+| `threadRelationships.ts:92` (edge kind)                                                                                                                                                                                               | no change: web drops side chats before building the graph                |
+| `ThreadRelationshipsControl.tsx:236,282-305,313,437`                                                                                                                                                                                  | hide side chats from Lineage (this task)                                 |
+| `ThreadNotificationCoordinator.tsx:131`                                                                                                                                                                                               | quiet while the lesson is on screen; "Open" → lesson + panel (this task) |
 | `ChatView.tsx:756-757,776-779`; `client-runtime models.ts:282-285`; `subagentRuntime.ts:341,372`; `threadExecution.ts:127`; mobile `ThreadDetailScreen.tsx:535`, `useLinkedPullRequestActions.ts:48`, `McpAppFullscreenScreen.tsx:50` | no change: side chats are app-created forks and render only in the panel |
-| `apps/mobile/src/features/threads/threadListV2.ts:231,619` | hide, in this fork's mobile build (Task 56) |
-| turn-item `type === "subagent"` sites | not lineage; no change |
+| `apps/mobile/src/features/threads/threadListV2.ts:231,619`                                                                                                                                                                            | hide, in this fork's mobile build (Task 56)                              |
+| turn-item `type === "subagent"` sites                                                                                                                                                                                                 | not lineage; no change                                                   |
 
 - [ ] **Step 1: Write the failing tests.**
   - `"hides side chats and maps an open one, however nested, to its lesson's row"`: the visible threads are `["lesson","fork"]`. `resolveSidebarRowThreadId` gives the lesson for both `side` and `nested`, and the fork for the fork.
@@ -2339,10 +2791,12 @@ Client-side per-site record, for the PR body (Task 58):
 ### Task 56: Mobile thread list hides side chats (this fork's build)
 
 **Files:**
+
 - Modify `apps/mobile/src/features/threads/threadListV2.ts:230-232,618-619`.
 - Test: `threadListV2.test.ts`, in `describe("getThreadListV2OrderedSection")`.
 
 **Interfaces:**
+
 - Produces: `buildThreadListV2Items` and `getThreadListV2OrderedSection` skip side chats, as they already skip subagents. The official phone app keeps showing side chats as ordinary forks, which R11 allows.
 
 - [ ] **Step 1: Write the failing test** `"hides side chats from the list and its ordered sections"`. Both lists are `["lesson"]`.
@@ -2362,6 +2816,7 @@ The primary agent and med run this. Task subagents never start dev servers.
 **Files:** none tracked. Results go into the PR body (Task 58). Dev state lives in `$DEV/.t3` (gitignored).
 
 **Interfaces:**
+
 - Consumes: every task above.
 - Produces:
   - The PRD §5 scenario passed on the worktree dev server.
@@ -2399,6 +2854,7 @@ The primary agent and med run this. Task subagents never start dev servers.
   - The Map scrolls to the current side chat.
   - Toolbar, Cite and Ask work in the sheet.
   - Typing and pasting inside the panel never reach the lesson composer.
+
 - [ ] **Step 4: Note-quality eval (R5).** In the same lesson, open six side chats and press Done on each:
   - Gap A: on "observation space", ask "I don't know what an observation space is. What is it?"
   - Gap B: on "Box", ask "I've never seen Box before. What kind of thing is it?"
@@ -2408,10 +2864,13 @@ The primary agent and med run this. Task subagents never start dev servers.
   - Trivial F: on "Gymnasium", ask "Can you say that in one sentence?"
 
   Then read the results:
+
   ```bash
   cd /home/quokka/.t3/projects/t3-sidechat-dev && sqlite3 -readonly .t3/userdata/statev2.sqlite "SELECT json_extract(payload_json,'$.sideChat.label'), json_extract(payload_json,'$.sideChat.done.outcome.status'), json_extract(payload_json,'$.sideChat.done.outcome.note') FROM orchestration_v2_projection_threads WHERE json_extract(payload_json,'$.sideChat') IS NOT NULL AND deleted_at IS NULL ORDER BY created_at"
   ```
+
   Pass: A to C are `ready` with a note naming the gap or misconception, and D to F are `none`. If they are not, refine the `outcome_note` copy in Task 7 (a new commit with a test of the changed phrase), restart, and rerun. Record every run in the table.
+
 - [ ] **Step 5: Stop exactly what you started.**
   ```bash
   cd /home/quokka/.t3/projects/t3-sidechat-dev
@@ -2423,10 +2882,12 @@ The primary agent and med run this. Task subagents never start dev servers.
 ### Task 58: Internals note, final checks and the PR into fork `main`
 
 **Files:**
+
 - Create `docs/internals/side-chats.md`.
 - Modify `docs/internals/context-handoffs.md`: one paragraph on side-chat `manual_context` handoffs. `docs/user/side-chats.md` belongs to fork-setup Part B Task 12.
 
 **Interfaces:**
+
 - Consumes: Tasks 1 to 57, the per-site tables (Tasks 30 and 55), and the Task 57 results.
 - Produces: the PR `feature/side-chats` → `main` on the fork, registered with the thread.
 
@@ -2442,15 +2903,18 @@ The primary agent and med run this. Task subagents never start dev servers.
   - The capability gate.
 
   Add one paragraph to `docs/internals/context-handoffs.md`: side chats use `manual_context` with `history` undefined and the content in `summaryText`, and notes handoffs are dropped whole when they don't fit.
+
 - [ ] **Step 2: Run the final checks.** Run `cd /home/quokka/.t3/projects/t3-sidechat-dev && vp run check:changed origin/main`. Expected: format, lint, knip, typecheck and the tests beside the changes are all clean. If knip flags an unused contracts constant, move it to the first task that uses it.
 - [ ] **Step 3: Commit the docs.** `git add docs/internals/side-chats.md docs/internals/context-handoffs.md && git commit -m "docs: side-chat context and note flow" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`
 - [ ] **Step 4: Push and open the PR.**
+
   ```bash
   cd /home/quokka/.t3/projects/t3-sidechat-dev
   FORK="$(gh repo view "$(git remote get-url origin)" --json nameWithOwner -q .nameWithOwner)"
   git push -u origin feature/side-chats
   gh pr create --repo "$FORK" --base main --head feature/side-chats --title "feat: side chats" --body-file /tmp/side-chats-pr.md
   ```
+
   Write `/tmp/side-chats-pr.md` first. It contains:
   - The problem (PRD §1, two sentences) and how side chats solve it (Architecture above).
   - Links to the PRD and the design.
@@ -2467,21 +2931,20 @@ The primary agent and med run this. Task subagents never start dev servers.
 
 ## Spec coverage
 
-| Requirement or design section | Tasks |
-|---|---|
-| R1 Ask from a highlight (toolbar, streaming disabled, nested, shortcut) | 33, 34, 38, 45, 46, 53 |
-| R2 Context going in (summary + highlight, fallback, wait ≤15s, nested chain) | 7–11, 14, 16–19 |
-| R3 Isolation (no side-chat traffic in the lesson, input isolation) | 16, 17, 26 (prompt exclusion), 30 (shell stream), 43 |
-| R4 Nesting and breadcrumb | 5, 16, 35, 37, 45 |
-| R5 Done, optional note, Discard, throwaways, auto-Done | 20–22, 24, 25, 27, 28, 45, 46, 57 (eval) |
-| R6 Lesson stays quiet; notes ride along (queued, wait, never fail, user-only) | 23, 26, 28, 44, 46 |
-| R7 Reopen and redo | 27, 45 |
-| R8 Marks in the lesson (survive reloads, fallback chip, note shown) | 50, 51, 37, 45 |
-| R9 Map (diagram, scroll, keyboard, palette, themes) | 47–49, 52, 57 |
-| R10 Housekeeping (lists, cascade, worktree, approvals in panel) | 29, 30, 45, 46, 54–56 |
-| R11 Compatibility and performance (old clients, old servers, quiet shells) | 1, 3, 4, 30, 32, 46 |
-| Design §5 lane, replay safety, temp cwd, model | 8, 9, 14, 15, 25, 29 |
-| Design §7 per-site decisions | 30, 55 |
-| Design §8 cascade | 29 |
-| Design Testing (eval, manual end-to-end, `check:changed`) | 57, 58 |
-
+| Requirement or design section                                                 | Tasks                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------- |
+| R1 Ask from a highlight (toolbar, streaming disabled, nested, shortcut)       | 33, 34, 38, 45, 46, 53                               |
+| R2 Context going in (summary + highlight, fallback, wait ≤15s, nested chain)  | 7–11, 14, 16–19                                      |
+| R3 Isolation (no side-chat traffic in the lesson, input isolation)            | 16, 17, 26 (prompt exclusion), 30 (shell stream), 43 |
+| R4 Nesting and breadcrumb                                                     | 5, 16, 35, 37, 45                                    |
+| R5 Done, optional note, Discard, throwaways, auto-Done                        | 20–22, 24, 25, 27, 28, 45, 46, 57 (eval)             |
+| R6 Lesson stays quiet; notes ride along (queued, wait, never fail, user-only) | 23, 26, 28, 44, 46                                   |
+| R7 Reopen and redo                                                            | 27, 45                                               |
+| R8 Marks in the lesson (survive reloads, fallback chip, note shown)           | 50, 51, 37, 45                                       |
+| R9 Map (diagram, scroll, keyboard, palette, themes)                           | 47–49, 52, 57                                        |
+| R10 Housekeeping (lists, cascade, worktree, approvals in panel)               | 29, 30, 45, 46, 54–56                                |
+| R11 Compatibility and performance (old clients, old servers, quiet shells)    | 1, 3, 4, 30, 32, 46                                  |
+| Design §5 lane, replay safety, temp cwd, model                                | 8, 9, 14, 15, 25, 29                                 |
+| Design §7 per-site decisions                                                  | 30, 55                                               |
+| Design §8 cascade                                                             | 29                                                   |
+| Design Testing (eval, manual end-to-end, `check:changed`)                     | 57, 58                                               |

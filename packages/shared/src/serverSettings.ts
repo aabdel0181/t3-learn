@@ -155,11 +155,9 @@ export function resolveSourceControlWriterModelSelection(
 }
 
 /**
- * Side-chat summaries and notes are written through the lesson's own provider
- * so they never need a second provider to be signed in. A configured text
- * model that already targets that provider wins; otherwise the provider's
- * default small model is used when its snapshot says it can write text, and
- * anything else falls back to the machine's text-generation setting.
+ * Side-chat text goes through the lesson's own provider, so no second provider must be signed in:
+ * a configured text model on that provider wins, then the provider's small default model when its
+ * snapshot says it can write text, then the machine's text-generation setting.
  */
 export function resolveSideChatTextModel(
   lessonThread: {

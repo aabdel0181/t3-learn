@@ -907,12 +907,10 @@ export const layer: Layer.Layer<
         modelSelectionsEqual(previousSelection, run.modelSelection);
       const sameNativeThread =
         loadedProviderThread.nativeThreadRef?.nativeId === providerThread.nativeThreadRef?.nativeId;
-      // A fresh native thread knows nothing of the lesson, so a side chat's opening context rides
-      // along with the first prompt there: either the first turn, or the first turn after a failed
-      // resume bound a replacement. A retried start finds this handoff among `handoffs`, and so
-      // does the run after one that failed or was interrupted before sending its opening. The first
-      // context already waited for a summary still being written (`awaitSideChatOpening`); one that
-      // missed it leaves this context the fallback and serves the next fresh one.
+      // A fresh native thread knows nothing of the lesson, so the opening context rides with its
+      // first prompt: the first turn, or the first after a failed resume bound a replacement. A
+      // retry, or the run after one that never sent its opening, finds it among `handoffs`. A
+      // summary that missed `awaitSideChatOpening` leaves this context as the fallback.
       const sideChat = projection.thread.sideChat;
       const openingHandoffId = sideChatOpeningHandoffId(run.id);
       if (

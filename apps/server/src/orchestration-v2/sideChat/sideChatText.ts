@@ -278,13 +278,10 @@ function renderSummarizerAnchor(
 }
 
 /**
- * What the summary writer reads: the highlighted passage and as much of the lesson as fits in
- * `SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS`. Messages are taken in this order while they fit: the
- * highlighted reply, the message before it, the message after it, the first user message (the
- * topic), then the newest down to the oldest. They are written in chronological order with a
- * `[N messages omitted]` line for every gap. The highlighted reply has a larger cap than the
- * others. `anchorOpeningText` is the summary the anchor's own side chat was given, for a side
- * chat opened from inside another one.
+ * The highlight plus as much lesson as fits the budget, taken in order: the highlighted reply
+ * (larger cap), its neighbours, the first user message, then newest to oldest; written in order
+ * with `[N messages omitted]` gaps. `anchorOpeningText` is the summary the anchor's own side chat
+ * got, for a side chat opened inside another.
  */
 export function buildSideChatSummarizerInput(input: {
   readonly messages: ReadonlyArray<{

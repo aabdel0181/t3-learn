@@ -54,6 +54,7 @@ Expected: `git status --porcelain` prints nothing (stop and ask med otherwise), 
 ### Task 1: Expand assistant citations in the provider projection
 
 **Files:**
+
 - Modify: `packages/shared/src/assistantCitations.ts:134-160` (`expandAssistantCitationsForProvider`)
 - Modify: `packages/shared/src/composerContextReferences.ts:1-10` (imports), `:291-321` (`projectComposerContextForProvider`)
 - Test: `packages/shared/src/composerContextReferences.test.ts` (imports `:1-18`; new `describe` inserted after the `provider projection` describe, which closes at `:267`)
@@ -61,6 +62,7 @@ Expected: `git status --porcelain` prints nothing (stop and ask med otherwise), 
 - Test: `apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts` (imports `:1-29`; new test appended after `:331`)
 
 **Interfaces:**
+
 - Consumes: existing `serializeAssistantCitation(citation: AssistantCitation): string` and `expandAssistantCitationsForProvider(prompt: string): string` (`assistantCitations.ts`); `makeLocalCommandHarness(input)` (`ProviderTurnStartService.test.ts:260`); `ProjectionStore.ProjectionProviderControlContext` (`ProjectionStore.ts:273`); `ProviderAdapter.ProviderAdapterV2SteerInput` (`packages/provider-core/src/server/ProviderAdapter.ts:441`).
 - Produces:
   - `extractAssistantCitationsForProvider(prompt: string): { readonly text: string; readonly citations: string }` in `packages/shared/src/assistantCitations.ts`. `text` has each citation link replaced by `[assistant-quote-N]`; `citations` is `""` when the prompt has none, otherwise the `<assistant_citations>\n…\n</assistant_citations>` block with no leading blank line.
@@ -354,11 +356,13 @@ EOF
 ### Task 2: Correct the internal docs
 
 **Files:**
+
 - Modify: `docs/internals/assistant-citations.md:24-29`
 - Modify: `docs/internals/composer-context-references.md:60`, `:71`, `:126`
 - Modify: `docs/internals/context-handoffs.md:1-19` (full rewrite)
 
 **Interfaces:**
+
 - Consumes: Task 1's `projectComposerContextForProvider` behaviour and output order.
 - Produces: docs only. `docs/user/composer.md:126-130` already promises that sending "tells the agent which words were quoted and which comment you wrote"; Task 1 makes it true, so it stays unchanged.
 
@@ -449,9 +453,11 @@ EOF
 Run by the primary agent (or med), not a task subagent: it starts a dev server and spends one real provider turn.
 
 **Files:**
+
 - No repository files. Temporary files go to `/tmp` only: `/tmp/citation-prompt.txt`, `/tmp/citation-transcript.txt`, `/tmp/citation-pr.md`.
 
 **Interfaces:**
+
 - Consumes: Tasks 1-2 committed on `fix/citation-expansion`.
 - Produces: branch pushed to `origin`, PR `fix/citation-expansion` → the fork's `main` (`$FORK`, derived from `origin` in Step 6).
 
@@ -578,6 +584,7 @@ references the provider text equals what the composer already measures against t
 describes what handoffs actually replay (intact items, user messages in link form).
 
 Evidence
+
 - Failing before the fix, passing after: `vp test run packages/shared/src/composerContextReferences.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts`
 - `vp run check:changed origin/main`: all pass
 - Runtime transcript (worktree dev server, <provider>/<model>):

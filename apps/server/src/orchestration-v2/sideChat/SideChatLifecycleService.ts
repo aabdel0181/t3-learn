@@ -47,12 +47,9 @@ export class SideChatLifecycleService extends Context.Service<
   SideChatLifecycleService,
   {
     /**
-     * Writes the note for the side chat's `generating` outcome `requestId` and lands it with
-     * `thread.side_chat.outcome.complete`. The note takes up the notes of its nested side chats:
-     * the ones its own turns took, and every ready one, after waiting for ones still being written
-     * until `SIDE_CHAT_WAIT_CAP_MS` after Done. Until the lesson has received one of this side
-     * chat's notes, a null answer makes those notes the note; after that it says only what is new.
-     * Never fails: interrupts propagate, and anything else is logged and recorded as `failed`,
+     * Lands the note for the `generating` outcome `requestId`, taking up nested side chats' notes
+     * (waiting until `SIDE_CHAT_WAIT_CAP_MS` after Done); a null answer becomes those notes until
+     * the lesson holds one of this side chat's. Never fails: errors are recorded as `failed`,
      * because a failed outbox row pins the lesson's worktree.
      */
     readonly writeOutcome: (input: {
@@ -60,11 +57,9 @@ export class SideChatLifecycleService extends Context.Service<
       readonly requestId: string;
     }) => Effect.Effect<void>;
     /**
-     * Runs before every provider turn starts. When the run's message is the user's own and the
-     * thread's side chats have notes it has not received, it waits for notes still being written
-     * (until `SIDE_CHAT_WAIT_CAP_MS` after the message was sent), then attaches the ready ones with
-     * `thread.side_chat.notes.attach`. Never fails: interrupts propagate, and anything else is
-     * logged and the turn starts without the notes.
+     * Before a turn whose message is the user's own, waits for side-chat notes still being written
+     * (until `SIDE_CHAT_WAIT_CAP_MS` after the send), then attaches the ready ones it has not
+     * received. Never fails: errors are logged and the turn starts without the notes.
      */
     readonly awaitNotesForRunStart: (input: {
       readonly threadId: ThreadId;
