@@ -19,6 +19,8 @@ fail() {
   printf '\nFAIL: %s\n' "$*" >&2
   exit 1
 }
+# Keep the app's logs with the screenshots when anything fails.
+trap 'status=$?; [ "$status" -eq 0 ] || cp -R "$HOME/.t3-learn/userdata/logs" "$artifacts/t3-learn-logs" 2>/dev/null || true' EXIT
 
 screenshot() {
   if [ "$os" = Darwin ]; then
@@ -108,7 +110,8 @@ if [ "$os" = Darwin ] && [ "$scenario" = fresh ]; then
   gh release download "v$version" -R "$repo" -p latest-mac.yml -p "T3-Learn-$version-$zip_arch.zip" -D "$feed"
   next="$version.1"
   sed -i '' "s/^version: .*/version: $next/" "$feed/latest-mac.yml"
-  python3 -m http.server 8765 --bind 127.0.0.1 --directory "$feed" >/dev/null 2>&1 &
+  # The app's mock feed is http://localhost, which can resolve to ::1 or 127.0.0.1.
+  python3 -m http.server 8765 --bind :: --directory "$feed" >"$artifacts/feed.log" 2>&1 &
   osascript -e 'tell application id "io.github.aabdel0181.t3learn" to quit'
   while pgrep -f "/T3 Learn.app/Contents/MacOS/" >/dev/null; do sleep 1; done
   app="/Applications/T3 Learn.app"

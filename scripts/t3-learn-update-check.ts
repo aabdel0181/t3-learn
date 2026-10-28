@@ -1,7 +1,8 @@
-// @effect-diagnostics globalConsole:off
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off
 // Drives an installed T3 Learn through an in-app update from a local feed
 // (T3CODE_DESKTOP_MOCK_UPDATES), up to the point where it quits to install.
 //   node scripts/t3-learn-update-check.ts --executable <app> --feed-port <port> --expect <version>
+import * as NodeTimersPromises from "node:timers/promises";
 import * as NodeUtil from "node:util";
 
 import { _electron } from "playwright-core";
@@ -53,26 +54,28 @@ await page
   .first()
   .waitFor({ timeout: STEP_TIMEOUT_MS });
 
+type UpdateState = Awaited<ReturnType<DesktopBridge["getUpdateState"]>>;
+const waitForState = async (done: (state: UpdateState) => boolean): Promise<UpdateState> => {
+  const deadline = Date.now() + STEP_TIMEOUT_MS;
+  for (;;) {
+    const state = await page.evaluate(() => window.desktopBridge.getUpdateState());
+    if (done(state) || Date.now() > deadline) return state;
+    await NodeTimersPromises.setTimeout(1_000);
+  }
+};
+
 // The app may already be checking on its own at startup, so wait on the state.
 await page.evaluate(() => window.desktopBridge.checkForUpdate());
-await page.waitForFunction(
-  async () => (await window.desktopBridge.getUpdateState()).availableVersion !== null,
-  undefined,
-  { timeout: STEP_TIMEOUT_MS },
-);
-const available = await page.evaluate(() => window.desktopBridge.getUpdateState());
+const available = await waitForState((state) => state.status !== "checking");
 console.log(`after check: ${JSON.stringify(available)}`);
 if (available.availableVersion !== expectedVersion) {
   throw new Error(`expected update ${expectedVersion}, got ${JSON.stringify(available)}`);
 }
 
 await page.evaluate(() => window.desktopBridge.downloadUpdate());
-await page.waitForFunction(
-  async () => (await window.desktopBridge.getUpdateState()).downloadedVersion !== null,
-  undefined,
-  { timeout: STEP_TIMEOUT_MS },
+const downloaded = await waitForState(
+  (state) => state.status !== "downloading" && state.status !== "available",
 );
-const downloaded = await page.evaluate(() => window.desktopBridge.getUpdateState());
 console.log(`after download: ${JSON.stringify(downloaded)}`);
 if (downloaded.downloadedVersion !== expectedVersion) {
   throw new Error(`the update did not download: ${JSON.stringify(downloaded)}`);
