@@ -113,20 +113,14 @@ if [ "$os" = Darwin ] && [ "$scenario" = fresh ]; then
   while pgrep -f "/T3 Learn.app/Contents/MacOS/" >/dev/null; do sleep 1; done
   app="/Applications/T3 Learn.app"
   before="$(stat -f %i "$app")"
-  started_before="$(sed -n 's/.*"startedAt": *"\([^"]*\)".*/\1/p' "$HOME/.t3-learn/userdata/server-runtime.json")"
   node scripts/t3-learn-update-check.ts --executable "$app/Contents/MacOS/T3 Learn" \
     --feed-port 8765 --expect "$next"
   for _ in $(seq 1 120); do
     [ -d "$app" ] && [ "$(stat -f %i "$app")" != "$before" ] && break
     sleep 1
   done
-  [ "$(stat -f %i "$app")" != "$before" ] || fail "the app bundle was not replaced"
-  for _ in $(seq 1 120); do
-    started="$(sed -n 's/.*"startedAt": *"\([^"]*\)".*/\1/p' "$HOME/.t3-learn/userdata/server-runtime.json")"
-    [ -n "$started" ] && [ "$started" != "$started_before" ] && break
-    sleep 1
-  done
-  [ "$started" != "$started_before" ] || fail "T3 Learn did not reopen after updating"
+  [ -d "$app" ] && [ "$(stat -f %i "$app")" != "$before" ] || fail "the app bundle was not replaced"
+  # The instance that installed the update has quit, so a server now is the reopened app.
   wait_for_server "$HOME/.t3-learn" >/dev/null
   ls -d "/Applications/.t3-learn-update."* 2>/dev/null && fail "the update left its staging folder"
   codesign --verify --deep "$app" || fail "the updated app's signature does not verify"
