@@ -1,9 +1,9 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
-import { T3_LEARN_REPOSITORY } from "@t3tools/shared/t3LearnIdentity";
 
 const FALLBACK_TRIAGE_COMMAND = "npx t3 triage";
-const DOWNLOAD_URL = `https://github.com/${T3_LEARN_REPOSITORY}/releases/latest`;
-const ISSUE_URL = `https://github.com/${T3_LEARN_REPOSITORY}/issues/new`;
+// Runs before the app bundle loads, so these stay literal instead of importing T3 Learn's identity.
+const DOWNLOAD_URL = "https://github.com/aabdel0181/t3-learn/releases/latest";
+const ISSUE_URL = "https://github.com/aabdel0181/t3-learn/issues/new";
 const LAST_FAILURE_KEY = "t3code:boot-failed-at";
 const REPEAT_FAILURE_MS = 5 * 60_000;
 const MAX_CAUSES = 3;
