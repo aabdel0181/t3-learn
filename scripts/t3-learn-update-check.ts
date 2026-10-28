@@ -46,6 +46,12 @@ const app = await _electron.launch({
   timeout: STEP_TIMEOUT_MS,
 });
 const page = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
+// The first window navigates while the app starts; locator waits outlast that.
+await page
+  .getByRole("dialog")
+  .or(page.getByText("What should we work on?"))
+  .first()
+  .waitFor({ timeout: STEP_TIMEOUT_MS });
 
 // The app may already be checking on its own at startup, so wait on the state.
 await page.evaluate(() => window.desktopBridge.checkForUpdate());
@@ -72,8 +78,8 @@ if (downloaded.downloadedVersion !== expectedVersion) {
   throw new Error(`the update did not download: ${JSON.stringify(downloaded)}`);
 }
 
-// The app quits to install, which also ends this connection.
-const closed = app.waitForEvent("close", { timeout: STEP_TIMEOUT_MS });
+// The app quits to install; the caller checks the result. A relaunched app can
+// inherit this connection's pipes, so waiting for it to close would never end.
 await page.evaluate(() => window.desktopBridge.installUpdate()).catch(() => undefined);
-await closed;
-console.log("the app quit to install the update");
+console.log("asked the app to install the update");
+process.exit(0);
