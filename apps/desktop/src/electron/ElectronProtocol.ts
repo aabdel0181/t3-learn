@@ -11,9 +11,10 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
+import { T3_LEARN_DESKTOP_SCHEME } from "@t3tools/shared/t3LearnIdentity";
 
 export const DESKTOP_HOST = "app";
-const DESKTOP_PRODUCTION_SCHEME = "t3code";
+const DESKTOP_PRODUCTION_SCHEME = T3_LEARN_DESKTOP_SCHEME;
 const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
 
 export function getDesktopScheme(isDevelopment: boolean): string {

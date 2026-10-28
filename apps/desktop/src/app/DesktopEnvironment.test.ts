@@ -68,8 +68,25 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(development.stateDir, "/Users/alice/.t3-learn/dev");
+      assert.equal(production.stateDir, "/Users/alice/.t3-learn/userdata");
+    }),
+  );
+
+  it.effect("reads T3LEARN_HOME in production and T3CODE_HOME only in development", () =>
+    Effect.gen(function* () {
+      const t3CodeHome = { T3CODE_HOME: "/Users/alice/.t3" };
+      const homes = { ...t3CodeHome, T3LEARN_HOME: "/Users/alice/learn" };
+      const inherited = yield* makeEnvironment({}, t3CodeHome);
+      const production = yield* makeEnvironment({}, homes);
+      const development = yield* makeEnvironment(
+        {},
+        { ...homes, VITE_DEV_SERVER_URL: "http://localhost:5173" },
+      );
+
+      assert.equal(inherited.stateDir, "/Users/alice/.t3-learn/userdata");
+      assert.equal(production.stateDir, "/Users/alice/learn/userdata");
+      assert.equal(development.stateDir, "/Users/alice/.t3/userdata");
     }),
   );
 });

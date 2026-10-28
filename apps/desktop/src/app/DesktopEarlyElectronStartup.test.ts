@@ -11,23 +11,46 @@ import {
 describe("DesktopEarlyElectronStartup", () => {
   const joinPath = NodePath.posix.join;
 
-  it("reads the persisted linux password-store preference before Electron is ready", () => {
-    const preference = resolveEarlyLinuxPasswordStorePreference({
-      env: { T3CODE_HOME: "/home/user/.t3-test" },
-      homeDirectory: "/home/user",
-      joinPath,
-      readFileString: (path) => {
-        assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
-        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+  it.each([
+    {
+      label: "T3LEARN_HOME in production",
+      env: { T3LEARN_HOME: "/home/user/.t3-test", T3CODE_HOME: "/home/user/.t3" },
+      settingsPath: "/home/user/.t3-test/userdata/desktop-settings.json",
+    },
+    {
+      label: "the default home in production when only T3CODE_HOME is set",
+      env: { T3CODE_HOME: "/home/user/.t3" },
+      settingsPath: "/home/user/.t3-learn/userdata/desktop-settings.json",
+    },
+    {
+      label: "T3CODE_HOME in development",
+      env: {
+        VITE_DEV_SERVER_URL: "http://localhost:5173",
+        T3CODE_HOME: "/home/user/.t3-test",
+        T3LEARN_HOME: "/home/user/learn",
       },
-    });
+      settingsPath: "/home/user/.t3-test/userdata/desktop-settings.json",
+    },
+  ])(
+    "reads the persisted linux password-store preference from $label before Electron is ready",
+    ({ env, settingsPath }) => {
+      const preference = resolveEarlyLinuxPasswordStorePreference({
+        env,
+        homeDirectory: "/home/user",
+        joinPath,
+        readFileString: (path) => {
+          assert.equal(path, settingsPath);
+          return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+        },
+      });
 
-    assert.equal(preference, "kwallet6");
-  });
+      assert.equal(preference, "kwallet6");
+    },
+  );
 
   it("accepts JSONC in the early desktop settings file", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
-      env: { T3CODE_HOME: "/home/user/.t3-test" },
+      env: { T3LEARN_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
       readFileString: () => `{
@@ -133,7 +156,7 @@ describe("DesktopEarlyElectronStartup", () => {
 
 describe("Linux device scale persistence failures", () => {
   const input = {
-    env: { T3CODE_HOME: "/isolated" },
+    env: { T3LEARN_HOME: "/isolated" },
     homeDirectory: "/home/user",
     joinPath: NodePath.posix.join,
   };

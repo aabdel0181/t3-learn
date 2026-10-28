@@ -21,9 +21,9 @@ const defaultEnvironmentInput = {
   platform: "darwin",
   processArch: "arm64",
   appVersion: "1.2.3",
-  appPath: "/Applications/T3 Code.app/Contents/Resources/app.asar",
+  appPath: "/Applications/T3 Learn.app/Contents/Resources/app.asar",
   isPackaged: true,
-  resourcesPath: "/Applications/T3 Code.app/Contents/Resources",
+  resourcesPath: "/Applications/T3 Learn.app/Contents/Resources",
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
@@ -40,7 +40,7 @@ interface ElectronAppCalls {
 const layerElectronApp = (calls: ElectronAppCalls) =>
   Layer.succeed(ElectronApp.ElectronApp, {
     metadata: Effect.die("unexpected metadata read"),
-    name: Effect.succeed("T3 Code"),
+    name: Effect.succeed("T3 Learn"),
     systemLocale: Effect.succeed("en-US"),
     whenReady: Effect.void,
     requestSingleInstanceLock: Effect.succeed(true),
@@ -114,6 +114,7 @@ const withIdentity = <A, E, R>(
     readonly legacyPathProbeError?: PlatformError.PlatformError;
     readonly packageJson?: string;
     readonly pngIconPath?: Option.Option<string>;
+    readonly probedPaths?: string[];
   } = {},
 ) => {
   const calls: ElectronAppCalls = input.calls ?? {
@@ -128,12 +129,15 @@ const withIdentity = <A, E, R>(
         Layer.provide(NodePath.layerPosix),
         Layer.provideMerge(
           FileSystem.layerNoop({
-            exists: (path) =>
-              input.legacyPathProbeError
+            exists: (path) => {
+              input.probedPaths?.push(path);
+              return input.legacyPathProbeError
                 ? Effect.fail(input.legacyPathProbeError)
                 : Effect.succeed(
-                    input.legacyPathExists === true && /T3 Code \((Alpha|Dev)\)/.test(path),
-                  ),
+                    input.legacyPathExists === true &&
+                      /T3 Code \((Alpha|Dev)\)|t3code(-v2)?$/.test(path),
+                  );
+            },
             readFileString: () =>
               Effect.succeed(input.packageJson ?? '{"t3codeCommitHash":"abcdef1234567890"}'),
           }),
@@ -147,16 +151,30 @@ const withIdentity = <A, E, R>(
 };
 
 describe("DesktopAppIdentity", () => {
-  it.effect("isolates the V2 profile even when the legacy V1 profile exists", () =>
-    withIdentity(
-      Effect.gen(function* () {
-        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
-        const userDataPath = yield* identity.resolveUserDataPath;
-
-        assert.equal(userDataPath, "/Users/alice/Library/Application Support/t3code-v2");
-      }),
-      { legacyPathExists: true },
-    ),
+  it.effect.each([
+    {
+      platform: "darwin",
+      environment: {},
+      userDataPath: "/Users/alice/Library/Application Support/t3learn",
+    },
+    {
+      platform: "win32",
+      environment: { platform: "win32", env: { APPDATA: "/Users/alice/AppData/Roaming" } },
+      userDataPath: "/Users/alice/AppData/Roaming/t3learn",
+    },
+  ] as const)(
+    "uses its own $platform profile without reading T3 Code's profiles",
+    ({ environment, userDataPath }) => {
+      const probedPaths: string[] = [];
+      return withIdentity(
+        Effect.gen(function* () {
+          const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+          assert.equal(yield* identity.resolveUserDataPath, userDataPath);
+          assert.deepEqual(probedPaths, []);
+        }),
+        { environment, legacyPathExists: true, probedPaths },
+      );
+    },
   );
 
   it.effect("keeps using the legacy development profile", () =>
@@ -199,7 +217,7 @@ describe("DesktopAppIdentity", () => {
 
         const runtimeName = calls.setName[0];
         assert.isDefined(runtimeName);
-        assert.equal(runtimeName, `T3 Code ${stage}`);
+        assert.equal(runtimeName, `T3 Learn ${stage}`);
         assert.match(runtimeName.replaceAll(" ", ""), /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/);
         assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `T3 Learn (${stage})`);
       }),

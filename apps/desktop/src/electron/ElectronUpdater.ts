@@ -4,9 +4,44 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { autoUpdater } from "electron-updater";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - The bundle swap must outlive the app it replaces.
+import * as NodeChildProcess from "node:child_process";
+
+import * as Electron from "electron";
+import { autoUpdater, type UpdateDownloadedEvent } from "electron-updater";
 
 type AutoUpdater = typeof autoUpdater;
+
+// T3 Learn's macOS builds are not signed, and Squirrel.Mac refuses to install
+// over an unsigned app. Once the app has quit, this swaps the bundle for the
+// verified download and reopens it.
+const MAC_BUNDLE_SWAP_SCRIPT = `
+pid=$1 zip=$2 app=$3
+while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+staging=$(mktemp -d "$(dirname "$app")/.t3-learn-update.XXXXXX" 2>/dev/null || mktemp -d)
+if ditto -x -k "$zip" "$staging"; then
+  new=$(ls -d "$staging"/*.app 2>/dev/null | head -n 1)
+  if [ -n "$new" ]; then
+    xattr -dr com.apple.quarantine "$new" 2>/dev/null
+    mv "$app" "$staging/previous.app" && { mv "$new" "$app" || mv "$staging/previous.app" "$app"; }
+  fi
+fi
+rm -rf "$staging"
+open "$app"
+`;
+
+// Only macOS updates download as a .zip.
+let macDownloadedZip: string | undefined;
+
+function swapMacBundleAfterQuit(zipPath: string): void {
+  const bundlePath = Electron.app.getPath("exe").replace(/\.app\/Contents\/MacOS\/[^/]+$/, ".app");
+  NodeChildProcess.spawn(
+    "/bin/sh",
+    ["-c", MAC_BUNDLE_SWAP_SCRIPT, "t3-learn-update", String(process.pid), zipPath, bundlePath],
+    { detached: true, stdio: "ignore" },
+  ).unref();
+  Electron.app.quit();
+}
 
 export type ElectronUpdaterFeedUrl = Parameters<AutoUpdater["setFeedURL"]>[0];
 
@@ -142,6 +177,9 @@ export const make = ElectronUpdater.of({
   }),
   downloadUpdate: Effect.suspend(() => {
     const channel = autoUpdater.channel;
+    autoUpdater.once("update-downloaded", (event: UpdateDownloadedEvent) => {
+      macDownloadedZip = event.downloadedFile.endsWith(".zip") ? event.downloadedFile : undefined;
+    });
     return Effect.tryPromise({
       try: () => autoUpdater.downloadUpdate(),
       catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
@@ -154,7 +192,10 @@ export const make = ElectronUpdater.of({
     return Effect.suspend(() => {
       const channel = autoUpdater.channel;
       return Effect.try({
-        try: () => autoUpdater.quitAndInstall(isSilent, isForceRunAfter),
+        try: () =>
+          macDownloadedZip === undefined
+            ? autoUpdater.quitAndInstall(isSilent, isForceRunAfter)
+            : swapMacBundleAfterQuit(macDownloadedZip),
         catch: (cause) =>
           new ElectronUpdaterQuitAndInstallError({
             channel,
