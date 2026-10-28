@@ -32,7 +32,11 @@ import {
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import { type ReactNode } from "react";
-import { getLatestThreadForProject, sortThreads, type ThreadSortInput } from "../lib/threadSort";
+import {
+  getLatestThreadForProject,
+  sortThreads,
+  type ThreadSortInput,
+} from "@t3tools/client-runtime/state/thread-sort";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 import { isSidebarSubagentThread } from "./Sidebar.logic";

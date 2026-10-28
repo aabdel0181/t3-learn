@@ -2,17 +2,22 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import {
-  deriveLatestThreadRun,
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveThreadStructureRuntime,
 } from "@t3tools/client-runtime/state/thread-execution";
-import type { AssistantCitation, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type {
+  AssistantCitation,
+  ProviderApprovalDecision,
+  RuntimeRequestId,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
-import { deriveActiveWorkStartedAt, derivePhase, isLatestRunSettled } from "../../session-logic";
+import { deriveActiveWorkStartedAt, derivePhase, type PendingApproval } from "../../session-logic";
 import type { ChatMessage } from "../../types";
 import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
 import { useCitedHistory } from "../chat/citationProcedure";
@@ -51,6 +56,14 @@ export function SideChatTimeline(props: {
   /** Opens a side chat nested in this one from its mark. */
   readonly onOpenSideChat?: (threadId: ThreadId) => void;
   readonly workspaceRoot: string | undefined;
+  /** Shown on their timeline rows, as the lesson's are. */
+  readonly pendingApprovals: ReadonlyArray<PendingApproval>;
+  readonly respondingRequestIds: ReadonlyArray<RuntimeRequestId>;
+  readonly canOperate: boolean;
+  readonly onRespondToApproval: (
+    requestId: RuntimeRequestId,
+    decision: ProviderApprovalDecision,
+  ) => Promise<unknown>;
 }) {
   const { projection, workspaceRoot } = props;
   const sideChatKey = scopedThreadKey(props.sideChatRef);
@@ -60,7 +73,6 @@ export function SideChatTimeline(props: {
   const citationHistory = useCitedHistory(props.citationRequest);
 
   // Run state as ChatView derives it for a server thread.
-  const latestRun = projection === null ? null : deriveLatestThreadRun(projection);
   const activityRun = projection === null ? null : deriveThreadActivityRun(projection);
   const runtime = projection === null ? null : deriveThreadStructureRuntime(projection);
   const runlessWorkStartedAt = projection === null ? null : deriveRunlessWorkStartedAt(projection);
@@ -70,6 +82,10 @@ export function SideChatTimeline(props: {
     <div className="h-full min-h-0">
       <ThreadTimeline
         holdTimeline={false}
+        pendingApprovals={props.pendingApprovals}
+        respondingRequestIds={props.respondingRequestIds}
+        canOperateThread={props.canOperate}
+        onRespondToApproval={props.onRespondToApproval}
         threadDetailRef={props.detailRef}
         entriesInput={{
           optimisticMessages: props.optimisticMessages,
@@ -88,7 +104,6 @@ export function SideChatTimeline(props: {
         askInSideChatPending={props.askInSideChatPending}
         isWorking={isWorking}
         runlessWorkActive={runlessWorkStartedAt !== null}
-        activeTurnInProgress={isWorking || !isLatestRunSettled(latestRun, runtime)}
         activeTurnStartedAt={
           deriveActiveWorkStartedAt(activityRun, runtime, null) ?? runlessWorkStartedAt
         }
@@ -103,7 +118,6 @@ export function SideChatTimeline(props: {
         threadFind={false}
         onOpenThread={props.onOpenThread}
         {...(props.onOpenSideChat === undefined ? {} : { onOpenSideChat: props.onOpenSideChat })}
-        onRollbackCheckpoint={noop}
         supportsConversationRollback={false}
         onRevertToTurnCount={noop}
         isRevertingCheckpoint={false}

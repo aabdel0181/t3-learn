@@ -16,6 +16,7 @@ export function SideChatExcerpt(props: { readonly text: string; readonly onRevea
 
   // Only the clamped text can overflow. Once expanded the toggle keeps its last answer, and
   // collapsing observes again.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a resize observer on the clamped quote that reports whether it overflows
   useEffect(() => {
     if (!quote || expanded) return;
     return observeResize(quote, () => setOverflows(quote.scrollHeight > quote.clientHeight));

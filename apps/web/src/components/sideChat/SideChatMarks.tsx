@@ -265,6 +265,7 @@ export function SideChatMarks(props: {
   const layerRef = useRef<HTMLDivElement>(null);
   const [tags, setTags] = useState(NO_TAGS);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- lays out the mark tags over the reply's DOM text and follows its layout changes
   useEffect(() => {
     const layer = layerRef.current;
     const source = layer?.parentElement?.querySelector<HTMLElement>(

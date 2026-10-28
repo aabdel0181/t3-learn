@@ -208,7 +208,18 @@ export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): Orchest
         ? { ...item, summary: truncateDetail(item.summary, MAX_ON_DEMAND_BYTES) ?? "" }
         : projectTurnItemForWire(item);
     case "file_change":
-      return projectTurnItemForWire(item);
+      return {
+        ...projectTurnItemForWire(item),
+        ...(item.diffStr === undefined
+          ? {}
+          : { diffStr: truncateDetail(item.diffStr, MAX_ON_DEMAND_BYTES) }),
+        ...(!item.diffStr?.trim() && item.oldStr !== undefined
+          ? { oldStr: truncateDetail(item.oldStr, MAX_ON_DEMAND_BYTES) }
+          : {}),
+        ...(!item.diffStr?.trim() && item.newStr !== undefined
+          ? { newStr: truncateDetail(item.newStr, MAX_ON_DEMAND_BYTES) }
+          : {}),
+      };
     default:
       return item;
   }

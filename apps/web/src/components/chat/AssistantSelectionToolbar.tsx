@@ -72,6 +72,7 @@ export function AssistantSelectionToolbar({
   // A sheet traps focus and dismisses on outside presses, so the toolbar must live inside it.
   const sheet = viewport?.closest<HTMLElement>('[data-slot="sheet-popup"]') ?? null;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
@@ -88,6 +89,7 @@ export function AssistantSelectionToolbar({
     toolbar.style.top = `${y - origin.y}px`;
   }, [selection, sheet]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document selectionchange and keydown to track text selections in the viewport
   useEffect(() => {
     if (!viewport) return;
     const clear = () => setSelection(null);
@@ -240,6 +242,7 @@ export function AssistantSelectionToolbar({
   );
   const offersAsk = onAskInSideChat !== undefined;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this viewport as the owner of the Ask in side chat shortcut while it is mounted
   useEffect(() => {
     if (!viewport || !offersAsk) return;
     return registerSideChatSelectionOwner({
