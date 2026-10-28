@@ -93,6 +93,7 @@ if [ "$os" = Darwin ]; then
 elif [ "$scenario" = appimage ]; then
   [ -x "$HOME/.local/share/t3-learn/T3-Learn.AppImage" ] || fail "the AppImage is missing"
   grep -q '^Exec=' "$HOME/.local/share/applications/t3learn.desktop" || fail "no desktop entry"
+  [ -s "$HOME/.local/share/icons/hicolor/512x512/apps/t3learn.png" ] || fail "no menu icon"
 else
   installed t3learn || fail "the t3learn package is not installed"
 fi

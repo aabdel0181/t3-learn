@@ -247,8 +247,10 @@ else
   # The updater replaces the file in place, so the name carries no version.
   mv "$work/$asset" "$appimage_path"
   chmod 755 "$appimage_path"
-  (cd "$work" && "$appimage_path" --appimage-extract "${exe}.png" >/dev/null 2>&1) || true
-  if [ -f "$work/squashfs-root/${exe}.png" ]; then cp "$work/squashfs-root/${exe}.png" "$icon_file"; fi
+  # The image's top-level icon is a symlink into usr/share/icons.
+  icon_path="usr/share/icons/hicolor/512x512/apps/${exe}.png"
+  (cd "$work" && "$appimage_path" --appimage-extract "$icon_path" >/dev/null 2>&1) || true
+  if [ -f "$work/squashfs-root/$icon_path" ]; then cp "$work/squashfs-root/$icon_path" "$icon_file"; fi
   exec_line="\"${appimage_path}\" %U"
   extract_and_run=
   if [ ! -e /dev/fuse ] || ! { command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1; }; then
@@ -285,7 +287,7 @@ if [ "$platform" = mac ]; then
   say "Open it from ${dest} or Spotlight. It updates itself."
 else
   say "Open it from your app menu. It updates itself."
-  if pgrep -x "$exe" >/dev/null 2>&1; then say "If T3 Learn was already open, restart it to use this version."; fi
+  if pgrep -u "$(id -u)" -x "$exe" >/dev/null 2>&1; then say "If T3 Learn was already open, restart it to use this version."; fi
 fi
 say "Projects and settings live in ${data_dir}."
 printf '\n' >&2
