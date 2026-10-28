@@ -5,8 +5,10 @@
 export const T3_LEARN_REPOSITORY = "aabdel0181/t3-learn";
 export const T3_LEARN_APP_ID = "io.github.aabdel0181.t3learn";
 export const T3_LEARN_PRODUCT_NAME = "T3 Learn";
-/** Linux executable and WM class, deb package, Windows install folder, and the shell command. */
-export const T3_LEARN_EXECUTABLE_NAME = "t3-learn";
+/** Linux executable and WM class, deb package, Windows install folder and boot service, like upstream's `t3code`. */
+export const T3_LEARN_EXECUTABLE_NAME = "t3learn";
+/** The CLI command Settings → About installs, like upstream's `t3`. */
+export const T3_LEARN_COMMAND = "t3-learn";
 export const T3_LEARN_DESKTOP_SCHEME = "t3learn";
 export const T3_LEARN_LINUX_DESKTOP_ENTRY = "io.github.aabdel0181.T3Learn.desktop";
 export const T3_LEARN_HOME_DIRECTORY = ".t3-learn";

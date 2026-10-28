@@ -1,4 +1,4 @@
-import { T3_LEARN_EXECUTABLE_NAME, T3_LEARN_HOME_ENV } from "@t3tools/shared/t3LearnIdentity";
+import { T3_LEARN_COMMAND, T3_LEARN_HOME_ENV } from "@t3tools/shared/t3LearnIdentity";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -119,7 +119,7 @@ export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment[
   environment.path.join(
     environment.baseDir,
     "bin",
-    environment.platform === "win32" ? `${T3_LEARN_EXECUTABLE_NAME}.cmd` : T3_LEARN_EXECUTABLE_NAME,
+    environment.platform === "win32" ? `${T3_LEARN_COMMAND}.cmd` : T3_LEARN_COMMAND,
   );
 
 export const install = Effect.gen(function* () {

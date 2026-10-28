@@ -44,7 +44,7 @@ const REPORTER =
 const fakeAppImage = (canMount = true) => {
   const root = tempRoot();
   const image = NodePath.join(root, "image");
-  writeExecutable(NodePath.join(image, "t3-learn"), REPORTER);
+  writeExecutable(NodePath.join(image, "t3learn"), REPORTER);
   const appImage = NodePath.join(root, "T3 Learn.AppImage");
   writeExecutable(
     appImage,
@@ -59,7 +59,7 @@ const fakeAppImage = (canMount = true) => {
       "",
     ].join("\n"),
   );
-  const shim = writeShim(root, { kind: "appimage", appImage, executableName: "t3-learn" });
+  const shim = writeShim(root, { kind: "appimage", appImage, executableName: "t3learn" });
   return { root, image, appImage, shim };
 };
 
@@ -96,7 +96,7 @@ describe("renderCliShim", () => {
 
   it("runs an installed app's server directly", () => {
     const root = tempRoot();
-    const executable = NodePath.join(root, "opt", "T3 Learn", "t3-learn");
+    const executable = NodePath.join(root, "opt", "T3 Learn", "t3learn");
     writeExecutable(executable, REPORTER);
     const shim = writeShim(root, {
       kind: "direct",

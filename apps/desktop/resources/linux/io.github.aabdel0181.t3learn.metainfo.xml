@@ -17,10 +17,10 @@
       It installs next to T3 Code and keeps its own projects and settings.
     </p>
   </description>
-  <launchable type="desktop-id">t3-learn.desktop</launchable>
-  <icon type="stock">t3-learn</icon>
+  <launchable type="desktop-id">t3learn.desktop</launchable>
+  <icon type="stock">t3learn</icon>
   <provides>
-    <binary>t3-learn</binary>
+    <binary>t3learn</binary>
   </provides>
   <categories>
     <category>Development</category>

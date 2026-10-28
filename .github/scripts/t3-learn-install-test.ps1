@@ -72,7 +72,7 @@ Log "T3 Learn $learnVersion is running"
 Start-Sleep -Seconds 5
 Screenshot "t3-learn"
 
-$learnDir = Join-Path $env:LOCALAPPDATA "Programs\t3-learn"
+$learnDir = Join-Path $env:LOCALAPPDATA "Programs\t3learn"
 if (-not (Test-Path (Join-Path $learnDir "T3 Learn.exe"))) { Fail "T3 Learn.exe is missing" }
 $uninstallKeys = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
   ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "T3 Learn*" }
@@ -86,7 +86,7 @@ if ($Scenario -eq "next-to-t3-code") {
     ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "T3 Code*" }
   if (-not $codeKeys) { Fail "T3 Code's entry in Installed apps is gone" }
   $handler = (Get-ItemProperty "HKCU:\Software\Classes\t3code\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
-  if ($handler -and $handler -like "*t3-learn*") { Fail "T3 Learn took over t3code:// links" }
+  if ($handler -and $handler -like "*\t3learn\*") { Fail "T3 Learn took over t3code:// links" }
 }
 
 Log "Uninstalling T3 Learn"

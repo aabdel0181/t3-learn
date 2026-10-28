@@ -71,7 +71,7 @@ const startBesideBootService = Effect.fn("test.startBesideBootService")(function
           renderBootServicePlist(plan, { homeDir: root, environmentPath: "" }),
         ]
       : [
-          path.join(root, ".config", "systemd", "user", "t3-learn.service"),
+          path.join(root, ".config", "systemd", "user", "t3learn.service"),
           renderBootServiceUnit(plan),
         ];
   yield* fs.makeDirectory(path.dirname(unitPath), { recursive: true });

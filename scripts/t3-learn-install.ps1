@@ -11,114 +11,119 @@
 #   T3LEARN_NO_LAUNCH         set to 1 to install without opening the app
 #   T3LEARN_UNINSTALL         set to 1 to remove T3 Learn (its data stays)
 #   T3LEARN_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
-$ErrorActionPreference = "Stop"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "aabdel0181/t3-learn"
-$baseUrl = if ($env:T3LEARN_RELEASE_BASE_URL) { $env:T3LEARN_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
-$installDir = Join-Path $env:LOCALAPPDATA "Programs\t3-learn"
-$appExe = Join-Path $installDir "T3 Learn.exe"
-$uninstaller = Join-Path $installDir "Uninstall T3 Learn.exe"
-$dataDir = Join-Path $HOME ".t3-learn"
+# `irm | iex` runs in the caller's session; the block keeps this script's
+# variables and preferences out of it, and `exit` would close the window.
+& {
+  $ErrorActionPreference = "Stop"
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# `irm | iex` runs this in the caller's session, where `exit` would close the window.
-function Fail([string] $message) { throw "t3-learn install: $message" }
-function Say([string] $message) { [Console]::Error.WriteLine("  $message") }
+  $repo = "aabdel0181/t3-learn"
+  $baseUrl = if ($env:T3LEARN_RELEASE_BASE_URL) { $env:T3LEARN_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
+  $installDir = Join-Path $env:LOCALAPPDATA "Programs\t3learn"
+  $appExe = Join-Path $installDir "T3 Learn.exe"
+  $uninstaller = Join-Path $installDir "Uninstall T3 Learn.exe"
+  $dataDir = Join-Path $HOME ".t3-learn"
 
-function Stop-T3Learn {
-  $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-      $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
-    })
-  if ($running.Count -eq 0) { return }
-  Say "Closing T3 Learn to update it..."
-  $running | ForEach-Object { [void]$_.CloseMainWindow() }
-  $deadline = (Get-Date).AddSeconds(10)
-  while ((Get-Date) -lt $deadline -and ($running | Where-Object { -not $_.HasExited })) {
-    Start-Sleep -Milliseconds 250
+  function Fail([string] $message) { throw "t3-learn install: $message" }
+  function Say([string] $message) { [Console]::Error.WriteLine("  $message") }
+
+  function Stop-T3Learn {
+    $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
+      })
+    if ($running.Count -eq 0) { return }
+    Say "Closing T3 Learn to update it..."
+    $running | ForEach-Object { [void]$_.CloseMainWindow() }
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline -and ($running | Where-Object { -not $_.HasExited })) {
+      Start-Sleep -Milliseconds 250
+    }
+    $running | Where-Object { -not $_.HasExited } | Stop-Process -Force -ErrorAction SilentlyContinue
   }
-  $running | Where-Object { -not $_.HasExited } | Stop-Process -Force -ErrorAction SilentlyContinue
-}
 
-if ($env:T3LEARN_UNINSTALL -eq "1") {
-  if (Test-Path $uninstaller) {
+  if ($env:T3LEARN_UNINSTALL -eq "1") {
+    if (Test-Path $uninstaller) {
+      Stop-T3Learn
+      $process = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+      if ($process.ExitCode -ne 0) { Fail "the uninstaller exited with code $($process.ExitCode)" }
+      Say "Removed T3 Learn."
+    } else {
+      Say "T3 Learn is not installed."
+    }
+    Say "Your T3 Learn projects and settings are still in $dataDir; delete that folder to remove them too."
+    return
+  }
+
+  # PROCESSOR_ARCHITEW6432 bypasses WOW64 emulation.
+  $rawArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  $arch = switch ($rawArch) {
+    "AMD64" { "x64" }
+    "ARM64" { "arm64" }
+    default { Fail "unsupported architecture $rawArch" }
+  }
+
+  [Console]::Error.WriteLine("`n  T3 Learn installer`n")
+  Say "Finding the latest release..."
+  $work = Join-Path ([IO.Path]::GetTempPath()) ("t3-learn-" + [Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $work | Out-Null
+  try {
+    $sumsUrl = if ($env:T3LEARN_VERSION) {
+      "$baseUrl/v$($env:T3LEARN_VERSION.TrimStart('v'))/SHA256SUMS"
+    } elseif ($env:T3LEARN_RELEASE_BASE_URL) {
+      "$baseUrl/latest/SHA256SUMS"
+    } else {
+      "https://github.com/$repo/releases/latest/download/SHA256SUMS"
+    }
+    $sumsPath = Join-Path $work "SHA256SUMS"
+    try {
+      Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsPath -UseBasicParsing
+    } catch {
+      Fail "could not find a T3 Learn release at $sumsUrl"
+    }
+
+    # sha256sum writes "<hash>  <file>", or "<hash> *<file>" in binary mode.
+    $pattern = "^([0-9a-f]{64}) [ *](T3-Learn-(.+)-$arch\.exe)$"
+    $match = Get-Content $sumsPath | ForEach-Object { [regex]::Match($_.Trim(), $pattern) } |
+      Where-Object { $_.Success } | Select-Object -First 1
+    if (-not $match) { Fail "this release has no build for Windows $arch" }
+    $expected = $match.Groups[1].Value
+    $asset = $match.Groups[2].Value
+    $version = $match.Groups[3].Value
+
+    $t3Code = (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\t3code")) -or (Test-Path (Join-Path $HOME ".t3"))
+    if ($t3Code) { Say "Found T3 Code. It stays installed with its own data; T3 Learn installs next to it." }
+    Say "Installing T3 Learn $version"
+
+    $installer = Join-Path $work $asset
+    $previousProgress = $ProgressPreference
+    # Invoke-WebRequest's progress bar slows downloads in Windows PowerShell by an order of magnitude.
+    $ProgressPreference = "SilentlyContinue"
+    try {
+      Invoke-WebRequest -Uri "$baseUrl/v$version/$asset" -OutFile $installer -UseBasicParsing
+    } catch {
+      Fail "could not download $asset"
+    } finally {
+      $ProgressPreference = $previousProgress
+    }
+
+    Say "Verifying the download..."
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { Fail "checksum mismatch for $asset; try again" }
+
     Stop-T3Learn
-    $process = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
-    if ($process.ExitCode -ne 0) { Fail "the uninstaller exited with code $($process.ExitCode)" }
-    Say "Removed T3 Learn."
-  } else {
-    Say "T3 Learn is not installed."
-  }
-  Say "Your T3 Learn projects and settings are still in $dataDir; delete that folder to remove them too."
-  return
-}
+    Say "Installing to $installDir..."
+    $process = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+    if ($process.ExitCode -ne 0) { Fail "the installer exited with code $($process.ExitCode)" }
+    if (-not (Test-Path $appExe)) { Fail "the installer finished but $appExe is missing" }
 
-# PROCESSOR_ARCHITEW6432 bypasses WOW64 emulation.
-$rawArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-$arch = switch ($rawArch) {
-  "AMD64" { "x64" }
-  "ARM64" { "arm64" }
-  default { Fail "unsupported architecture $rawArch" }
-}
-
-[Console]::Error.WriteLine("`n  T3 Learn installer`n")
-Say "Finding the latest release..."
-$work = Join-Path ([IO.Path]::GetTempPath()) ("t3-learn-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $work | Out-Null
-try {
-  $sumsUrl = if ($env:T3LEARN_VERSION) {
-    "$baseUrl/v$($env:T3LEARN_VERSION.TrimStart('v'))/SHA256SUMS"
-  } elseif ($env:T3LEARN_RELEASE_BASE_URL) {
-    "$baseUrl/latest/SHA256SUMS"
-  } else {
-    "https://github.com/$repo/releases/latest/download/SHA256SUMS"
-  }
-  $sumsPath = Join-Path $work "SHA256SUMS"
-  try {
-    Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsPath -UseBasicParsing
-  } catch {
-    Fail "could not find a T3 Learn release at $sumsUrl"
-  }
-
-  $pattern = "^([0-9a-f]{64}) \*?(T3-Learn-(.+)-$arch\.exe)$"
-  $match = Get-Content $sumsPath | ForEach-Object { [regex]::Match($_.Trim(), $pattern) } |
-    Where-Object { $_.Success } | Select-Object -First 1
-  if (-not $match) { Fail "this release has no build for Windows $arch" }
-  $expected = $match.Groups[1].Value
-  $asset = $match.Groups[2].Value
-  $version = $match.Groups[3].Value
-
-  $t3Code = (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\t3code")) -or (Test-Path (Join-Path $HOME ".t3"))
-  if ($t3Code) { Say "Found T3 Code. It stays installed with its own data; T3 Learn installs next to it." }
-  Say "Installing T3 Learn $version"
-
-  $installer = Join-Path $work $asset
-  $previousProgress = $ProgressPreference
-  # Invoke-WebRequest's progress bar slows downloads in Windows PowerShell by an order of magnitude.
-  $ProgressPreference = "SilentlyContinue"
-  try {
-    Invoke-WebRequest -Uri "$baseUrl/v$version/$asset" -OutFile $installer -UseBasicParsing
-  } catch {
-    Fail "could not download $asset"
+    if ($env:T3LEARN_NO_LAUNCH -ne "1") { Start-Process -FilePath $appExe }
   } finally {
-    $ProgressPreference = $previousProgress
+    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
   }
 
-  Say "Verifying the download..."
-  $actual = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLowerInvariant()
-  if ($actual -ne $expected) { Fail "checksum mismatch for $asset; try again" }
-
-  Stop-T3Learn
-  Say "Installing to $installDir..."
-  $process = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
-  if ($process.ExitCode -ne 0) { Fail "the installer exited with code $($process.ExitCode)" }
-  if (-not (Test-Path $appExe)) { Fail "the installer finished but $appExe is missing" }
-
-  if ($env:T3LEARN_NO_LAUNCH -ne "1") { Start-Process -FilePath $appExe }
-} finally {
-  Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+  [Console]::Error.WriteLine("`n  Installed T3 Learn $version")
+  Say "Open it from the Start menu. It updates itself."
+  Say "Projects and settings live in $dataDir."
+  [Console]::Error.WriteLine()
 }
-
-[Console]::Error.WriteLine("`n  Installed T3 Learn $version")
-Say "Open it from the Start menu. It updates itself."
-Say "Projects and settings live in $dataDir."
-[Console]::Error.WriteLine()

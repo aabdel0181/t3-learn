@@ -1,5 +1,5 @@
 import type { DesktopCliCommandState } from "@t3tools/contracts";
-import { T3_LEARN_EXECUTABLE_NAME } from "@t3tools/shared/t3LearnIdentity";
+import { T3_LEARN_COMMAND } from "@t3tools/shared/t3LearnIdentity";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -121,7 +121,7 @@ export const make = Effect.gen(function* () {
 
   const firstOnPath = Effect.gen(function* () {
     for (const directory of pathEntries(process.env.PATH, ":")) {
-      const candidate = path.join(directory, T3_LEARN_EXECUTABLE_NAME);
+      const candidate = path.join(directory, T3_LEARN_COMMAND);
       if (yield* exists(candidate)) return Option.some(candidate);
     }
     return Option.none<string>();
@@ -143,7 +143,7 @@ export const make = Effect.gen(function* () {
         : Option.none<string>();
     }
     for (const directory of unixCandidates(environment.homeDirectory, environment.platform)) {
-      const link = path.join(directory, T3_LEARN_EXECUTABLE_NAME);
+      const link = path.join(directory, T3_LEARN_COMMAND);
       if (yield* isOurLink(link)) return Option.some(link);
     }
     return Option.none<string>();
@@ -218,7 +218,7 @@ export const make = Effect.gen(function* () {
       ...candidates.filter((candidate) => onPath.includes(candidate)),
       ...candidates.filter((candidate) => !onPath.includes(candidate)),
     ]) {
-      const link = path.join(directory, T3_LEARN_EXECUTABLE_NAME);
+      const link = path.join(directory, T3_LEARN_COMMAND);
       const created = (yield* exists(directory))
         ? yield* writableDirectory(directory)
         : yield* fs.makeDirectory(directory, { recursive: true }).pipe(
@@ -248,7 +248,7 @@ export const make = Effect.gen(function* () {
       return yield* state;
     }
     for (const directory of unixCandidates(environment.homeDirectory, environment.platform)) {
-      const link = path.join(directory, T3_LEARN_EXECUTABLE_NAME);
+      const link = path.join(directory, T3_LEARN_COMMAND);
       if (yield* isOurLink(link)) {
         yield* fs.remove(link).pipe(Effect.mapError(() => fail(`Could not remove ${link}.`)));
       }

@@ -21,11 +21,12 @@ base_url="${T3LEARN_RELEASE_BASE_URL:-https://github.com/${repo}/releases/downlo
 app_name="T3 Learn"
 bundle_id="io.github.aabdel0181.t3learn"
 data_dir="$HOME/.t3-learn"
+# The Linux executable, WM class and deb package, like upstream's t3code.
+exe=t3learn
 appimage_dir="$HOME/.local/share/t3-learn"
 appimage_path="${appimage_dir}/T3-Learn.AppImage"
-desktop_file="$HOME/.local/share/applications/t3-learn.desktop"
-icon_file="$HOME/.local/share/icons/hicolor/512x512/apps/t3-learn.png"
-bin_link="$HOME/.local/bin/t3-learn"
+desktop_file="$HOME/.local/share/applications/${exe}.desktop"
+icon_file="$HOME/.local/share/icons/hicolor/512x512/apps/${exe}.png"
 
 fail() {
   printf '\nt3-learn install: %s\n' "$1" >&2
@@ -103,6 +104,18 @@ t3_code_installed() {
   [ -d "$HOME/.t3" ]
 }
 
+deb_installed() {
+  command -v dpkg-query >/dev/null 2>&1 &&
+    dpkg-query -W -f '${Status}' "$exe" 2>/dev/null | grep -q 'install ok installed'
+}
+
+remove_appimage() {
+  rm -f "$appimage_path" "$desktop_file" "$icon_file"
+  rmdir "$appimage_dir" 2>/dev/null || true
+  command -v update-desktop-database >/dev/null 2>&1 &&
+    update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true
+}
+
 uninstall() {
   if [ "$platform" = mac ]; then
     app="$(mac_app_dir)/${app_name}.app"
@@ -112,14 +125,11 @@ uninstall() {
       say "Removed ${app}."
     fi
   else
-    if command -v dpkg >/dev/null 2>&1 && dpkg -s t3-learn >/dev/null 2>&1; then
-      say "Removing the t3-learn package (sudo asks for your password)..."
-      sudo apt-get remove -y t3-learn
+    if deb_installed; then
+      say "Removing the ${exe} package (sudo may ask for your password)..."
+      sudo apt-get purge -y "$exe" >/dev/null
     fi
-    rm -f "$appimage_path" "$desktop_file" "$icon_file" "$bin_link"
-    rmdir "$appimage_dir" 2>/dev/null || true
-    command -v update-desktop-database >/dev/null 2>&1 &&
-      update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+    remove_appimage
     say "Removed T3 Learn."
   fi
   say "Your T3 Learn projects and settings are still in ${data_dir}; delete that folder to remove them too."
@@ -221,22 +231,30 @@ elif [ "$format" = deb ]; then
   chmod 644 "$work/$asset"
   # apt reads the file as the _apt user, which cannot enter a 0700 mktemp dir.
   chmod 755 "$work"
-  sudo apt-get install -y "$work/$asset" >/dev/null || fail "apt could not install ${asset}"
+  sudo apt-get install -y --allow-downgrades "$work/$asset" >/dev/null ||
+    fail "apt could not install ${asset}"
+  # An earlier AppImage install would keep its menu entry ahead of the package's.
+  remove_appimage
   if "$launch" && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
-    nohup t3-learn >/dev/null 2>&1 &
+    nohup "$exe" >/dev/null 2>&1 &
   fi
 else
+  if deb_installed; then
+    say "The ${exe} package is also installed; remove it with: sudo apt-get purge ${exe}"
+  fi
   step "Installing to ${appimage_dir}..."
-  mkdir -p "$appimage_dir" "$(dirname "$desktop_file")" "$(dirname "$icon_file")" "$(dirname "$bin_link")"
+  mkdir -p "$appimage_dir" "$(dirname "$desktop_file")" "$(dirname "$icon_file")"
   # The updater replaces the file in place, so the name carries no version.
   mv "$work/$asset" "$appimage_path"
   chmod 755 "$appimage_path"
-  (cd "$work" && "$appimage_path" --appimage-extract t3-learn.png >/dev/null 2>&1) || true
-  [ -f "$work/squashfs-root/t3-learn.png" ] && cp "$work/squashfs-root/t3-learn.png" "$icon_file"
+  (cd "$work" && "$appimage_path" --appimage-extract "${exe}.png" >/dev/null 2>&1) || true
+  if [ -f "$work/squashfs-root/${exe}.png" ]; then cp "$work/squashfs-root/${exe}.png" "$icon_file"; fi
   exec_line="\"${appimage_path}\" %U"
+  extract_and_run=
   if [ ! -e /dev/fuse ] || ! { command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1; }; then
     say "FUSE is not available, so T3 Learn unpacks itself on each start (slower)."
     exec_line="env APPIMAGE_EXTRACT_AND_RUN=1 ${exec_line}"
+    extract_and_run=1
   fi
   cat > "$desktop_file" <<EOF
 [Desktop Entry]
@@ -244,12 +262,11 @@ Type=Application
 Name=T3 Learn
 Comment=Learn with AI coding agents
 Exec=${exec_line}
-Icon=t3-learn
+Icon=${exe}
 Terminal=false
 Categories=Development;
-StartupWMClass=t3-learn
+StartupWMClass=${exe}
 EOF
-  ln -sfn "$appimage_path" "$bin_link"
   command -v update-desktop-database >/dev/null 2>&1 &&
     update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true
   if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
@@ -257,17 +274,16 @@ EOF
     say "For a sandboxed install, run the installer again with T3LEARN_FORMAT=deb."
   fi
   if "$launch" && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
-    nohup "$appimage_path" >/dev/null 2>&1 &
+    APPIMAGE_EXTRACT_AND_RUN="$extract_and_run" nohup "$appimage_path" >/dev/null 2>&1 &
   fi
 fi
 
 printf '\n  %sInstalled T3 Learn %s%s\n' "$green" "$version" "$reset" >&2
 if [ "$platform" = mac ]; then
   say "Open it from ${dest} or Spotlight. It updates itself."
-elif [ "$format" = deb ]; then
-  say "Open it from your app menu, or run t3-learn. It updates itself."
 else
-  say "Open it from your app menu, or run t3-learn. It updates itself."
+  say "Open it from your app menu. It updates itself."
+  if pgrep -x "$exe" >/dev/null 2>&1; then say "If T3 Learn was already open, restart it to use this version."; fi
 fi
 say "Projects and settings live in ${data_dir}."
 printf '\n' >&2

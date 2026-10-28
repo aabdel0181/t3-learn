@@ -621,15 +621,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
       const linuxConfig = linux.linux as Record<string, unknown>;
-      assert.equal(linuxConfig.executableName, "t3-learn");
+      assert.equal(linuxConfig.executableName, "t3learn");
       assert.deepStrictEqual(linuxConfig.protocols, [{ name: "T3 Learn", schemes: ["t3learn"] }]);
-      assert.deepStrictEqual(linuxConfig.desktop, { entry: { StartupWMClass: "t3-learn" } });
+      assert.deepStrictEqual(linuxConfig.desktop, { entry: { StartupWMClass: "t3learn" } });
       const [metainfo, copyright] = (linux.deb as { fpm: string[] }).fpm.map((entry) =>
         entry.split("="),
       );
       assert.equal(metainfo?.[1], "/usr/share/metainfo/io.github.aabdel0181.t3learn.metainfo.xml");
       assert.isTrue(yield* fs.exists(metainfo?.[0] ?? ""));
-      assert.equal(copyright?.[1], "/usr/share/doc/t3-learn/copyright");
+      assert.equal(copyright?.[1], "/usr/share/doc/t3learn/copyright");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 

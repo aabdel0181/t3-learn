@@ -13,6 +13,8 @@ mkdir -p "$artifacts"
 os="$(uname -s)"
 
 log() { printf '\n== %s\n' "$*"; }
+# `dpkg -s` also succeeds for a removed package that left its config behind.
+installed() { dpkg-query -W -f '${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'; }
 fail() {
   printf '\nFAIL: %s\n' "$*" >&2
   exit 1
@@ -69,10 +71,10 @@ if [ "$scenario" = next-to-t3-code ]; then
 fi
 
 log "Installing T3 Learn $version"
-format_env=()
-[ "$scenario" = appimage ] && format_env=(T3LEARN_FORMAT=appimage)
+format=""
+if [ "$scenario" = appimage ]; then format=appimage; fi
 curl -fsSL "https://github.com/$repo/releases/download/v$version/install.sh" |
-  env T3LEARN_VERSION="$version" "${format_env[@]}" sh 2>&1 | tee "$artifacts/install.log"
+  env T3LEARN_VERSION="$version" T3LEARN_FORMAT="$format" sh 2>&1 | tee "$artifacts/install.log"
 
 learn_version="$(wait_for_server "$HOME/.t3-learn")"
 [ "$learn_version" = "$version" ] || fail "T3 Learn's server reports $learn_version, expected $version"
@@ -88,9 +90,9 @@ if [ "$os" = Darwin ]; then
     fail "unexpected bundle id"
 elif [ "$scenario" = appimage ]; then
   [ -x "$HOME/.local/share/t3-learn/T3-Learn.AppImage" ] || fail "the AppImage is missing"
-  grep -q '^Exec=' "$HOME/.local/share/applications/t3-learn.desktop" || fail "no desktop entry"
+  grep -q '^Exec=' "$HOME/.local/share/applications/t3learn.desktop" || fail "no desktop entry"
 else
-  dpkg -s t3-learn >/dev/null || fail "the t3-learn package is not installed"
+  installed t3learn || fail "the t3learn package is not installed"
 fi
 
 if [ "$scenario" = next-to-t3-code ]; then
@@ -102,7 +104,7 @@ if [ "$scenario" = next-to-t3-code ]; then
   if [ "$os" = Darwin ]; then
     [ -d "$t3code_app" ] || fail "T3 Code's app is gone"
   else
-    dpkg -s t3code >/dev/null || fail "the t3code package is gone"
+    installed t3code || fail "the t3code package is gone"
     [ "$(xdg-mime query default x-scheme-handler/t3code 2>/dev/null || true)" != io.github.aabdel0181.T3Learn.desktop ] ||
       fail "T3 Learn took over t3code:// links"
   fi
@@ -115,7 +117,7 @@ if [ "$os" = Darwin ]; then
 elif [ "$scenario" = appimage ]; then
   [ ! -e "$HOME/.local/share/t3-learn/T3-Learn.AppImage" ] || fail "the AppImage is still installed"
 else
-  ! dpkg -s t3-learn >/dev/null 2>&1 || fail "the t3-learn package is still installed"
+  ! installed t3learn || fail "the t3learn package is still installed"
 fi
 [ -d "$HOME/.t3-learn/userdata" ] || fail "uninstall removed T3 Learn's data"
 if [ "$scenario" = next-to-t3-code ]; then
