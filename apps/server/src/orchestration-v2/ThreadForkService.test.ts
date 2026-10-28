@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   ContextTransferId,
+  EnvironmentId,
   MessageId,
   type ModelSelection,
   type OrchestrationV2AppThread,
@@ -283,7 +284,7 @@ it.effect("does not carry side-chat state into an ordinary fork", () =>
   }),
 );
 
-it("plans a side chat from its anchor without pins, title regeneration, limit recovery or history origin", () => {
+it("plans a side chat from its anchor without pins, title regeneration, limit recovery, history origin or delegation", () => {
   const pullRequest = {
     host: "github.com",
     repository: "example/repo",
@@ -314,6 +315,13 @@ it("plans a side chat from its anchor without pins, title regeneration, limit re
     rollbackFailure: { requestId: CommandId.make("command:rollback"), message: "failed" },
     sideChat: staleSideChat,
     sideChatNoteDeliveries,
+    // A task a linked environment delegated here; the side chat is the user's own, not that task.
+    linkOrigin: { sessionId: "session:link", label: "Laptop" },
+    delegatedFrom: {
+      environmentId: EnvironmentId.make("environment:laptop"),
+      threadId: ThreadId.make("thread:laptop-parent"),
+      title: "Laptop parent",
+    },
   };
   const sideChat = makeSideChat();
 
@@ -347,9 +355,12 @@ it("plans a side chat from its anchor without pins, title regeneration, limit re
     "rollbackRequestId",
     "rollbackFailure",
     "sideChatNoteDeliveries",
+    "delegatedFrom",
   ]) {
     assert.isFalse(key in thread, `${key} must not be copied onto a side chat`);
   }
+  // Like the task's own subagents, the side chat stays within the link's fence.
+  assert.deepEqual(thread.linkOrigin, anchorThread.linkOrigin);
   assert.deepEqual(thread.sideChat, sideChat);
   assert.deepEqual(thread.modelSelection, anchorThread.modelSelection);
   assert.equal(thread.runtimeMode, anchorThread.runtimeMode);
