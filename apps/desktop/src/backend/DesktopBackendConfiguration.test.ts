@@ -237,8 +237,8 @@ describe("DesktopBackendConfiguration", () => {
         assert.equal(first.cwd, environment.backendCwd);
         assert.equal(first.captureOutput, true);
         assert.equal(first.env.ELECTRON_RUN_AS_NODE, "1");
-        // extendEnv merges process.env, so only a present undefined key clears an inherited home.
-        assert.propertyVal(first.env, "T3CODE_HOME", undefined);
+        // A packaged backend gets T3 Learn's home even when T3 Code's T3CODE_HOME is inherited.
+        assert.propertyVal(first.env, "T3CODE_HOME", environment.baseDir);
         assert.isUndefined(first.env.T3CODE_PORT);
         assert.isUndefined(first.env.T3CODE_MODE);
         assert.isUndefined(first.env.T3CODE_DESKTOP_LAN_HOST);

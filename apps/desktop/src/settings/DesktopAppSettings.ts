@@ -24,6 +24,7 @@ import {
 } from "../linuxSecretStorage.ts";
 import { resolveDefaultDesktopUpdateChannel } from "../updates/updateChannels.ts";
 import { isValidDistroName } from "../wsl/wslPathParsing.ts";
+import { T3_LEARN_TAILSCALE_SERVE_PORT } from "@t3tools/shared/t3LearnIdentity";
 
 export interface DesktopSettings {
   readonly localEnvironmentEnabled: boolean;
@@ -46,7 +47,7 @@ export interface DesktopSettingsChange {
   readonly changed: boolean;
 }
 
-const DEFAULT_TAILSCALE_SERVE_PORT = 443;
+const DEFAULT_TAILSCALE_SERVE_PORT = T3_LEARN_TAILSCALE_SERVE_PORT;
 const MIN_MAIN_WINDOW_SIZE = {
   width: 840,
   height: 620,

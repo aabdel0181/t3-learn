@@ -274,7 +274,9 @@ EOF
     say "For a sandboxed install, run the installer again with T3LEARN_FORMAT=deb."
   fi
   if "$launch" && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
-    APPIMAGE_EXTRACT_AND_RUN="$extract_and_run" nohup "$appimage_path" >/dev/null 2>&1 &
+    # The runtime treats the variable as set even when empty.
+    if [ -n "$extract_and_run" ]; then export APPIMAGE_EXTRACT_AND_RUN=1; fi
+    nohup "$appimage_path" >/dev/null 2>&1 &
   fi
 fi
 

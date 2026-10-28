@@ -56,6 +56,12 @@ try {
   step = "waiting for the first window";
   const page = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
   try {
+    // T3 Learn opens its side-chat guide over a first launch.
+    step = "skipping T3 Learn's welcome guide";
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Skip" })
+      .click({ timeout: STEP_TIMEOUT_MS });
     step = `finding "${THREAD_TITLE}" in the sidebar`;
     const thread = page.locator("li[data-thread-item]", { hasText: THREAD_TITLE });
     await thread.waitFor({ timeout: STEP_TIMEOUT_MS });

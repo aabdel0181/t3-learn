@@ -26,6 +26,7 @@ import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import { T3_LEARN_TAILSCALE_SERVE_PORT } from "@t3tools/shared/t3LearnIdentity";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -401,7 +402,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
       Option.fromUndefinedOr(env.tailscaleServePort),
       Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
     ),
-    () => 443,
+    () => T3_LEARN_TAILSCALE_SERVE_PORT,
   );
   const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
   const explicitHost = resolveOptionPrecedence(

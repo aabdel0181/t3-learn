@@ -1,5 +1,6 @@
+// T3 Learn's own extension, apart from T3 Code's; development builds keep upstream's names.
 export const CLIENT_NAMES = [
-  "com.t3tools.T3Code.SnapShot",
+  "io.github.aabdel0181.T3Learn.SnapShot",
   "com.t3tools.T3Code.Development.SnapShot",
 ];
 
@@ -42,7 +43,7 @@ export class CaptureService {
           break;
         }
       }
-      if (!allowed) throw new Error("Only T3 Code may request a snapshot.");
+      if (!allowed) throw new Error("Only T3 Learn may request a snapshot.");
       const pid = options ? await this._getProcessId(sender) : undefined;
       this._checkSession();
       const snapshot = await this._takeSnapshot(options?.animate ?? false);

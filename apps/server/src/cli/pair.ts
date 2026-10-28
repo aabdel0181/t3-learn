@@ -9,9 +9,9 @@ import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
+import { T3_LEARN_TAILSCALE_SERVE_PORT } from "@t3tools/shared/t3LearnIdentity";
 import {
   buildTailscaleHttpsBaseUrl,
-  DEFAULT_TAILSCALE_SERVE_PORT,
   ensureTailscaleServe,
   readTailscaleStatus,
 } from "@t3tools/tailscale";
@@ -338,7 +338,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     autoBootstrapProjectFromCwd: false,
     logWebSocketEvents: false,
     tailscaleServeEnabled: false,
-    tailscaleServePort: DEFAULT_TAILSCALE_SERVE_PORT,
+    tailscaleServePort: T3_LEARN_TAILSCALE_SERVE_PORT,
   });
 });
 
@@ -466,7 +466,7 @@ const tailscaleFlag = Flag.Boolean("tailscale").pipe(
 const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withSchema(PortSchema),
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale is enabled."),
-  Flag.withDefault(DEFAULT_TAILSCALE_SERVE_PORT),
+  Flag.withDefault(T3_LEARN_TAILSCALE_SERVE_PORT),
 );
 
 export const pairCommand = Command.make("pair", {

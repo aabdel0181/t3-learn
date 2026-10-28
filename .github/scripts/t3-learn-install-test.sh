@@ -56,8 +56,10 @@ t3code_version=""
 if [ "$scenario" = next-to-t3-code ]; then
   log "Installing upstream T3 Code"
   if [ "$os" = Darwin ]; then
-    brew install --cask --no-quarantine t3-code
+    brew install --cask t3-code
     t3code_app="$(ls -d /Applications/T3\ Code*.app | head -n 1)"
+    # Gatekeeper's first-launch prompt would hold `open` on a CI runner.
+    xattr -dr com.apple.quarantine "$t3code_app"
     open "$t3code_app"
   else
     arch="$(dpkg --print-architecture)"

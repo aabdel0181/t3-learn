@@ -12,8 +12,8 @@ name: T3 Learn Release
 #
 #   gh release edit v0.1.3-learn.1 --prerelease=false --latest
 #
-# Builds are unsigned unless the repository has upstream's signing secrets.
-# Upstream's release.yml also matches these tags but only runs in pingdotgg/t3code.
+# Builds are unsigned; macOS builds get an ad hoc signature. Upstream's
+# release.yml also matches these tags but only runs in pingdotgg/t3code.
 
 on:
   push:
@@ -100,7 +100,6 @@ jobs:
     name: Desktop macOS arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -117,6 +116,7 @@ jobs:
       arch: arm64
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
+      cli_archive: true
       launch_check: true
 
   # Cross-built on Apple silicon, as upstream does.
@@ -124,7 +124,6 @@ jobs:
     name: Desktop macOS x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -147,7 +146,6 @@ jobs:
     name: Desktop Linux x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -172,7 +170,6 @@ jobs:
     name: Desktop Linux arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -196,7 +193,6 @@ jobs:
     name: Desktop Windows x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -214,12 +210,12 @@ jobs:
       arch: x64
       rust_target: x86_64-pc-windows-msvc
       resource_key: win32-x64
+      cli_archive: true
 
   desktop_win_arm64:
     name: Desktop Windows arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ github.sha }}
@@ -237,6 +233,7 @@ jobs:
       arch: arm64
       rust_target: aarch64-pc-windows-msvc
       resource_key: win32-arm64
+      cli_archive: true
 
   release:
     name: Publish GitHub pre-release
@@ -279,6 +276,14 @@ jobs:
           merge-multiple: true
           path: release-assets
 
+      # The t3-learn command's update, service install and SSH remotes fetch these.
+      - name: Download all CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
       # electron-updater reads one manifest per platform and picks the file
       # entry for the running arch, so the per-arch manifests are merged.
       - name: Merge updater manifests
@@ -300,7 +305,7 @@ jobs:
           cp scripts/t3-learn-install.sh release-assets/install.sh
           cp scripts/t3-learn-install.ps1 release-assets/install.ps1
           cd release-assets
-          sha256sum *.dmg *.zip *.AppImage *.deb *.exe install.sh install.ps1 > SHA256SUMS
+          sha256sum *.dmg *.zip *.AppImage *.deb *.exe t3-*.tar.gz install.sh install.ps1 > SHA256SUMS
           cat SHA256SUMS
 
       - name: Write release notes
@@ -339,6 +344,7 @@ jobs:
             release-assets/*.exe
             release-assets/*.blockmap
             release-assets/*.yml
+            release-assets/t3-*.tar.gz
             release-assets/install.sh
             release-assets/install.ps1
             release-assets/SHA256SUMS

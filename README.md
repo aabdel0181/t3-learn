@@ -26,6 +26,7 @@ T3 Learn opens when the installer finishes. After that, open it like any other a
 <summary>Other ways to install, and how to remove it</summary>
 
 - **Download it yourself** from [Releases](https://github.com/aabdel0181/t3-learn/releases/latest): `.dmg` for macOS, `.exe` for Windows, `.deb` or `.AppImage` for Linux. These builds are not signed. macOS blocks the app the first time you open it: go to **System Settings → Privacy & Security** and choose **Open Anyway**. Windows may warn that it doesn't recognize the app: choose **More info → Run anyway**. The install command avoids both prompts.
+- **macOS updates:** because the app isn't signed, macOS may ask once after an update to let T3 Learn use its saved keychain item. Choose **Always Allow**. Screen Recording permission, used for window capture, has to be turned on again.
 - **Linux:** the command installs the `.deb` where `apt` and `sudo` are available, so the app keeps Chromium's sandbox, and an AppImage in your home folder otherwise. Set `T3LEARN_FORMAT=appimage` or `T3LEARN_FORMAT=deb` to choose.
 - **A specific version:** set `T3LEARN_VERSION`, for example `T3LEARN_VERSION=0.1.3-learn.1`.
 - **Remove it:** on macOS and Linux, run the install command with `sh -s -- --uninstall` in place of `sh`. On Windows, uninstall **T3 Learn** from **Settings → Apps**. Your projects and settings stay in `~/.t3-learn`; delete that folder to remove them too.

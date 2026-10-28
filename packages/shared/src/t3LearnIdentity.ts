@@ -14,3 +14,5 @@ export const T3_LEARN_LINUX_DESKTOP_ENTRY = "io.github.aabdel0181.T3Learn.deskto
 export const T3_LEARN_HOME_DIRECTORY = ".t3-learn";
 export const T3_LEARN_HOME_ENV = "T3LEARN_HOME";
 export const T3_LEARN_ELECTRON_USER_DATA = "t3learn";
+/** Tailscale Serve maps a port machine-wide; T3 Code defaults to 443. */
+export const T3_LEARN_TAILSCALE_SERVE_PORT = 8443;
