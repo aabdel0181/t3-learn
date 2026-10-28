@@ -4,21 +4,36 @@ T3 Learn is a fork of [T3 Code](https://github.com/pingdotgg/t3code) for learnin
 
 When a reply uses something you don't know yet, highlight it and choose **Ask in side chat** (⌥⌘S on a Mac, Ctrl+Alt+S elsewhere). A side chat opens next to the lesson. It sees your highlight and a short summary of the lesson, and nothing you say in it lands in the lesson. Side chats nest, so you can follow a question as deep as it goes, and the Map shows where you are. Press **Done** to climb back out: the AI writes a short note, and your next lesson message carries it so the lesson picks up where you left off. The first time you open T3 Learn, a short guide walks you through this; open it again from Settings.
 
-T3 Learn stays compatible with T3 Code. The `t3` CLI, the mobile app and T3 Connect work as they do upstream.
+### Install
 
-### Run it
-
-There are no T3 Learn builds yet, and the installers further down install upstream T3 Code, which has no side chats. To run T3 Learn, build it from source. You need [`vp`](#install-vp) and at least one provider set up (see [Installation](#installation)):
+**macOS and Linux**
 
 ```bash
-git clone https://github.com/aabdel0181/t3-learn t3-learn
-cd t3-learn
-vp i
-vp run --filter t3 build
-vp env exec -- node apps/server/dist/bin.mjs serve --base-dir ~/.t3-learn
+curl -fsSL https://github.com/aabdel0181/t3-learn/releases/latest/download/install.sh | sh
 ```
 
-Open the pairing URL it prints. `--base-dir` keeps T3 Learn's data apart from an existing T3 Code install.
+**Windows** (in PowerShell)
+
+```powershell
+irm https://github.com/aabdel0181/t3-learn/releases/latest/download/install.ps1 | iex
+```
+
+T3 Learn opens when the installer finishes. After that, open it like any other app; it updates itself. You also need at least one provider set up, such as Claude Code or Codex (see [Installation](#installation)).
+
+**Already using T3 Code?** Run the same command. T3 Learn installs next to T3 Code instead of over it, and keeps its own projects and settings in `~/.t3-learn`. T3 Code keeps its threads, settings, updates and `t3` command, and both apps can run at once. Providers you're already signed in to work in both.
+
+<details>
+<summary>Other ways to install, and how to remove it</summary>
+
+- **Download it yourself** from [Releases](https://github.com/aabdel0181/t3-learn/releases/latest): `.dmg` for macOS, `.exe` for Windows, `.deb` or `.AppImage` for Linux. These builds are not signed. macOS blocks the app the first time you open it: go to **System Settings → Privacy & Security** and choose **Open Anyway**. Windows may warn that it doesn't recognize the app: choose **More info → Run anyway**. The install command avoids both prompts.
+- **Linux:** the command installs the `.deb` where `apt` and `sudo` are available, so the app keeps Chromium's sandbox, and an AppImage in your home folder otherwise. Set `T3LEARN_FORMAT=appimage` or `T3LEARN_FORMAT=deb` to choose.
+- **A specific version:** set `T3LEARN_VERSION`, for example `T3LEARN_VERSION=0.1.3-learn.1`.
+- **Remove it:** on macOS and Linux, run the install command with `sh -s -- --uninstall` in place of `sh`. On Windows, uninstall **T3 Learn** from **Settings → Apps**. Your projects and settings stay in `~/.t3-learn`; delete that folder to remove them too.
+- **From source:** you need [`vp`](#install-vp). Run `vp i`, then `vp run --filter t3 build`, then `vp env exec -- node apps/server/dist/bin.mjs serve --base-dir ~/.t3-learn`, and open the pairing URL it prints.
+
+</details>
+
+The phone app pairs with T3 Learn the same way it pairs with T3 Code. T3 Connect isn't available in T3 Learn's builds. To use T3 Learn's command line, choose **Install** next to **t3-learn command** in **Settings → About**.
 
 ---
 
