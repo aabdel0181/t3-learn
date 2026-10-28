@@ -381,8 +381,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            /*
+            !/.repos/
           sparse-checkout-cone-mode: false
+
+      # The macOS update check drives the installed app with playwright-core.
+      - name: Setup Vite+
+        if: runner.os == 'macOS' && matrix.scenario == 'fresh'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/scripts...
 
       - name: Install and check (macOS, Linux)
         if: runner.os != 'Windows'

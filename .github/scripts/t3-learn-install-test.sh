@@ -97,6 +97,41 @@ else
   installed t3learn || fail "the t3learn package is not installed"
 fi
 
+if [ "$os" = Darwin ] && [ "$scenario" = fresh ]; then
+  # Squirrel cannot update an unsigned app, so T3 Learn swaps its own bundle.
+  # A local feed offers this same build as a newer version.
+  log "Updating T3 Learn in place"
+  feed="$RUNNER_TEMP/feed"
+  mkdir -p "$feed"
+  zip_arch="$(uname -m | sed 's/x86_64/x64/')"
+  gh release download "v$version" -R "$repo" -p latest-mac.yml -p "T3-Learn-$version-$zip_arch.zip" -D "$feed"
+  next="$version.1"
+  sed -i '' "s/^version: .*/version: $next/" "$feed/latest-mac.yml"
+  python3 -m http.server 8765 --bind 127.0.0.1 --directory "$feed" >/dev/null 2>&1 &
+  osascript -e 'tell application id "io.github.aabdel0181.t3learn" to quit'
+  while pgrep -f "/T3 Learn.app/Contents/MacOS/" >/dev/null; do sleep 1; done
+  app="/Applications/T3 Learn.app"
+  before="$(stat -f %i "$app")"
+  started_before="$(sed -n 's/.*"startedAt": *"\([^"]*\)".*/\1/p' "$HOME/.t3-learn/userdata/server-runtime.json")"
+  node scripts/t3-learn-update-check.ts --executable "$app/Contents/MacOS/T3 Learn" \
+    --feed-port 8765 --expect "$next"
+  for _ in $(seq 1 120); do
+    [ -d "$app" ] && [ "$(stat -f %i "$app")" != "$before" ] && break
+    sleep 1
+  done
+  [ "$(stat -f %i "$app")" != "$before" ] || fail "the app bundle was not replaced"
+  for _ in $(seq 1 120); do
+    started="$(sed -n 's/.*"startedAt": *"\([^"]*\)".*/\1/p' "$HOME/.t3-learn/userdata/server-runtime.json")"
+    [ -n "$started" ] && [ "$started" != "$started_before" ] && break
+    sleep 1
+  done
+  [ "$started" != "$started_before" ] || fail "T3 Learn did not reopen after updating"
+  wait_for_server "$HOME/.t3-learn" >/dev/null
+  ls -d "/Applications/.t3-learn-update."* 2>/dev/null && fail "the update left its staging folder"
+  codesign --verify --deep "$app" || fail "the updated app's signature does not verify"
+  screenshot after-update
+fi
+
 if [ "$scenario" = next-to-t3-code ]; then
   log "Checking that T3 Code is untouched"
   [ "$(wait_for_server "$HOME/.t3")" = "$t3code_version" ] || fail "T3 Code's server changed"
