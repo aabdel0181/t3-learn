@@ -25,7 +25,7 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, EllipsisIcon, ShieldIcon } from "lucide-react";
+import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -66,8 +66,6 @@ import {
   shouldTypeToFocusComposer,
   TYPE_TO_FOCUS_EDITABLE_SELECTOR,
 } from "../chat/composerFocusRedirect";
-import { ComposerPendingApprovalActions } from "../chat/ComposerPendingApprovalActions";
-import { ComposerPendingApprovalPanel } from "../chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "../chat/ComposerPendingUserInputPanel";
 import { createPageScrollController } from "../chat/pageScrollController";
 import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
@@ -150,6 +148,7 @@ export function SideChatPanel(props: {
 
   const crumbsRef = useRef<HTMLDivElement>(null);
   const crumbsKey = crumbs.map((crumb) => `${crumb.role}:${crumb.threadId}`).join(" ");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the focused or current breadcrumb scrolled into view as the trail resizes
   useEffect(() => {
     const trail = crumbsRef.current;
     if (trail === null) return;
@@ -191,7 +190,6 @@ export function SideChatPanel(props: {
   const {
     pendingApprovals,
     pendingUserInputs,
-    activePendingApproval,
     activePendingUserInput,
     activePendingDraftAnswers,
     activePendingQuestionIndex,
@@ -237,6 +235,7 @@ export function SideChatPanel(props: {
   const listRef = useRef<LegendListRef | null>(null);
   const composerHandleRef = useRef<SideChatComposerHandle | null>(null);
   const pageScrollRef = useRef<ReturnType<typeof createPageScrollController> | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the page-scroll controller for the side chat's list until unmount
   useEffect(() => {
     const controller = createPageScrollController({
       getContainer: () => listRef.current?.getScrollableNode() ?? null,
@@ -249,6 +248,7 @@ export function SideChatPanel(props: {
     };
   }, []);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves DOM focus to the composer once the panel that asked for it is visible
   useEffect(() => {
     if (!props.visible || !focusRequested) return;
     composerHandleRef.current?.focusAtEnd();
@@ -544,40 +544,16 @@ export function SideChatPanel(props: {
             onOpenThread={onOpenThread}
             onOpenSideChat={walkInto}
             workspaceRoot={workspaceRoot}
+            pendingApprovals={pendingApprovals}
+            respondingRequestIds={respondingRequestIds}
+            canOperate={canOperate}
+            onRespondToApproval={onRespondToApproval}
           />
         </div>
         <p role="status" className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:pt-0">
           {statusLine}
         </p>
-        {activePendingApproval ? (
-          <ComposerBanner.Root
-            variant="warning"
-            density="spacious"
-            className={FLOATING_BANNER_CLASS}
-          >
-            <ComposerBanner.Row layout="approval">
-              <ComposerBanner.Icon>
-                <ShieldIcon />
-              </ComposerBanner.Icon>
-              <ComposerBanner.Content>
-                <ComposerPendingApprovalPanel
-                  approval={activePendingApproval}
-                  pendingCount={pendingApprovals.length}
-                />
-              </ComposerBanner.Content>
-              <ComposerBanner.Actions>
-                <ComposerPendingApprovalActions
-                  requestId={activePendingApproval.requestId}
-                  disabled={!canOperate}
-                  isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
-                  options={activePendingApproval.options}
-                  canRespond={activePendingApproval.responseCapability === "live"}
-                  onRespondToApproval={onRespondToApproval}
-                />
-              </ComposerBanner.Actions>
-            </ComposerBanner.Row>
-          </ComposerBanner.Root>
-        ) : pendingUserInputs.length > 0 ? (
+        {pendingUserInputs.length > 0 ? (
           <ComposerBanner.Root
             variant="info"
             className={cn(

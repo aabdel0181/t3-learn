@@ -62,7 +62,6 @@ import {
   OrchestrationV2RuntimeRequestJson as OrchestrationV2RuntimeRequestJsonSchema,
   OrchestrationV2SubagentJson as OrchestrationV2SubagentJsonSchema,
   OrchestrationV2TurnItemJson as OrchestrationV2TurnItemJsonSchema,
-  isSideChatThread,
   orchestrationV2RunWorkStartedAt,
   threadShellSideChatOf,
   RunId,

@@ -228,10 +228,9 @@ describe("sidebar thread lineage helpers", () => {
     });
     const threads = [lesson, fork, side, nested];
 
-    expect(filterSidebarV2VisibleThreads(threads, null).map((thread) => thread.id)).toEqual([
-      "lesson",
-      "fork",
-    ]);
+    expect(
+      filterSidebarV2VisibleThreads(threads, null, new Set()).map((thread) => thread.id),
+    ).toEqual(["lesson", "fork"]);
     expect(resolveSidebarRowThreadId(side.id, lesson.environmentId, threads)).toBe(lesson.id);
     expect(resolveSidebarRowThreadId(nested.id, lesson.environmentId, threads)).toBe(lesson.id);
     expect(resolveSidebarRowThreadId(fork.id, lesson.environmentId, threads)).toBe(fork.id);

@@ -242,6 +242,7 @@ export function AssistantSelectionToolbar({
   );
   const offersAsk = onAskInSideChat !== undefined;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this viewport as the owner of the Ask in side chat shortcut while it is mounted
   useEffect(() => {
     if (!viewport || !offersAsk) return;
     return registerSideChatSelectionOwner({

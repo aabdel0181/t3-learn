@@ -315,7 +315,7 @@ const layerSideChatLifecycleProvided = SideChatLifecycleService.layer.pipe(
     Layer.mergeAll(
       layerThreadManagementProvided,
       layerStores,
-      layerEventSinkProvided,
+      layerEventSink,
       TextGeneration.layer,
     ),
   ),

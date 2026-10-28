@@ -59,6 +59,7 @@ export function SideChatMap(props: {
   const scale = fit ? fitSideChatMapScale(layout.width, availableWidth) : 1;
   const tabStopId = rows.some((row) => row.threadId === focusedId) ? focusedId : currentThreadId;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a resize observer on the scroller whose width sets the fitted map's scale
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!fit || scroller === null) return;
@@ -67,6 +68,7 @@ export function SideChatMap(props: {
     );
   }, [fit]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the current side chat's node into view in the map's DOM when it changes
   useEffect(() => {
     treeRef.current
       ?.querySelector(nodeSelector(currentThreadId))

@@ -40,7 +40,10 @@ import { draftSendState } from "../chat/chatViewSend";
 import { ComposerPromptLengthValidation } from "../chat/ComposerPromptLengthValidation";
 import { planSideChatSend, type SideChatSendPlan } from "../chat/composerSend.logic";
 import { EMPTY_COMPOSER_CONTEXT_RECORDS } from "../composerContextPresentation";
-import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
+import {
+  type ComposerPromptEditorHandle,
+  ComposerPromptEditorTiptap as ComposerPromptEditor,
+} from "../ComposerPromptEditorTiptap";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { appendComposerSnippet, sideChatComposerStatus } from "./sideChatPanel.logic";

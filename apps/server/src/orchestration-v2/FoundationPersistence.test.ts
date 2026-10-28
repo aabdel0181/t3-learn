@@ -2175,12 +2175,10 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
 
       const opening = yield* outbox.claimNext({
         workerId: "opening-lane-worker",
-        leaseDurationMs: 30_000,
       });
       assert.equal(Option.getOrUndefined(opening)?.id, openingEffectId);
       const start = yield* outbox.claimNext({
         workerId: "critical-lane-worker",
-        leaseDurationMs: 30_000,
       });
       assert.equal(Option.getOrUndefined(start)?.id, startEffectId);
 
@@ -2227,7 +2225,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       ]);
 
       const workerId = "text-generation-cap-worker";
-      const claimNext = outbox.claimNext({ workerId, leaseDurationMs: 30_000 });
+      const claimNext = outbox.claimNext({ workerId });
       assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("a-opening"));
       assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("b-title"));
       assert.equal(Option.getOrUndefined(yield* claimNext)?.id, effectIdFor("d-start"));
