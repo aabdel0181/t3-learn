@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/react";
 import { Link } from "@tanstack/react-router";
 
+import { APP_BASE_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { Button } from "../ui/button";
@@ -173,7 +174,7 @@ function SimlockHostsRow() {
           <Link to="/settings/devices" className="underline underline-offset-2">
             Devices
           </Link>
-          . An alpha that may change or break. T3 Code never installs Simlock.
+          . An alpha that may change or break. {APP_BASE_NAME} never installs Simlock.
         </>
       }
       control={
