@@ -495,6 +495,11 @@ it.effect.each([false, true])("text generation preflight: exhausted=%s", (exhaus
               calls.push(input.modelSelection);
               return { title: "Generated title" };
             }),
+          generateSideChatText: (input) =>
+            Effect.sync(() => {
+              calls.push(input.modelSelection);
+              return { text: "Generated note" };
+            }),
         }),
       };
     });
@@ -534,5 +539,12 @@ it.effect.each([false, true])("text generation preflight: exhausted=%s", (exhaus
           }
         : selection,
     ]);
+    yield* service.generateSideChatText({
+      kind: "outcome_note",
+      prompt: "hello",
+      cwd: "/tmp",
+      modelSelection: selection,
+    });
+    expect(calls[1]).toEqual(calls[0]);
   }),
 );
