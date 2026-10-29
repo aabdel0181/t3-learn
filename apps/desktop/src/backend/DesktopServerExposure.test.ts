@@ -208,7 +208,7 @@ describe("DesktopServerExposure", () => {
           endpointUrl: "http://192.168.1.20:4173",
           advertisedHost: "192.168.1.20",
           tailscaleServeEnabled: false,
-          tailscaleServePort: 443,
+          tailscaleServePort: 8443,
         });
 
         const backendConfig = yield* serverExposure.backendConfig;
@@ -401,7 +401,7 @@ describe("DesktopServerExposure", () => {
                 "http://127.0.0.1:4173/",
                 "http://192.168.1.20:4173/",
                 `http://${address}:4173/`,
-                `https://${dnsName}/`,
+                `https://${dnsName}:8443/`,
               ],
             );
             assert.equal(statusReads, previousReads + 1);

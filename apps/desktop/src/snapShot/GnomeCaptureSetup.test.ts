@@ -55,7 +55,8 @@ function fixture(
 }
 
 it("installs exactly the bundled payload offline and leaves other extensions alone", async () => {
-  const other = NodePath.join(dataHome, "gnome-shell/extensions/other@example");
+  // T3 Code's own extension, which T3 Learn's installs beside.
+  const other = NodePath.join(dataHome, "gnome-shell/extensions/snap-shot@t3.codes");
   await NodeFSP.mkdir(other, { recursive: true });
   await NodeFSP.writeFile(NodePath.join(other, "keep.txt"), "keep");
   await installGnomeCaptureBundle({ bundle, dataHome });
@@ -72,7 +73,7 @@ it("preserves the replaced extension as a recoverable backup", async () => {
   await installGnomeCaptureBundle({ bundle, dataHome });
   await NodeFSP.writeFile(NodePath.join(installedPath(), "custom.txt"), "local change");
   await installGnomeCaptureBundle({ bundle, dataHome });
-  const backups = NodePath.join(dataHome, "t3code/extension-backups");
+  const backups = NodePath.join(dataHome, "t3learn/extension-backups");
   const [backup] = await NodeFSP.readdir(backups);
   expect(
     await NodeFSP.readFile(

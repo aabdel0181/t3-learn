@@ -1,0 +1,415 @@
+name: T3 Learn Release
+
+# Builds the T3 Learn desktop app for macOS, Windows and Linux and publishes it
+# as a GitHub pre-release. Cut one from the commit to release:
+#
+#   git tag v0.1.3-learn.1 && git push origin v0.1.3-learn.1
+#
+# The version is upstream's package version plus a -learn.N counter. Install
+# the pre-release with T3LEARN_VERSION=0.1.3-learn.1 set for the installer,
+# check it, then mark it latest. The installers and the apps' updater only
+# follow the release marked latest:
+#
+#   gh release edit v0.1.3-learn.1 --prerelease=false --latest
+#
+# Builds are unsigned; macOS builds get an ad hoc signature. Upstream's
+# release.yml also matches these tags but only runs in pingdotgg/t3code.
+
+on:
+  push:
+    tags:
+      - "v*-learn.*"
+
+concurrency:
+  group: t3-learn-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  # Windows builds read this run's artifact list to wait for the Linux CLI archive.
+  actions: read
+  contents: read
+
+jobs:
+  preflight:
+    name: Check version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        name: Read the version from the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-learn\.[0-9]+$ ]]; then
+            echo "Tag $GITHUB_REF_NAME must look like v0.1.3-learn.1" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # The server bundle, web client and Electron main are built once and handed
+  # to every platform job as `js-bundle`, as in upstream's release.yml.
+  build_bundle:
+    name: Build JS bundle
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install bundle dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+
+      - uses: ./.github/actions/setup-apt-mirrors
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Build JS bundle
+        env:
+          T3CODE_TELEMETRY_CHANNEL: dev
+        run: vp run build:desktop
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop_mac_arm64:
+    name: Desktop macOS arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: macOS arm64
+      runner: macos-26
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      cli_archive: true
+      launch_check: true
+
+  # Cross-built on Apple silicon, as upstream does.
+  desktop_mac_x64:
+    name: Desktop macOS x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: macOS x64
+      runner: macos-26
+      platform: mac
+      target: dmg
+      arch: x64
+      rust_target: x86_64-apple-darwin
+      resource_key: darwin-x64
+
+  # The Linux CLI archives become the Windows builds' WSL runtime.
+  desktop_linux_x64:
+    name: Desktop Linux x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      launch_check: true
+
+  # node-pty compiles from source on Linux, so arm64 builds on arm64 hardware.
+  desktop_linux_arm64:
+    name: Desktop Linux arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Linux arm64
+      runner: ubuntu-24.04-arm
+      platform: linux
+      target: AppImage
+      arch: arm64
+      rust_target: aarch64-unknown-linux-gnu
+      resource_key: linux-arm64
+      cli_archive: true
+
+  # Windows builds on Linux and runs its native checks on Windows.
+  desktop_win_x64:
+    name: Desktop Windows x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Windows x64
+      runner: ubuntu-24.04
+      verify_runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+      cli_archive: true
+
+  desktop_win_arm64:
+    name: Desktop Windows arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Windows arm64
+      runner: ubuntu-24.04
+      verify_runner: windows-11-arm
+      platform: win
+      target: nsis
+      arch: arm64
+      rust_target: aarch64-pc-windows-msvc
+      resource_key: win32-arm64
+      cli_archive: true
+
+  release:
+    name: Publish GitHub pre-release
+    needs:
+      [
+        preflight,
+        desktop_mac_arm64,
+        desktop_mac_x64,
+        desktop_linux_x64,
+        desktop_linux_arm64,
+        desktop_win_x64,
+        desktop_win_arm64,
+      ]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/scripts...
+
+      - name: Download all desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      # The t3-learn command's update, service install and SSH remotes fetch these.
+      - name: Download all CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      # electron-updater reads one manifest per platform and picks the file
+      # entry for the running arch, so the per-arch manifests are merged.
+      - name: Merge updater manifests
+        run: |
+          set -euo pipefail
+          cd release-assets
+          node ../scripts/merge-update-manifests.ts --platform mac latest-mac.yml latest-mac-x64.yml
+          rm latest-mac-x64.yml
+          node ../scripts/merge-update-manifests.ts --platform win latest-win-x64.yml latest-win-arm64.yml latest.yml
+          rm latest-win-x64.yml latest-win-arm64.yml
+          # electron-builder's config dump, not a feed.
+          rm -f builder-debug.yml
+
+      # The installers verify downloads against SHA256SUMS and find the
+      # release's files through it.
+      - name: Add installers and checksums
+        run: |
+          set -euo pipefail
+          cp scripts/t3-learn-install.sh release-assets/install.sh
+          cp scripts/t3-learn-install.ps1 release-assets/install.ps1
+          cd release-assets
+          sha256sum *.dmg *.zip *.AppImage *.deb *.exe t3-*.tar.gz install.sh install.ps1 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          T3 Learn installs next to T3 Code and keeps its own projects and settings, so an existing T3 Code stays exactly as it is.
+
+          **macOS and Linux**
+
+          ```sh
+          curl -fsSL https://github.com/aabdel0181/t3-learn/releases/latest/download/install.sh | sh
+          ```
+
+          **Windows** (PowerShell)
+
+          ```powershell
+          irm https://github.com/aabdel0181/t3-learn/releases/latest/download/install.ps1 | iex
+          ```
+
+          Run the same command again to update. Installed apps also update themselves.
+          EOF
+
+      - name: Publish pre-release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: T3 Learn ${{ needs.preflight.outputs.version }}
+          body_path: release-notes.md
+          prerelease: true
+          make_latest: false
+          files: |
+            release-assets/*.dmg
+            release-assets/*.zip
+            release-assets/*.AppImage
+            release-assets/*.deb
+            release-assets/*.exe
+            release-assets/*.blockmap
+            release-assets/*.yml
+            release-assets/t3-*.tar.gz
+            release-assets/install.sh
+            release-assets/install.ps1
+            release-assets/SHA256SUMS
+          fail_on_unmatched_files: true
+          token: ${{ github.token }}
+
+  # Installs the pre-release with its one-line installer on each platform,
+  # on a clean runner and next to an installed T3 Code, then uninstalls it.
+  install_test:
+    name: Install on ${{ matrix.os }} (${{ matrix.scenario }})
+    needs: [preflight, release]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-26, scenario: fresh }
+          - { os: macos-26, scenario: next-to-t3-code }
+          - { os: macos-15-intel, scenario: fresh }
+          - { os: macos-15-intel, scenario: next-to-t3-code }
+          - { os: ubuntu-24.04, scenario: fresh }
+          - { os: ubuntu-24.04, scenario: next-to-t3-code }
+          - { os: ubuntu-24.04, scenario: appimage }
+          - { os: ubuntu-24.04-arm, scenario: fresh }
+          - { os: windows-2025, scenario: fresh }
+          - { os: windows-2025, scenario: next-to-t3-code }
+          - { os: windows-11-arm, scenario: fresh }
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARTIFACTS: ${{ github.workspace }}/install-test
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      # The macOS update check drives the installed app with playwright-core.
+      - name: Setup Vite+
+        if: runner.os == 'macOS' && matrix.scenario == 'fresh'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/scripts...
+
+      - name: Install and check (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: bash .github/scripts/t3-learn-install-test.sh "${{ matrix.scenario }}" "$VERSION"
+
+      - name: Install and check (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .github/scripts/t3-learn-install-test.ps1 -Scenario "${{ matrix.scenario }}" -Version $env:VERSION
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-test-${{ matrix.os }}-${{ matrix.scenario }}
+          path: install-test
+          if-no-files-found: ignore

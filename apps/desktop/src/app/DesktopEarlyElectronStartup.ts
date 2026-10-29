@@ -1,4 +1,9 @@
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import {
+  T3_LEARN_EXECUTABLE_NAME,
+  T3_LEARN_HOME_ENV,
+  T3_LEARN_LINUX_DESKTOP_ENTRY,
+} from "@t3tools/shared/t3LearnIdentity";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -32,7 +37,7 @@ export interface EarlyLinuxElectronOptions {
 }
 
 export const resolveLinuxDesktopEntryName = (isDevelopment: boolean): string =>
-  isDevelopment ? "com.t3tools.T3Code.Development.desktop" : "com.t3tools.T3Code.desktop";
+  isDevelopment ? "com.t3tools.T3Code.Development.desktop" : T3_LEARN_LINUX_DESKTOP_ENTRY;
 
 const trimNonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim();
@@ -54,7 +59,9 @@ function resolveEarlyDesktopSettingsPath(input: {
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
 }): string {
-  const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
+  const t3Home = Option.fromUndefinedOr(
+    isDevelopmentEnvironment(input.env) ? input.env.T3CODE_HOME : input.env[T3_LEARN_HOME_ENV],
+  );
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
     joinPath: input.joinPath,
@@ -146,7 +153,7 @@ export function resolveEarlyLinuxElectronOptions(
   const isDevelopment = isDevelopmentEnvironment(input.env);
   return {
     isDevelopment,
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
+    linuxWmClass: isDevelopment ? "t3code-dev" : T3_LEARN_EXECUTABLE_NAME,
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     passwordStore: resolveLinuxPasswordStoreSwitch({
       preference,

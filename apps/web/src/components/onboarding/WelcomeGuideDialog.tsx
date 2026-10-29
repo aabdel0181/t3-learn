@@ -18,7 +18,7 @@ import { shortcutLabelForCommand } from "~/keybindings";
 import { cn } from "~/lib/utils";
 import { environmentPresentations } from "~/state/presentation";
 import { primaryServerKeybindingsAtom } from "~/state/server";
-import { T3Wordmark } from "../T3Wordmark";
+import { T3LearnWordmark } from "../T3LearnWordmark";
 import { Button } from "../ui/button";
 import { Dialog, DialogDescription } from "../ui/dialog";
 import { Kbd } from "../ui/kbd";
@@ -96,7 +96,7 @@ function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
           title="Welcome guide"
           identity={
             <div className="flex items-baseline gap-1.5" role="img" aria-label="T3 Learn">
-              <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
+              <T3LearnWordmark className="h-4 w-auto shrink-0" aria-hidden />
               <span className="text-2xl font-medium tracking-tight text-muted-foreground">
                 Learn
               </span>

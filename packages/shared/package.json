@@ -195,6 +195,10 @@
       "types": "./src/relayAuth.ts",
       "import": "./src/relayAuth.ts"
     },
+    "./t3LearnIdentity": {
+      "types": "./src/t3LearnIdentity.ts",
+      "import": "./src/t3LearnIdentity.ts"
+    },
     "./relayUrl": {
       "types": "./src/relayUrl.ts",
       "import": "./src/relayUrl.ts"

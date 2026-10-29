@@ -80,7 +80,12 @@ it("does not mistake installed files for KDE authorization, or fall back to a pi
 
 it("detects a bundled update, updates explicitly, and removes only capture's registration", async () => {
   await setup.perform("install-kde-helper");
-  const unrelated = NodePath.join(paths.dataHome, "applications", "another-app.desktop");
+  // T3 Code's own helper registration, which T3 Learn's installs beside.
+  const unrelated = NodePath.join(
+    paths.dataHome,
+    "applications",
+    "com.t3tools.T3Code.KdeCapture.desktop",
+  );
   await NodeFSP.writeFile(unrelated, "keep me");
   await NodeFSP.writeFile(paths.bundle, "updated helper");
   expect((await setup.state()).status).toBe("update-required");

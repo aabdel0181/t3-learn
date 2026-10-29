@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import type { ServerInstallation } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isCommandAvailable } from "@t3tools/shared/shell";
+import { T3_LEARN_COMMAND } from "@t3tools/shared/t3LearnIdentity";
 
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -143,7 +144,7 @@ const resolveInstallLauncher = Effect.gen(function* () {
 });
 
 /**
- * Uses `t3` on PATH, the originating package runner, or this install's absolute launcher path.
+ * Uses `t3-learn` on PATH, the originating package runner, or this install's absolute launcher path.
  * Arguments are quoted for POSIX shells or PowerShell on Windows.
  */
 export const resolveHostCliCommand = Effect.fn("invocation.resolveHostCliCommand")(function* (
@@ -155,9 +156,13 @@ export const resolveHostCliCommand = Effect.fn("invocation.resolveHostCliCommand
     [prefix, ...args.map((arg) => hostShellWord(platform, arg))].join(" ");
   const command = yield* resolveCliCommand(subcommand);
   if (command !== `t3 ${subcommand}`) return { command: withArgs(command), launcher: false };
-  if (yield* isCommandAvailable("t3")) return { command: withArgs(command), launcher: false };
+  // `t3` on PATH is T3 Code's; T3 Learn's desktop app installs its command as t3-learn.
+  const learnCommand = `${T3_LEARN_COMMAND} ${subcommand}`;
+  if (yield* isCommandAvailable(T3_LEARN_COMMAND)) {
+    return { command: withArgs(learnCommand), launcher: false };
+  }
   const launcher = yield* resolveInstallLauncher;
-  if (Option.isNone(launcher)) return { command: withArgs(command), launcher: false };
+  if (Option.isNone(launcher)) return { command: withArgs(learnCommand), launcher: false };
   // PowerShell runs a quoted path only through the call operator.
   const quoted = hostShellWord(platform, launcher.value);
   const call = platform === "win32" ? `& ${quoted}` : quoted;

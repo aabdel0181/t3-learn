@@ -5,6 +5,7 @@ import {
   parseNewThreadLink,
   parseThreadLinkPrompt,
   promptLinkAppPath,
+  promptLinkDeepLink,
   sanitizeLinkedPrompt,
   withoutPromptLinkParams,
 } from "./promptLinks.ts";
@@ -106,6 +107,7 @@ describe("link round trips", () => {
   });
 
   it("maps app scheme and hosted links to in-app paths, and nothing else", () => {
+    expect(promptLinkAppPath("t3learn://new?prompt=hi")).toBe("/new?prompt=hi");
     expect(promptLinkAppPath("t3code://new?prompt=hi")).toBe("/new?prompt=hi");
     expect(promptLinkAppPath("t3code-dev://threads/env-1/thread-1")).toBe("/env-1/thread-1");
     expect(promptLinkAppPath("https://app.t3.codes/env-1/thread-1?prompt=go")).toBe(
@@ -113,6 +115,18 @@ describe("link round trips", () => {
     );
     expect(promptLinkAppPath("https://app.t3.codes/settings/general")).toBeNull();
     expect(promptLinkAppPath("https://evil.test/new?prompt=hi")).toBeNull();
-    expect(promptLinkAppPath("t3code://app/index.html")).toBeNull();
+    expect(promptLinkAppPath("t3learn://app/index.html")).toBeNull();
+    expect(promptLinkAppPath("t3learnx://new?prompt=hi")).toBeNull();
+  });
+
+  it("opens in-app paths in T3 Learn unless another scheme is given", () => {
+    expect(promptLinkDeepLink("/new?prompt=hi")).toBe("t3learn://new?prompt=hi");
+    expect(promptLinkDeepLink("/env-1/thread-1?prompt=go")).toBe(
+      "t3learn://threads/env-1/thread-1?prompt=go",
+    );
+    expect(promptLinkDeepLink("/new?prompt=hi", "t3code-dev")).toBe("t3code-dev://new?prompt=hi");
+    expect(promptLinkAppPath(promptLinkDeepLink("/env-1/thread-1?prompt=go"))).toBe(
+      "/env-1/thread-1?prompt=go",
+    );
   });
 });

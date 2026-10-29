@@ -679,7 +679,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
-        tailscaleServePort: 443,
+        // T3 Learn leaves 443 to a T3 Code server on the same machine.
+        tailscaleServePort: 8443,
       });
     }),
   );

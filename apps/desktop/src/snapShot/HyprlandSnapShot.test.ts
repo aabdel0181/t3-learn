@@ -76,7 +76,14 @@ it("installs offline at a stable executable path and probes only capabilities", 
 });
 it("updates explicitly and removes only its helper", async () => {
   await setup.perform("install-hyprland-helper");
-  const unrelated = NodePath.join(paths.dataHome, "keep.txt");
+  // T3 Code's own helper, which T3 Learn's installs beside under the same file name.
+  const unrelated = NodePath.join(
+    paths.dataHome,
+    "t3code",
+    "hyprland-capture",
+    NodePath.basename(hyprlandCaptureExecutable(paths)),
+  );
+  await NodeFSP.mkdir(NodePath.dirname(unrelated), { recursive: true });
   await NodeFSP.writeFile(unrelated, "keep");
   await NodeFSP.writeFile(paths.bundle, "update");
   expect((await setup.state()).status).toBe("update-required");

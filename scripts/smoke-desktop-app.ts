@@ -45,7 +45,7 @@ try {
       ...process.env,
       XDG_CONFIG_HOME: NodePath.join(home, ".config"),
       XDG_DATA_HOME: NodePath.join(home, ".local/share"),
-      T3CODE_HOME: t3Home,
+      T3LEARN_HOME: t3Home,
       T3CODE_TELEMETRY_ENABLED: "false",
       T3CODE_DISABLE_AUTO_UPDATE: "true",
     },
@@ -56,6 +56,12 @@ try {
   step = "waiting for the first window";
   const page = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
   try {
+    // T3 Learn opens its side-chat guide over a first launch.
+    step = "skipping T3 Learn's welcome guide";
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Skip" })
+      .click({ timeout: STEP_TIMEOUT_MS });
     step = `finding "${THREAD_TITLE}" in the sidebar`;
     const thread = page.locator("li[data-thread-item]", { hasText: THREAD_TITLE });
     await thread.waitFor({ timeout: STEP_TIMEOUT_MS });

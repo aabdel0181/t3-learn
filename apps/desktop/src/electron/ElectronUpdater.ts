@@ -4,9 +4,55 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { autoUpdater } from "electron-updater";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - The bundle swap must outlive the app it replaces.
+import * as NodeChildProcess from "node:child_process";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Checked synchronously inside quitAndInstall.
+import * as NodeFS from "node:fs";
+
+import * as Electron from "electron";
+import { autoUpdater, type UpdateDownloadedEvent } from "electron-updater";
 
 type AutoUpdater = typeof autoUpdater;
+
+// T3 Learn's macOS builds are not signed, and Squirrel.Mac refuses to install
+// over an unsigned app. Once the app has quit, this swaps the bundle for the
+// verified download and reopens it. The old bundle is deleted only once the
+// new one is in place.
+const MAC_BUNDLE_SWAP_SCRIPT = `
+pid=$1 zip=$2 app=$3
+while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+staging=$(mktemp -d "$(dirname "$app")/.t3-learn-update.XXXXXX") || { open "$app"; exit 1; }
+if ditto -x -k "$zip" "$staging/new"; then
+  new=$(ls -d "$staging"/new/*.app 2>/dev/null | head -n 1)
+  if [ -n "$new" ] && mv "$app" "$staging/previous.app"; then
+    xattr -dr com.apple.quarantine "$new" 2>/dev/null
+    mv "$new" "$app" || mv "$staging/previous.app" "$app"
+  fi
+fi
+[ -d "$app" ] && rm -rf "$staging"
+open "$app"
+`;
+
+// Only macOS updates download as a .zip.
+let macDownloadedZip: string | undefined;
+
+function swapMacBundleAfterQuit(zipPath: string): void {
+  const bundlePath = Electron.app.getPath("exe").replace(/\.app\/Contents\/MacOS\/[^/]+$/, ".app");
+  const folder = bundlePath.slice(0, bundlePath.lastIndexOf("/"));
+  try {
+    NodeFS.accessSync(folder, NodeFS.constants.W_OK);
+  } catch {
+    throw new Error(
+      `T3 Learn cannot replace itself in ${folder}. Run its install command again to update.`,
+    );
+  }
+  NodeChildProcess.spawn(
+    "/bin/sh",
+    ["-c", MAC_BUNDLE_SWAP_SCRIPT, "t3-learn-update", String(process.pid), zipPath, bundlePath],
+    { detached: true, stdio: "ignore" },
+  ).unref();
+  Electron.app.quit();
+}
 
 export type ElectronUpdaterFeedUrl = Parameters<AutoUpdater["setFeedURL"]>[0];
 
@@ -142,6 +188,9 @@ export const make = ElectronUpdater.of({
   }),
   downloadUpdate: Effect.suspend(() => {
     const channel = autoUpdater.channel;
+    autoUpdater.once("update-downloaded", (event: UpdateDownloadedEvent) => {
+      macDownloadedZip = event.downloadedFile.endsWith(".zip") ? event.downloadedFile : undefined;
+    });
     return Effect.tryPromise({
       try: () => autoUpdater.downloadUpdate(),
       catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
@@ -154,7 +203,10 @@ export const make = ElectronUpdater.of({
     return Effect.suspend(() => {
       const channel = autoUpdater.channel;
       return Effect.try({
-        try: () => autoUpdater.quitAndInstall(isSilent, isForceRunAfter),
+        try: () =>
+          macDownloadedZip === undefined
+            ? autoUpdater.quitAndInstall(isSilent, isForceRunAfter)
+            : swapMacBundleAfterQuit(macDownloadedZip),
         catch: (cause) =>
           new ElectronUpdaterQuitAndInstallError({
             channel,

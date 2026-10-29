@@ -1,4 +1,7 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+import { T3_LEARN_REPOSITORY } from "./t3LearnIdentity.ts";
+
+// T3 Learn's CLI must never update to, or run remotes on, upstream T3 Code.
+const CLI_RELEASE_REPOSITORY = T3_LEARN_REPOSITORY;
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -78,11 +81,14 @@ export function newestCliReleaseVersion(
   releases: ReadonlyArray<{
     readonly tag_name: string;
     readonly draft?: boolean | undefined;
+    readonly prerelease?: boolean | undefined;
   }>,
   channel: CliReleaseChannel,
 ): string | undefined {
   for (const release of releases) {
     if (release.draft) continue;
+    // T3 Learn's stable versions carry a -learn.N suffix; only a published release is stable.
+    if (channel === "stable" && release.prerelease) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
     if (version === undefined) continue;
     if (cliReleaseChannelOf(version) === channel) return version;

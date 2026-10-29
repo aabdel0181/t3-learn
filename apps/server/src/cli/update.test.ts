@@ -18,7 +18,7 @@ it.effect("authenticates each release page until the requested channel is found"
     const httpClient = HttpClient.make((request) => {
       const url = new URL(request.url);
       assert.equal(url.origin, "https://api.github.com");
-      assert.equal(url.pathname, "/repos/pingdotgg/t3code/releases");
+      assert.equal(url.pathname, "/repos/aabdel0181/t3-learn/releases");
       assert.equal(request.headers.accept, "application/vnd.github+json");
       assert.equal(request.headers.authorization, "Bearer gh-token");
       const page = url.searchParams.get("page") ?? "";
@@ -32,6 +32,30 @@ it.effect("authenticates each release page until the requested channel is found"
     );
     assert.equal(version, "1.2.3");
     assert.deepStrictEqual(pages, ["1", "2"]);
+  }),
+);
+
+it.effect("skips GitHub pre-releases on the stable channel only", () =>
+  Effect.gen(function* () {
+    const httpClient = HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          Response.json([
+            { tag_name: "v1.2.4-learn.1", prerelease: true },
+            { tag_name: "v1.2.4-preview.20260101.1", prerelease: true },
+            { tag_name: "v1.2.3-learn.2", prerelease: false },
+          ]),
+        ),
+      ),
+    );
+    const newest = (channel: "stable" | "preview") =>
+      resolveNewestVersion(channel).pipe(
+        Effect.provideService(HostProcess.Environment, {}),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
+    assert.equal(yield* newest("stable"), "1.2.3-learn.2");
+    assert.equal(yield* newest("preview"), "1.2.4-preview.20260101.1");
   }),
 );
 

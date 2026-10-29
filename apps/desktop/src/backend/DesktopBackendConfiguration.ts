@@ -2,6 +2,7 @@ import * as NodeOS from "node:os";
 
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
+import { T3_LEARN_HOME_DIRECTORY } from "@t3tools/shared/t3LearnIdentity";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -531,6 +532,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       cwd: environment.backendCwd,
       env: {
         ...backendChildEnvPatch(),
+        // An inherited T3CODE_HOME (T3 Code's) would outrank the bootstrap's home.
+        // Development keeps upstream's behavior, where dev-runner sets it.
+        ...(environment.isDevelopment ? {} : { T3CODE_HOME: environment.baseDir }),
         ELECTRON_RUN_AS_NODE: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),
       },
@@ -568,7 +572,8 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     mode: "desktop" as const,
     noBrowser: true,
     port: input.port,
-    // Omit t3Home to keep the Linux backend from sharing the primary's Windows SQLite file.
+    // A Linux home of its own: neither the primary's Windows SQLite file nor T3 Code's WSL home.
+    t3Home: `~/${T3_LEARN_HOME_DIRECTORY}`,
     host: wslBindHost,
     desktopBootstrapToken: input.bootstrapToken,
     desktopBootstrapSecret: input.bootstrapSecret,

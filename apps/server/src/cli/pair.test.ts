@@ -129,11 +129,13 @@ describe("t3 pair", () => {
         Effect.gen(function* () {
           const fetch = yield* FetchHttpClient.Fetch;
           let serving = false;
+          let serveArgs: ReadonlyArray<string> = [];
           const spawner = ChildProcessSpawner.make((command) =>
             Effect.gen(function* () {
               if (!ChildProcess.isStandardCommand(command))
                 return yield* Effect.die("Unexpected pipeline");
               if (command.args[0] === "serve") {
+                serveArgs = command.args;
                 const target = command.args.at(-1)!;
                 const descriptor = yield* Effect.promise(async () =>
                   (await fetch(new URL("/.well-known/t3/environment", target))).json(),
@@ -175,7 +177,7 @@ describe("t3 pair", () => {
                 if (String(input).startsWith(origin)) return fetch(input, init);
                 assert.equal(
                   String(input),
-                  "https://pair-test.tail.ts.net/.well-known/t3/environment",
+                  "https://pair-test.tail.ts.net:8443/.well-known/t3/environment",
                 );
                 return serving
                   ? Response.json(testDescriptor)
@@ -185,7 +187,9 @@ describe("t3 pair", () => {
           );
 
           expect(serving).toBe(true);
-          assert.include(output, "Pairing URL: https://pair-test.tail.ts.net/pair#token=");
+          // T3 Learn leaves Tailscale Serve's 443 to a T3 Code server on the same machine.
+          expect(serveArgs.slice(0, 3)).toEqual(["serve", "--bg", "--https=8443"]);
+          assert.include(output, "Pairing URL: https://pair-test.tail.ts.net:8443/pair#token=");
         }),
       "::1",
     ).pipe(Effect.provide(NodeServices.layer)),
