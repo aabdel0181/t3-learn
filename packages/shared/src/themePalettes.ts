@@ -1,4 +1,4 @@
-import { T3_LEARN_THEME } from "./t3LearnTheme.js";
+import { T3_LEARN_THEME } from "./t3LearnTheme.ts";
 export const BUILT_IN_THEME_IDS = [
   "t3-learn",
   "t3-chat",

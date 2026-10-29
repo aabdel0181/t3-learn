@@ -1,9 +1,9 @@
 # Appearance and themes
 
 On web and desktop, open **Settings → Appearance** to choose a theme and follow the system
-appearance or stay in light or dark mode. New installs use the T3 Learn theme by default; existing theme choices are preserved. To use different themes for light and dark mode, select
-the corresponding preview within each theme. Appearance preferences are saved separately on each
-device or browser.
+appearance or stay in light or dark mode. T3 Learn uses its own theme until you pick another one.
+To use different themes for light and dark mode, select the corresponding preview within each
+theme. Appearance preferences are saved separately on each device or browser.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.

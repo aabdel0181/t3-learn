@@ -1,4 +1,4 @@
-import type { ThemeColors, ThemeDefinition } from "./themePalettes.js";
+import type { ThemeColors, ThemeDefinition } from "./themePalettes.ts";
 
 const T3_LEARN_LIGHT_COLORS: ThemeColors = {
   canvas: "#fbfaf5",
