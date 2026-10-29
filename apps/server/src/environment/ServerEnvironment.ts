@@ -269,7 +269,8 @@ export const make = Effect.gen(function* () {
       ...(serverSelfUpdate === "boot-service" || desktopAppUpdate
         ? { serverSelfUpdateProgress: true }
         : {}),
-      ...(desktopAppUpdate ? { desktopAppUpdate: true, desktopAppChannelSwitch: true } : {}),
+      // T3 Learn ships one update track and has no control to leave another, so clients never move it.
+      ...(desktopAppUpdate ? { desktopAppUpdate: true } : {}),
       serverBrowser: true,
       sideChats: true,
       peerLinks: true,

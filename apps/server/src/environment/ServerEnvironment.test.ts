@@ -98,7 +98,13 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provide(
             ServerEnvironment.layer.pipe(
               Layer.provide(layerEmptySecretStore),
-              Layer.provide(ServerConfig.layer({ ...config, mode })),
+              Layer.provide(
+                ServerConfig.layer({
+                  ...config,
+                  mode,
+                  desktopTelemetryControlFd: mode === "desktop" ? 3 : undefined,
+                }),
+              ),
             ),
           ),
           Effect.provideService(HostProcess.Arguments, ["node", entry]),
@@ -112,6 +118,8 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         expect(descriptor.capabilities.serverSelfUpdate).toBe(
           mode === "web" ? undefined : "desktop-managed",
         );
+        expect(descriptor.capabilities.desktopAppUpdate).toBe(mode === "web" ? undefined : true);
+        expect(descriptor.capabilities.desktopAppChannelSwitch).toBeUndefined();
         expect(descriptor.capabilities).toMatchObject({
           settledWorktreeCleanup: true,
           storageCleanupRun: true,
