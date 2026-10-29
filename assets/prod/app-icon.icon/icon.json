@@ -1,15 +1,33 @@
 {
   "fill": {
-    "solid": "display-p3:0.00000,0.00000,0.00000,1.00000"
+    "solid": "display-p3:0.18596,0.40930,0.28211,1.00000"
   },
   "groups": [
     {
       "layers": [
         {
+          "glass": false,
+          "image-name": "cap.svg",
+          "name": "Cap",
+          "position": {
+            "scale": 8,
+            "translation-in-points": [0, 0]
+          }
+        },
+        {
           "image-name": "text.svg",
           "name": "Text",
           "position": {
-            "scale": 8.5,
+            "scale": 6.6,
+            "translation-in-points": [-5.42, 83.82735]
+          }
+        },
+        {
+          "glass": true,
+          "image-name": "background.svg",
+          "name": "Background",
+          "position": {
+            "scale": 8.1,
             "translation-in-points": [0, 0]
           }
         }
