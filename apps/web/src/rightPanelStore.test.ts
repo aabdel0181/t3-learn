@@ -1315,6 +1315,36 @@ describe("side chat surfaces", () => {
     expect(state()).toBe(before);
   });
 
+  it("toggles a side-chat tab's map without a user-action revision and drops it on navigation", () => {
+    const store = useRightPanelStore.getState();
+    openSideChat("side-1", "nested-1");
+    const revision = store.getUserActionRevision(refA);
+    store.setSideChatView(refA, "side-chat:side-1", "map");
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1", view: "map" },
+    ]);
+    expect(store.getUserActionRevision(refA)).toBe(revision);
+    store.setSideChatView(refA, "side-chat:side-1", "chat");
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" },
+    ]);
+    store.setSideChatView(refA, "side-chat:side-1", "map");
+    store.navigateSideChat(refA, "side-chat:side-1", ["side-1"], ["side-1", "nested-1"]);
+    expect(state().surfaces).toEqual([
+      {
+        id: "side-chat:side-1",
+        kind: "side-chat",
+        threadId: "side-1",
+        trail: ["side-1", "nested-1"],
+      },
+    ]);
+    store.setSideChatView(refA, "side-chat:side-1", "map");
+    store.openSideChat(refA, { topThreadId: "side-1", threadId: "nested-1" });
+    expect(state().surfaces).toEqual([
+      { id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" },
+    ]);
+  });
+
   it("sends a failed nested open back to its parent and drops a failed top-level open without recording it", () => {
     const store = useRightPanelStore.getState();
     openSideChat("side-1");
@@ -1399,6 +1429,7 @@ describe("side chat surfaces", () => {
       kind: "side-chat",
       threadId: "nested-1",
       trail: deepest,
+      view: "map",
     } as const;
     expect(
       migratePersistedRightPanelState({
@@ -1427,6 +1458,25 @@ describe("side chat surfaces", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+    });
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "side-chat:side-1",
+            surfaces: [
+              { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", view: "invalid" },
+            ],
+          },
+        },
+      }),
+    ).toMatchObject({
+      byThreadKey: {
+        "env-1:thread-A": {
+          surfaces: [{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }],
+        },
+      },
     });
   });
 });

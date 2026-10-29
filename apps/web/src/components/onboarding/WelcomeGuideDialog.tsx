@@ -206,7 +206,7 @@ function guideSteps(askShortcut: string | null) {
       label: "Map",
       illustration: <MapMock />,
       title: "See it all on the Map",
-      body: "The Map shows every side chat in a lesson. Click one to pick it back up, or move around with the arrow keys.",
+      body: "The side-chat header's map toggle (⌥⌘G on a Mac, Ctrl+Alt+G elsewhere) shows every side chat in the lesson. Click one to pick it back up, or move around with the arrow keys.",
       footnote: "You can open this guide again from Settings.",
     },
   ];

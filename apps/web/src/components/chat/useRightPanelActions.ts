@@ -5,8 +5,8 @@ import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-action
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { resolveExplicitDiffOpenOnActivate } from "../ChatView.logic";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { type ScopedThreadRef, type RunId, type ThreadId } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { ThreadId, type ScopedThreadRef, type RunId } from "@t3tools/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useEffect } from "react";
 import {
   isAtomCommandInterrupted,
@@ -37,6 +37,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
 import { focusSideChat, revealSideChat } from "../sideChat/sideChatNavigation";
+import { usePendingSideChatStore } from "../sideChat/pendingSideChatStore";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 interface RightPanelActionsInput {
@@ -352,6 +353,37 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },
     "diff.toggle": () => onToggleDiff(),
+    "sideChat.toggleMap": ({ event }) => {
+      if (activeThreadRef === null || activeRightPanelSurface?.kind !== "side-chat") return false;
+      if (event.repeat) return;
+      const wasInPanel =
+        typeof document !== "undefined" &&
+        document.activeElement?.closest("[data-side-chat-panel]") !== null;
+      const wasInComposer =
+        wasInPanel && document.activeElement?.getAttribute("role") === "textbox";
+      const nextView = activeRightPanelSurface.view === "map" ? "chat" : "map";
+      useRightPanelStore
+        .getState()
+        .setSideChatView(activeThreadRef, activeRightPanelSurface.id, nextView);
+      if (nextView === "map" && wasInComposer) {
+        queueMicrotask(() => {
+          document
+            .querySelector<HTMLElement>('[data-side-chat-panel] [role="treeitem"][tabindex="0"]')
+            ?.focus();
+        });
+      } else if (nextView === "chat" && wasInPanel) {
+        usePendingSideChatStore
+          .getState()
+          .requestFocus(
+            scopedThreadKey(
+              scopeThreadRef(
+                activeThreadRef.environmentId,
+                ThreadId.make(activeRightPanelSurface.threadId),
+              ),
+            ),
+          );
+      }
+    },
   } satisfies ChatShortcutCommands;
 
   return {

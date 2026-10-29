@@ -453,6 +453,31 @@ it("puts the cursor in the composer of a side chat opened from the Map", async (
   await expect.element(composer(screen)).toHaveFocus();
 });
 
+it("toggles the side-chat map, walks back to chat with its draft, and keeps lesson focus on the map", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  showSideChat("side-1", "side-1");
+  useComposerDraftStore.getState().setPrompt(sideChatRef("nested-1"), "kept draft");
+  const onFocusLesson = vi.fn();
+  await using screen = await renderPanel({ onFocusLesson });
+
+  const toggle = screen.getByRole("button", { name: "Side-chat map" });
+  await userEvent.click(toggle);
+  await expect.element(screen.getByRole("tree", { name: "Side chat map" })).toBeVisible();
+  await expect.element(composer(screen)).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("treeitem", { name: "Box", exact: true }));
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(draft("nested-1")).toBe("kept draft");
+
+  await userEvent.click(screen.getByRole("button", { name: "Side-chat map" }));
+  await userEvent.click(
+    screen.getByRole("treeitem", { name: "Reinforcement learning", exact: true }),
+  );
+  expect(onFocusLesson).toHaveBeenCalledOnce();
+});
+
 it("puts the cursor in the composer of a nested side chat opened from its mark in the panel", async () => {
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
@@ -836,6 +861,7 @@ it("offers a read-only connection no nested side chat to ask", async () => {
   await expect
     .element(page.getByRole("button", { name: "Ask in side chat" }))
     .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: "Side-chat map" })).not.toBeDisabled();
 });
 
 /** A citation of side-1's own reply, which side-1's loaded history lacks. */

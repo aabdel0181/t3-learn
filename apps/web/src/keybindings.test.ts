@@ -260,6 +260,25 @@ describe("side chat shortcut", () => {
         context: { terminalFocus: true },
       }),
     );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "g", code: "KeyG", metaKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "sideChat.toggleMap",
+    );
+    const linuxToggle = event({ key: "g", code: "KeyG", ctrlKey: true, altKey: true });
+    assert.strictEqual(
+      resolveShortcutCommand(linuxToggle, DEFAULT_RESOLVED_KEYBINDINGS, { platform: "Linux" }),
+      "sideChat.toggleMap",
+    );
+    assert.isNull(
+      resolveShortcutCommand(linuxToggle, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+    );
   });
 });
 
