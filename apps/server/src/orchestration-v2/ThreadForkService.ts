@@ -102,7 +102,7 @@ function planForkTargetThread(input: {
 /**
  * Plans a side chat as a child of its anchor thread. It reuses the fork settings copy but is not a
  * fork: no source run, no context transfer, and nothing of the anchor's own pins, title
- * regeneration, limit recovery, history origin, pull requests or rollback state.
+ * regeneration, limit recovery, history origin, pull requests, rollback state or delegation.
  */
 export function planSideChatThread(input: {
   readonly anchorThread: OrchestrationV2AppThread;
@@ -123,6 +123,7 @@ export function planSideChatThread(input: {
     branchPullRequest: _branchPullRequest,
     rollbackRequestId: _rollbackRequestId,
     rollbackFailure: _rollbackFailure,
+    delegatedFrom: _delegatedFrom,
     ...thread
   } = planForkTargetThread({
     sourceThread: input.anchorThread,

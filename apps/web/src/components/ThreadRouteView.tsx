@@ -97,6 +97,7 @@ export function ThreadRouteView({
       : null;
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears pending file drops and navigates the router home once a server thread is confirmed missing
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
       return;
@@ -110,6 +111,7 @@ export function ThreadRouteView({
     }
   }, [background, bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- redirects a side chat's own route to its lesson's panel once the shell is live
   useEffect(() => {
     // A reload starts from the cached shell, which can predate the side chat's deletion,
     // and the tab the reveal adds would outlive this route.

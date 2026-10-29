@@ -150,7 +150,6 @@ export function planSideChatSend(input: {
     message: withMessageContext({
       text: outgoingText,
       context: undefined,
-      supportsInlineMessageContext: true,
     }),
   };
 }

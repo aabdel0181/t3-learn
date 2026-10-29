@@ -60,6 +60,7 @@ export function useLessonSideChats(input: {
   const lessonKey = lessonRef === null ? null : scopedThreadKey(lessonRef);
   const askPending = usePendingSideChatStore((state) => selectStartingSideChat(state, lessonKey));
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reconciles the pending side-chat and right panel stores with the lesson's live shells
   useEffect(() => {
     // The shells cached from the last visit can predate side chats asked for just
     // before a reload, so only the live shell can say a side chat is gone.
@@ -77,6 +78,7 @@ export function useLessonSideChats(input: {
   }, [capabilityKnown, lessonRef, shellLive, shells, supported]);
 
   const awaitingId = sideChatAwaitingInput(shells);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the side chat panel in the right panel store when a side chat starts waiting for input
   useEffect(() => {
     if (lessonRef === null || awaitingId === null) return;
     revealSideChat(lessonRef, awaitingId, true);

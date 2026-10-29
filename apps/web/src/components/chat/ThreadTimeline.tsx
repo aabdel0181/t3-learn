@@ -54,6 +54,7 @@ export function ThreadTimeline({
         rememberedForActive: peekRememberedThreadTimeline<typeof entries>(activeThreadKey),
       })
     : entries;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stores the committed ready timeline in the module-level cache used during thread switches
   useLayoutEffect(() => {
     if (
       !holdTimeline ||

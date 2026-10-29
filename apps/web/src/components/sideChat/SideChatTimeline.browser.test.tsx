@@ -45,6 +45,10 @@ function timelineProps(fixture: ReturnType<typeof makeStreamingTimelineFixture>)
     onAskInSideChat: () => true,
     onOpenThread: () => {},
     workspaceRoot: undefined,
+    pendingApprovals: [],
+    respondingRequestIds: [],
+    canOperate: true,
+    onRespondToApproval: async () => {},
   } satisfies ComponentProps<typeof SideChatTimeline>;
 }
 

@@ -6,7 +6,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { OpenSideChatInput } from "@t3tools/client-runtime/state/threads";
+import type { OpenSideChatInput } from "@t3tools/client-runtime/operations";
 import type {
   AssistantCitation,
   EnvironmentId,
