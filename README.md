@@ -36,6 +36,8 @@ T3 Learn opens when the installer finishes. After that, open it like any other a
 
 The phone app pairs with T3 Learn the same way it pairs with T3 Code. T3 Connect isn't available in T3 Learn's builds. To use T3 Learn's command line, choose **Install** next to **t3-learn command** in **Settings → About**.
 
+**Want an agent to set it up, with your T3 Code chats along?** Give it [Set up T3 Learn with an agent](docs/user/t3-learn-agent-setup.md).
+
 ---
 
 _The rest of this README is upstream T3 Code's._
