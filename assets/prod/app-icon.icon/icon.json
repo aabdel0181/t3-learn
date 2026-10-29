@@ -18,8 +18,17 @@
           "image-name": "text.svg",
           "name": "Text",
           "position": {
-            "scale": 6.6,
-            "translation-in-points": [-5.42, 83.82735]
+            "scale": 5.9,
+            "translation-in-points": [-17.7, 3.54]
+          }
+        },
+        {
+          "glass": false,
+          "image-name": "underline.svg",
+          "name": "Underline",
+          "position": {
+            "scale": 8,
+            "translation-in-points": [0, 0]
           }
         },
         {
