@@ -1,4 +1,12 @@
-export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
+import { T3_LEARN_THEME } from "./t3LearnTheme.js";
+export const BUILT_IN_THEME_IDS = [
+  "t3-learn",
+  "t3-chat",
+  "grove",
+  "ocean",
+  "ember",
+  "iris",
+] as const;
 
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
@@ -908,7 +916,10 @@ export const IRIS_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
+export { T3_LEARN_THEME };
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
+  T3_LEARN_THEME,
   T3_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,

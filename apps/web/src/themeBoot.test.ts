@@ -9,6 +9,7 @@ import {
   isKnownThemePreference,
   resolveThemeAppearance,
   T3_CHAT_THEME,
+  T3_LEARN_THEME,
   EMBER_THEME,
   GROVE_THEME,
   IRIS_THEME,
@@ -78,6 +79,10 @@ function runBootScript(options: {
         if (options.storageThrows) throw new Error("storage blocked");
         return options.storage?.[key] ?? null;
       },
+      setItem: (key: string, value: string): void => {
+        if (options.storageThrows) throw new Error("storage blocked");
+        (options.storage ??= {})[key] = value;
+      },
     },
     matchMedia: () => ({ matches: options.prefersDark }),
   };
@@ -110,7 +115,7 @@ function runtimeResolvedAppearance(
   invalidateCustomThemes();
   try {
     const raw = storage[THEME_STORAGE_KEY] ?? null;
-    const theme = raw !== null && isKnownThemePreference(raw) ? raw : "system";
+    const theme = raw === null ? "t3-learn" : isKnownThemePreference(raw) ? raw : "system";
     const followRaw = storage[THEME_FOLLOW_SYSTEM_STORAGE_KEY] ?? null;
     const appearanceRaw = storage[THEME_APPEARANCE_MODE_STORAGE_KEY] ?? null;
     const appearanceMode =
@@ -120,7 +125,7 @@ function runtimeResolvedAppearance(
           ? "system"
           : followRaw === "false"
             ? null
-            : theme === "system"
+            : theme === "system" || (theme === "t3-learn" && raw === null)
               ? "system"
               : null;
     const followSystem = appearanceMode === "system";
@@ -283,8 +288,21 @@ describe("index.html boot script", () => {
     expect(boot.metaContent).toBe(colors.chrome);
   });
 
+  it("selects T3 Learn and follows the system on a fresh install", () => {
+    const boot = runBootScript({ storage: {}, prefersDark: true });
+    expect(boot.themeId).toBe(T3_LEARN_THEME.id);
+    expect(boot.isDark).toBe(true);
+  });
+
   it("keeps every built-in boot splash in sync with the real palettes", () => {
-    for (const theme of [T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME]) {
+    for (const theme of [
+      T3_LEARN_THEME,
+      T3_CHAT_THEME,
+      GROVE_THEME,
+      OCEAN_THEME,
+      EMBER_THEME,
+      IRIS_THEME,
+    ]) {
       expect(theme.appearance).toBe("light");
       for (const mode of ["light", "dark"] as const) {
         const colors = getThemeColorsForMode(theme, mode);
@@ -374,7 +392,7 @@ describe("index.html boot script", () => {
   it("follows the OS appearance when storage is unavailable", () => {
     const light = runBootScript({ storageThrows: true, prefersDark: false });
     expect(light.isDark).toBe(false);
-    expect(light.themeId).toBeUndefined();
+    expect(light.themeId).toBe("t3-learn");
 
     const dark = runBootScript({ storageThrows: true, prefersDark: true });
     expect(dark.isDark).toBe(true);
