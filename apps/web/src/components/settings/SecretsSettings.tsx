@@ -2,6 +2,7 @@ import type { SecretProviderConfig, SecretProviderId } from "@t3tools/contracts"
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 
+import { APP_BASE_NAME } from "~/branding";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { useEnvironmentSessionState } from "../../state/session";
@@ -43,7 +44,7 @@ export function SecretsSettingsPanel() {
       environment.serverConfig.secretProviderSettings !== true ? (
         <SettingsSection {...searchableSetting("secret-providers")}>
           <p className="px-4 py-3 text-sm text-muted-foreground">
-            Update T3 Code on {environment.label} to manage its secret providers.
+            Update {APP_BASE_NAME} on {environment.label} to manage its secret providers.
           </p>
         </SettingsSection>
       ) : connected ? (
