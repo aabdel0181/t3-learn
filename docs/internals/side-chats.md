@@ -38,8 +38,11 @@ temp directory so the project's `AGENTS.md` and `CLAUDE.md` cannot leak into sum
 [ProviderTurnStartService](../../apps/server/src/orchestration-v2/ProviderTurnStartService.ts) hands a
 new provider thread the opening context. It waits up to `SIDE_CHAT_WAIT_CAP_MS` for the summary before
 taking the workspace lease, which the side chat shares with the lesson. A context sent without the
-summary gets the fallback title, and the summary rides the next turn on its own once it lands. It is
-owed only while no handoff of the side chat contains its text
+summary gets the fallback title, and the summary rides the next turn on its own once it lands. One
+conversation state has one summary shared by side chats opened from it. Ready summaries live in a
+bounded in-memory cache; a changed lesson message produces a fresh summary. The highlight remains
+separate opening context, so it does not make the conversation summary differ. It is owed only while
+no handoff of the side chat contains its text
 ([`owedSideChatSummary`](../../apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts)), so it
 is written at most once and never after an opening that carried it. A later fresh native thread gets
 the summary in its own opening, which drops a late summary still carried from a stopped run. The text

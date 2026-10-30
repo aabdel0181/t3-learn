@@ -143,7 +143,7 @@ const LESSON = [
 ];
 const ANCHOR = { messageId: MessageId.make("message:a2"), start: 0, prefix: "" };
 
-it("keeps the highlighted reply, its neighbours, the topic and the latest message within budget", () => {
+it("keeps the topic and latest messages within budget", () => {
   const input = buildSideChatSummarizerInput({
     messages: LESSON,
     anchor: ANCHOR,
@@ -152,15 +152,8 @@ it("keeps the highlighted reply, its neighbours, the topic and the latest messag
   });
 
   assert.isAtMost(input.length, SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS);
-  assert.include(input, "ASSISTANT (the reply the learner highlighted):\nA2-ANCHOR");
   assert.include(input, "U1-TOPIC");
-  assert.include(input, "U2-BEFORE");
-  assert.include(input, "U3-AFTER");
   assert.include(input, "A4-LATEST");
-  assert.include(input, "Highlighted passage:\nobservation space");
-  assert.notInclude(input, "A1-OLD");
-  assert.notInclude(input, "A3-OLD");
-  assert.notInclude(input, "U4-OLD");
   assert.include(input, "messages omitted]");
 });
 
@@ -184,33 +177,24 @@ it("writes the conversation in order and marks each gap with the number of messa
     anchorOpeningText: null,
   });
 
-  const order = ["U1-TOPIC", "[1 messages omitted]", "U2-BEFORE", "A2-ANCHOR", "U3-AFTER"];
-  const positions = order.map((part) => input.indexOf(part));
-  assert.isFalse(positions.includes(-1));
-  assert.deepStrictEqual(
-    positions,
-    positions.toSorted((a, b) => a - b),
-  );
-  assert.isAbove(input.indexOf("[2 messages omitted]"), input.indexOf("U3-AFTER"));
-  assert.isBelow(input.indexOf("[2 messages omitted]"), input.indexOf("A4-LATEST"));
+  assert.isBelow(input.indexOf("U1-TOPIC"), input.indexOf("A4-LATEST"));
+  assert.include(input, "messages omitted]");
 });
 
-it("gives the summary writer a long highlighted reply whole", () => {
-  const reply = `${"intro ".repeat(1_300)}\n\nTAIL-MARKER closes the lesson.`;
-  const input = buildSideChatSummarizerInput({
-    messages: [
-      lessonMessage("u1", "user", "U1-TOPIC teach me sourdough"),
-      lessonMessage("a1", "assistant", reply),
-    ],
+it("does not depend on which reply was highlighted", () => {
+  const first = buildSideChatSummarizerInput({
+    messages: LESSON,
     anchor: { messageId: MessageId.make("message:a1"), start: 0, prefix: "" },
-    excerpt: "intro",
+    excerpt: "first highlight",
     anchorOpeningText: null,
   });
-
-  assert.include(input, "TAIL-MARKER closes the lesson.");
-  assert.notInclude(input, "omitted");
-  assert.notInclude(input, "truncated");
-  assert.isAtMost(input.length, SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS);
+  const second = buildSideChatSummarizerInput({
+    messages: LESSON,
+    anchor: { messageId: MessageId.make("message:a4"), start: 10, prefix: "later" },
+    excerpt: "second highlight",
+    anchorOpeningText: null,
+  });
+  assert.strictEqual(first, second);
 });
 
 it("caps a long message without splitting an emoji", () => {
@@ -231,31 +215,19 @@ it("caps a long message without splitting an emoji", () => {
   assert.isFalse(LONE_SURROGATE.test(input));
 });
 
-it("windows a highlighted reply too long to send whole around the highlight", () => {
-  const reply = [
-    `HEAD-MARKER ${"a ".repeat(10_000)}`,
-    "the agent reads the observation space and picks an action",
-    `${"b ".repeat(10_000)}END-MARKER`,
-  ].join("\n\n");
+it("caps long replies without splitting the message", () => {
   const input = buildSideChatSummarizerInput({
     messages: [
       lessonMessage("u1", "user", "U1-TOPIC teach me RL environments"),
-      lessonMessage("a1", "assistant", reply),
+      lessonMessage("a1", "assistant", `${"x".repeat(10_000)}END-MARKER`),
     ],
-    anchor: {
-      messageId: MessageId.make("message:a1"),
-      start: reply.indexOf("observation space"),
-      prefix: "the agent reads the ",
-    },
+    anchor: { messageId: MessageId.make("message:a1"), start: 0, prefix: "" },
     excerpt: "observation space",
     anchorOpeningText: null,
   });
 
-  assert.include(input, "the agent reads the observation space and picks an action");
   assert.include(input, "U1-TOPIC");
-  assert.include(input, "[… earlier part of this reply omitted]");
-  assert.include(input, "[… later part of this reply omitted]");
-  assert.notInclude(input, "HEAD-MARKER");
+  assert.include(input, "[… rest of this message omitted]");
   assert.notInclude(input, "END-MARKER");
   assert.isAtMost(input.length, SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS);
 });
@@ -275,7 +247,6 @@ it("stays within budget when skipped long replies leave many gaps between short 
   });
 
   assert.isAtMost(input.length, SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS);
-  assert.include(input, "ASSISTANT (the reply the learner highlighted):\nREPLY-41");
   assert.include(input, "REPLY-79");
 });
 
