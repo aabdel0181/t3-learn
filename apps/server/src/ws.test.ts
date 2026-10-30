@@ -404,6 +404,11 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
       shell("live", "parent", "running"),
       ...Array.from({ length: 25 }, (_, index) => shell(`recent-${index}`, null, null, 1)),
       shell("old", null, null, 30),
+      // The lesson's marks and Map read side chats from the shell, so none is ever cut.
+      {
+        ...shell("box", null, null, 30),
+        sideChat: { lessonThreadId: ThreadId.make("parent") },
+      } as unknown as OrchestrationV2ThreadShell,
     ];
     const firstSnapshot = (input: {
       readonly omitIdleSubagents?: boolean;
@@ -413,12 +418,23 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
         Effect.flatMap((stream) => stream.pipe(Stream.take(1), Stream.runCollect)),
         Effect.map(([item]) => (item?.kind === "snapshot" ? item.snapshot : null)),
         Effect.provideService(ThreadManagement.ThreadManagementService, {
-          readShellSnapshot: () =>
+          listActiveShellIndex: () =>
+            Effect.succeed(
+              threads.map((thread) => ({
+                ...thread,
+                pinnedAt: null,
+                snoozedUntil: null,
+                mayBeLive: thread.activityRunStatus !== null,
+              })),
+            ),
+          readShellSnapshot: (options?: { readonly threadIds?: ReadonlyArray<string> }) =>
             Effect.succeed(
               Effect.succeed({
                 schemaVersion: 1,
                 snapshotSequence: 0,
-                threads,
+                threads: threads.filter(
+                  (thread) => options?.threadIds?.includes(thread.id) ?? true,
+                ),
                 archivedThreads: [],
               }),
             ),
@@ -452,12 +468,12 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
     const withoutChildren = yield* firstSnapshot({ omitIdleSubagents: true });
     assert.deepEqual(
       withoutChildren?.threads.map((thread) => thread.id),
-      ["parent", "live", ...recent, "old"],
+      ["parent", "live", ...recent, "old", "box"],
     );
     const withoutOld = yield* firstSnapshot({ omitIdleSubagents: true, omitOlderSettled: true });
     assert.deepEqual(
       withoutOld?.threads.map((thread) => thread.id),
-      ["parent", "live", ...recent],
+      ["parent", "live", ...recent, "box"],
     );
     assert.deepEqual(withoutOld?.olderSettled?.counts, [
       { projectId: ProjectId.make("project"), count: 1 },
