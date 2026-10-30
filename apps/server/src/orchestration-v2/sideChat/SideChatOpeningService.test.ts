@@ -315,7 +315,7 @@ describe("SideChatOpeningService", () => {
         generateSideChatText: () => {
           calls += 1;
           return calls === 1
-            ? Effect.succeed(undefined).pipe(
+            ? Effect.void.pipe(
                 Effect.tap(() => Deferred.succeed(entered, undefined)),
                 Effect.andThen(Deferred.await(release)),
                 Effect.as({ text: null }),
