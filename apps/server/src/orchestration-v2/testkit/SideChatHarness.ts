@@ -58,9 +58,6 @@ function lineAfter(prompt: string, header: string): string | undefined {
 /** The highlight a note writer's input is about. */
 const outcomeExcerpt = (prompt: string) => lineAfter(prompt, SIDE_CHAT_OUTCOME_EXCERPT_HEADER);
 
-/** The highlight an opening summary writer's input is about. */
-const openingExcerpt = (prompt: string) => lineAfter(prompt, "Highlighted passage:");
-
 const runNoteScript = (script: SideChatNoteScript) =>
   "fail" in script
     ? Effect.fail(
@@ -102,7 +99,10 @@ export const makeSideChatHarness = Effect.fn("makeSideChatHarness")(function* (n
     input: TextGeneration.SideChatTextGenerationInput,
   ) {
     if (input.kind === "opening_summary") {
-      const script = openingScripts.get(openingExcerpt(input.prompt) ?? "")?.shift();
+      const scriptEntry = [...openingScripts.entries()].find(
+        ([marker, scripts]) => scripts.length > 0 && input.prompt.includes(marker),
+      );
+      const script = scriptEntry?.[1].shift();
       return yield* runNoteScript(script ?? { text: null });
     }
     const excerpt = outcomeExcerpt(input.prompt) ?? "";
@@ -281,12 +281,9 @@ export const makeSideChatHarness = Effect.fn("makeSideChatHarness")(function* (n
     scriptNote: (excerpt: string, ...results: ReadonlyArray<SideChatNoteScript>): void => {
       noteScripts.set(excerpt, [...(noteScripts.get(excerpt) ?? []), ...results]);
     },
-    /**
-     * Queues the answers of the next opening summaries written for `excerpt`; after them, none, so
-     * the side chat falls back.
-     */
-    scriptOpening: (excerpt: string, ...results: ReadonlyArray<SideChatNoteScript>): void => {
-      openingScripts.set(excerpt, [...(openingScripts.get(excerpt) ?? []), ...results]);
+    /** Queues opening-summary answers selected by a marker in the conversation input. */
+    scriptOpening: (marker: string, ...results: ReadonlyArray<SideChatNoteScript>): void => {
+      openingScripts.set(marker, [...(openingScripts.get(marker) ?? []), ...results]);
     },
     /** Resolves once the note writer has asked for a note on `excerpt`. */
     noteRequested: (excerpt: string) => Deferred.await(noteRequest(excerpt)),

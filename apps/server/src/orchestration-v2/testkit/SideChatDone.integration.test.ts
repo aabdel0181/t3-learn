@@ -300,7 +300,7 @@ describe("side chat Done", () => {
       const harness = yield* makeSideChatHarness("side-chat-done-late-opening");
       yield* Effect.gen(function* () {
         const gate = yield* Deferred.make<string | null>();
-        harness.scriptOpening(BOX, { gate });
+        harness.scriptOpening(SPACE_QUESTION, { gate });
         const lesson = yield* harness.createLesson("Teach me RL environments.");
         const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
         yield* harness.send(space, SPACE_QUESTION);

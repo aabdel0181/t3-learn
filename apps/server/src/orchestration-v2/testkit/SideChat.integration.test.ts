@@ -636,7 +636,7 @@ describe("side chat opening context", () => {
       yield* Effect.gen(function* () {
         const label = "observation space";
         const summary = "ON TIME LESSON SUMMARY";
-        harness.scriptOpening(label, { text: summary });
+        harness.scriptOpening("Teach me RL environments.", { text: summary });
         const lesson = yield* harness.createLesson("Teach me RL environments.");
         const space = yield* harness.openSideChat({ parentThreadId: lesson, label });
         yield* harness.send(space, "What is an observation space?");
@@ -664,7 +664,7 @@ describe("side chat opening context", () => {
         const label = "observation space";
         const lateSummary = "LATE LESSON SUMMARY";
         const gate = yield* Deferred.make<string | null>();
-        harness.scriptOpening(label, { gate });
+        harness.scriptOpening("Teach me RL environments.", { gate });
         const lesson = yield* harness.createLesson("Teach me RL environments.");
         const space = yield* harness.openSideChat({ parentThreadId: lesson, label });
         const afterAsk = yield* harness.mark;

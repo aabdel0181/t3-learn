@@ -32,17 +32,18 @@ starts. Neither effect fails: errors are recorded on the side chat as `failed`, 
 row pins the lesson's worktree. Text uses the lesson provider's text model, its small default or the
 global setting ([`resolveSideChatTextModel`](../../packages/shared/src/serverSettings.ts)), in an empty
 temp directory so the project's `AGENTS.md` and `CLAUDE.md` cannot leak into summaries.
+Side chats opened from the same conversation state with the same text model share one summary,
+including while one is still being written. That state is the anchor thread's visible messages plus,
+for a nested side chat, the parent side chat's summary. A new or changed message produces a fresh
+summary. The cache is in memory, so a server restart writes a new one.
 
 ## Context in
 
 [ProviderTurnStartService](../../apps/server/src/orchestration-v2/ProviderTurnStartService.ts) hands a
 new provider thread the opening context. It waits up to `SIDE_CHAT_WAIT_CAP_MS` for the summary before
 taking the workspace lease, which the side chat shares with the lesson. A context sent without the
-summary gets the fallback title, and the summary rides the next turn on its own once it lands. One
-conversation state has one summary shared by side chats opened from it. Ready summaries live in a
-bounded in-memory cache; a changed lesson message produces a fresh summary. The highlight remains
-separate opening context, so it does not make the conversation summary differ. It is owed only while
-no handoff of the side chat contains its text
+summary gets the fallback title, and the summary rides the next turn on its own once it lands. It is
+owed only while no handoff of the side chat contains its text
 ([`owedSideChatSummary`](../../apps/server/src/orchestration-v2/sideChat/sideChatOpening.ts)), so it
 is written at most once and never after an opening that carried it. A later fresh native thread gets
 the summary in its own opening, which drops a late summary still carried from a stopped run. The text

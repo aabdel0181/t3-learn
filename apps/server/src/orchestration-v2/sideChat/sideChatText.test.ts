@@ -152,9 +152,16 @@ it("keeps the topic and latest messages within budget", () => {
   });
 
   assert.isAtMost(input.length, SIDE_CHAT_SUMMARIZER_INPUT_BUDGET_CHARS);
-  assert.include(input, "U1-TOPIC");
-  assert.include(input, "A4-LATEST");
-  assert.include(input, "messages omitted]");
+  const order = ["U1-TOPIC", "[3 messages omitted]", "U3-AFTER", "A3-OLD", "U4-OLD", "A4-LATEST"];
+  const positions = order.map((marker) => input.indexOf(marker));
+  assert.isFalse(positions.includes(-1));
+  assert.deepStrictEqual(
+    positions,
+    positions.toSorted((a, b) => a - b),
+  );
+  for (const marker of ["A1-OLD", "U2-BEFORE", "A2-ANCHOR"]) {
+    assert.notInclude(input, marker);
+  }
 });
 
 it("carries the parent side chat's summary for a nested side chat", () => {
@@ -177,8 +184,13 @@ it("writes the conversation in order and marks each gap with the number of messa
     anchorOpeningText: null,
   });
 
-  assert.isBelow(input.indexOf("U1-TOPIC"), input.indexOf("A4-LATEST"));
-  assert.include(input, "messages omitted]");
+  const order = ["U1-TOPIC", "[3 messages omitted]", "U3-AFTER", "A3-OLD", "U4-OLD", "A4-LATEST"];
+  const positions = order.map((marker) => input.indexOf(marker));
+  assert.isFalse(positions.includes(-1));
+  assert.deepStrictEqual(
+    positions,
+    positions.toSorted((a, b) => a - b),
+  );
 });
 
 it("does not depend on which reply was highlighted", () => {
