@@ -1721,7 +1721,7 @@ it.effect("lists only active side chat IDs without loading shell data", () =>
       [...(yield* store.listActiveSideChatThreadIds())],
       [ThreadId.make("active-side-chat")],
     );
-  }),
+  }).pipe(Effect.provide(layerTest)),
 );
 
 // regression: #25621 SQLite rejects statements binding more than 32,766 variables

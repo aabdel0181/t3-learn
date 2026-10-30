@@ -401,7 +401,7 @@ export interface ActiveShellIndexEntry extends Pick<
   "id" | "projectId" | "lineage" | "settledOverride" | "settledAt" | "pinnedAt" | "snoozedUntil"
 > {
   /** Present on side chats, which the trims always keep. */
-  readonly sideChat?: Pick<OrchestrationV2ThreadShellSideChat, "lessonThreadId">;
+  readonly sideChat?: Pick<OrchestrationV2ThreadShellSideChat, "lessonThreadId"> | undefined;
   /** False only when no run, request, work item, or watch can make the shell live. */
   readonly mayBeLive: boolean;
 }
