@@ -157,6 +157,7 @@ interface TimelineFollowInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly timelineAnchorMessageId: MessageId | null;
   readonly setTimelineAnchor: Dispatch<SetStateAction<TimelineAnchor>>;
+  readonly initialFollowEnd?: boolean;
 }
 
 /**
@@ -179,10 +180,11 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    initialFollowEnd = true,
   } = input;
   const [visitState, setVisit] = useState<TimelineFollowVisit>({
     threadKey: activeThreadKey,
-    followEnd: true,
+    followEnd: initialFollowEnd,
   });
   let visit = visitState;
   if (visit.threadKey !== activeThreadKey) {
@@ -195,7 +197,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   // Keyed by visit, so a pill decision from the previous thread (a pending
   // debounce) never shows here.
   const [pill, setPill] = useState<{ readonly visit: TimelineFollowVisit; readonly show: boolean }>(
-    { visit, show: false },
+    { visit, show: !visit.followEnd },
   );
   const showScrollToBottom = pill.visit === visit ? pill.show : !visit.followEnd;
   // Called on every streamed chunk while following; an unchanged pill must
