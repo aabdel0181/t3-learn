@@ -25,7 +25,8 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
+import { ChevronRightIcon, EllipsisIcon, NetworkIcon } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -77,7 +78,7 @@ import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
 import { SideChatComposer, type SideChatComposerHandle } from "./SideChatComposer";
 import { SideChatExcerpt } from "./SideChatExcerpt";
-import { leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
+import { focusSideChat, leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
 import {
   type SideChatCrumb,
   sideChatAnchorCitation,
@@ -88,6 +89,11 @@ import {
   topSideChatId,
 } from "./sideChatPanel.logic";
 import { SideChatTimeline } from "./SideChatTimeline";
+import { SideChatMap } from "./SideChatMap";
+import { primaryServerKeybindingsAtom } from "../../state/server";
+import { shortcutLabelForCommand } from "../../keybindings";
+import { Toggle } from "../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const NO_PROVIDERS: Parameters<typeof deriveProviderInstanceEntries>[0] = [];
 const NO_MESSAGES: ReadonlyArray<ChatMessage> = [];
@@ -103,9 +109,12 @@ export function SideChatPanel(props: {
   readonly onFocusLesson: () => void;
 }) {
   const { lessonRef, surface } = props;
+  const showMap = surface.view === "map";
   const environmentId = lessonRef.environmentId;
   const sideChatRef = scopeThreadRef(environmentId, ThreadId.make(surface.threadId));
   const sideChatKey = scopedThreadKey(sideChatRef);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const mapShortcutLabel = shortcutLabelForCommand(keybindings, "sideChat.toggleMap");
   const navigate = useNavigate();
 
   const shell = useQuietThreadShell(sideChatRef);
@@ -229,7 +238,10 @@ export function SideChatPanel(props: {
 
   const [citationRequest, setCitationRequest] = useState<AssistantCitationRequest | null>(null);
   // A reveal belongs to the walk that made it; walking back to its thread later must not replay it.
-  if (citationRequest !== null && citationRequest.citation.threadId !== surface.threadId) {
+  if (
+    citationRequest !== null &&
+    (showMap || citationRequest.citation.threadId !== surface.threadId)
+  ) {
     setCitationRequest(null);
   }
   const listRef = useRef<LegendListRef | null>(null);
@@ -250,10 +262,10 @@ export function SideChatPanel(props: {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves DOM focus to the composer once the panel that asked for it is visible
   useEffect(() => {
-    if (!props.visible || !focusRequested) return;
+    if (!props.visible || !focusRequested || showMap) return;
     composerHandleRef.current?.focusAtEnd();
     usePendingSideChatStore.getState().clearFocus(sideChatKey);
-  }, [props.visible, focusRequested, sideChatKey]);
+  }, [props.visible, focusRequested, showMap, sideChatKey]);
 
   const finish = useOrchestrationCommand(threadEnvironment.finishSideChat, {
     reportFailure: false,
@@ -310,6 +322,24 @@ export function SideChatPanel(props: {
     usePendingSideChatStore
       .getState()
       .requestFocus(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
+  };
+
+  const openFromMap = (threadId: ThreadId) => {
+    if (threadId === sideChatRef.threadId) {
+      useRightPanelStore.getState().setSideChatView(lessonRef, surface.id, "chat");
+      usePendingSideChatStore.getState().requestFocus(sideChatKey);
+      return;
+    }
+    const top = topSideChatId(rows, threadId);
+    if (top === sideChatSurfaceTopThreadId(surface)) {
+      walkInto(threadId);
+      return;
+    }
+    if (top !== null) {
+      focusSideChat(lessonRef, threadId);
+      return;
+    }
+    props.onFocusLesson();
   };
 
   const onCrumb = (crumb: SideChatCrumb) => {
@@ -402,6 +432,7 @@ export function SideChatPanel(props: {
           // An editable keeps the key to scroll itself, such as a long draft. The composer
           // hands the timeline only the keys its draft can't use, via onPageScrollKeyDown.
           if (
+            !showMap &&
             (event.key === "PageUp" || event.key === "PageDown") &&
             !event.altKey &&
             !event.ctrlKey &&
@@ -465,6 +496,31 @@ export function SideChatPanel(props: {
               </ol>
             </ScrollArea>
           </nav>
+          {shell === null ? null : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    size="xs"
+                    variant="ghost"
+                    pressed={showMap}
+                    onPressedChange={(pressed) =>
+                      useRightPanelStore
+                        .getState()
+                        .setSideChatView(lessonRef, surface.id, pressed ? "map" : "chat")
+                    }
+                    aria-label="Side-chat map"
+                  >
+                    <NetworkIcon className="size-4 sm:size-3.5" />
+                  </Toggle>
+                }
+              />
+              <TooltipPopup side="bottom">
+                Side-chat map
+                {mapShortcutLabel ? ` (${mapShortcutLabel})` : ""}
+              </TooltipPopup>
+            </Tooltip>
+          )}
           {sideChatState === "open" ? (
             <Button
               size="xs"
@@ -508,111 +564,131 @@ export function SideChatPanel(props: {
             </Menu>
           )}
         </header>
-        {citation === null ? null : (
-          <div className="shrink-0 px-3 pt-2">
-            <SideChatExcerpt text={citation.text} onReveal={reveal} />
-          </div>
-        )}
-        <div className="min-h-0 flex-1">
-          <SideChatTimeline
-            lessonRef={lessonRef}
-            sideChatRef={sideChatRef}
-            detailRef={detailRef}
-            projection={projection}
-            label={label}
-            // A side chat this panel just started has nothing to load yet.
-            detailLoading={detailRef !== null && projection === null && heldCitation === null}
-            optimisticMessages={optimisticMessages}
-            listRef={listRef}
-            citationRequest={citationRequest}
-            askInSideChatPending={askPending}
-            onCiteAssistantText={(cited, sourceAnchor) =>
-              composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false
-            }
-            onAskInSideChat={
-              canOperate
-                ? (asked) =>
-                    askInSideChat({
-                      lessonRef,
-                      citation: asked,
-                      sideChatShells: treeShells,
-                      topThreadId: sideChatSurfaceTopThreadId(surface),
-                      run: openSideChat,
-                    })
-                : undefined
-            }
-            onOpenThread={onOpenThread}
-            onOpenSideChat={walkInto}
-            workspaceRoot={workspaceRoot}
-            pendingApprovals={pendingApprovals}
-            respondingRequestIds={respondingRequestIds}
-            canOperate={canOperate}
-            onRespondToApproval={onRespondToApproval}
-          />
-        </div>
-        <p role="status" className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:pt-0">
-          {statusLine}
-        </p>
-        {pendingUserInputs.length > 0 ? (
-          <ComposerBanner.Root
-            variant="info"
-            className={cn(
-              FLOATING_BANNER_CLASS,
-              "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>[data-slot=button]:last-child]:rounded-ee-xl",
-              "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>:last-child>[data-slot=button]:last-of-type]:rounded-ee-xl",
-            )}
-          >
-            <ComposerPendingUserInputPanel
-              pendingUserInputs={pendingUserInputs}
-              cwd={workspaceRoot}
-              threadRef={sideChatRef}
-              disabled={!canOperate}
-              respondingRequestIds={
-                activePendingIsResponding && activePendingUserInput
-                  ? [...respondingRequestIds, activePendingUserInput.requestId]
-                  : respondingRequestIds
+        {showMap ? (
+          <div className="min-h-0 flex-1">
+            <SideChatMap
+              rows={rows}
+              currentThreadId={
+                rows.some((row) => row.threadId === surface.threadId)
+                  ? ThreadId.make(surface.threadId)
+                  : lessonRef.threadId
               }
-              answers={activePendingDraftAnswers}
-              questionIndex={activePendingQuestionIndex}
-              onToggleOption={onSelectActivePendingUserInputOption}
-              onAdvance={onAdvanceActivePendingUserInputStable}
-              onDismiss={onDismissUserInput}
+              onOpenSideChat={openFromMap}
+              onFocusLesson={props.onFocusLesson}
             />
-          </ComposerBanner.Root>
-        ) : null}
-        <SideChatComposer
-          sideChatRef={sideChatRef}
-          shell={shell}
-          providerEntry={providerEntry}
-          providerCatalogKnown={loadedProviders !== undefined}
-          openingStatus={detail?.opening.status ?? null}
-          hasMessages={hasMessages}
-          runActive={runActive}
-          answeringPendingUserInput={answeringPendingUserInput}
-          handleRef={composerHandleRef}
-          onAdvancePendingUserInput={onAdvanceActivePendingUserInputStable}
-          pendingUserInputCustomAnswer={activePendingProgress?.customAnswer}
-          onPendingUserInputCustomAnswerChange={(value) => {
-            const questionId = activePendingProgress?.activeQuestion?.id;
-            if (questionId !== undefined)
-              onChangeActivePendingUserInputCustomAnswer(questionId, value);
-          }}
-          onOptimisticMessage={(message) =>
-            setOptimistic((current) => ({
-              key: sideChatKey,
-              messages: [...(current.key === sideChatKey ? current.messages : []), message],
-            }))
-          }
-          onOptimisticMessageFailed={(messageId: MessageId) =>
-            setOptimistic((current) => ({
-              ...current,
-              messages: current.messages.filter((message) => message.id !== messageId),
-            }))
-          }
-          onPageScrollKeyDown={(key) => pageScrollRef.current?.handleKeyDown(key)}
-          onPageScrollKeyUp={(key) => pageScrollRef.current?.handleKeyUp(key)}
-          onPageScrollRelease={() => pageScrollRef.current?.releaseActiveKey()}
-        />
+          </div>
+        ) : (
+          <>
+            {citation === null ? null : (
+              <div className="shrink-0 px-3 pt-2">
+                <SideChatExcerpt text={citation.text} onReveal={reveal} />
+              </div>
+            )}
+            <div className="min-h-0 flex-1">
+              <SideChatTimeline
+                lessonRef={lessonRef}
+                sideChatRef={sideChatRef}
+                detailRef={detailRef}
+                projection={projection}
+                label={label}
+                // A side chat this panel just started has nothing to load yet.
+                detailLoading={detailRef !== null && projection === null && heldCitation === null}
+                optimisticMessages={optimisticMessages}
+                listRef={listRef}
+                citationRequest={citationRequest}
+                askInSideChatPending={askPending}
+                onCiteAssistantText={(cited, sourceAnchor) =>
+                  composerHandleRef.current?.citeAssistantText(cited, sourceAnchor) ?? false
+                }
+                onAskInSideChat={
+                  canOperate
+                    ? (asked) =>
+                        askInSideChat({
+                          lessonRef,
+                          citation: asked,
+                          sideChatShells: treeShells,
+                          topThreadId: sideChatSurfaceTopThreadId(surface),
+                          run: openSideChat,
+                        })
+                    : undefined
+                }
+                onOpenThread={onOpenThread}
+                onOpenSideChat={walkInto}
+                workspaceRoot={workspaceRoot}
+                pendingApprovals={pendingApprovals}
+                respondingRequestIds={respondingRequestIds}
+                canOperate={canOperate}
+                onRespondToApproval={onRespondToApproval}
+              />
+            </div>
+            <p
+              role="status"
+              className="shrink-0 px-3 pt-2 text-muted-foreground text-xs empty:pt-0"
+            >
+              {statusLine}
+            </p>
+            {pendingUserInputs.length > 0 ? (
+              <ComposerBanner.Root
+                variant="info"
+                className={cn(
+                  FLOATING_BANNER_CLASS,
+                  "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>[data-slot=button]:last-child]:rounded-ee-xl",
+                  "[&>[data-composer-banner-row]:only-child>[data-slot=composer-banner-actions]>:last-child>[data-slot=button]:last-of-type]:rounded-ee-xl",
+                )}
+              >
+                <ComposerPendingUserInputPanel
+                  pendingUserInputs={pendingUserInputs}
+                  cwd={workspaceRoot}
+                  threadRef={sideChatRef}
+                  disabled={!canOperate}
+                  respondingRequestIds={
+                    activePendingIsResponding && activePendingUserInput
+                      ? [...respondingRequestIds, activePendingUserInput.requestId]
+                      : respondingRequestIds
+                  }
+                  answers={activePendingDraftAnswers}
+                  questionIndex={activePendingQuestionIndex}
+                  onToggleOption={onSelectActivePendingUserInputOption}
+                  onAdvance={onAdvanceActivePendingUserInputStable}
+                  onDismiss={onDismissUserInput}
+                />
+              </ComposerBanner.Root>
+            ) : null}
+            <SideChatComposer
+              sideChatRef={sideChatRef}
+              shell={shell}
+              providerEntry={providerEntry}
+              providerCatalogKnown={loadedProviders !== undefined}
+              openingStatus={detail?.opening.status ?? null}
+              hasMessages={hasMessages}
+              runActive={runActive}
+              answeringPendingUserInput={answeringPendingUserInput}
+              handleRef={composerHandleRef}
+              onAdvancePendingUserInput={onAdvanceActivePendingUserInputStable}
+              pendingUserInputCustomAnswer={activePendingProgress?.customAnswer}
+              onPendingUserInputCustomAnswerChange={(value) => {
+                const questionId = activePendingProgress?.activeQuestion?.id;
+                if (questionId !== undefined)
+                  onChangeActivePendingUserInputCustomAnswer(questionId, value);
+              }}
+              onOptimisticMessage={(message) =>
+                setOptimistic((current) => ({
+                  key: sideChatKey,
+                  messages: [...(current.key === sideChatKey ? current.messages : []), message],
+                }))
+              }
+              onOptimisticMessageFailed={(messageId: MessageId) =>
+                setOptimistic((current) => ({
+                  ...current,
+                  messages: current.messages.filter((message) => message.id !== messageId),
+                }))
+              }
+              onPageScrollKeyDown={(key) => pageScrollRef.current?.handleKeyDown(key)}
+              onPageScrollKeyUp={(key) => pageScrollRef.current?.handleKeyUp(key)}
+              onPageScrollRelease={() => pageScrollRef.current?.releaseActiveKey()}
+            />
+          </>
+        )}
       </section>
     </SideChatPanelContexts>
   );

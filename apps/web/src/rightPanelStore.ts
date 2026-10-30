@@ -83,6 +83,8 @@ export type RightPanelSurface =
       kind: "side-chat";
       /** The side chat shown, which may be nested under the tab's top-level one. */
       threadId: string;
+      /** Set while this tab shows the side-chat map in place of its chat. */
+      view?: "map";
       /**
        * Set when breadcrumbs moved up from a deeper side chat: the side-chat ids from
        * the top down to the deepest one visited, kept for the way back down.
@@ -199,6 +201,7 @@ interface RightPanelStoreState {
     surfaceId: string,
     detailTab: PullRequestDetailTab,
   ) => void;
+  setSideChatView: (ref: ScopedThreadRef, surfaceId: string, view: "chat" | "map") => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -359,7 +362,9 @@ export function sideChatSurfaceTopThreadId(surface: Pick<SideChatSurface, "id">)
  */
 export function normalizeSideChatSurface(value: unknown): SideChatSurface | null {
   if (!value || typeof value !== "object") return null;
-  const { id, kind, threadId, trail } = value as Partial<Record<keyof SideChatSurface, unknown>>;
+  const { id, kind, threadId, trail, view } = value as Partial<
+    Record<keyof SideChatSurface, unknown>
+  >;
   if (
     kind !== "side-chat" ||
     typeof id !== "string" ||
@@ -377,6 +382,7 @@ export function normalizeSideChatSurface(value: unknown): SideChatSurface | null
     kind,
     threadId,
     ...(trail === undefined ? {} : { trail: [...(trail as string[])] }),
+    ...(view === "map" ? { view: "map" as const } : {}),
   };
 }
 
@@ -869,6 +875,26 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             surfaces: current.surfaces.map((surface) =>
               surface.id === surfaceId && surface.kind === "pull-request"
                 ? { ...surface, detailTab }
+                : surface,
+            ),
+          }));
+        }),
+      setSideChatView: (ref, surfaceId, view) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const existing = state.byThreadKey[threadKey]?.surfaces.find(
+            (surface) => surface.id === surfaceId,
+          );
+          if (existing?.kind !== "side-chat") return state;
+          const { view: previousView, ...rest } = existing;
+          if ((previousView ?? "chat") === view) return state;
+          return automaticUpdate(state, threadKey, (current) => ({
+            ...current,
+            surfaces: current.surfaces.map((surface) =>
+              surface.id === surfaceId && surface.kind === "side-chat"
+                ? view === "map"
+                  ? { ...rest, view: "map" as const }
+                  : rest
                 : surface,
             ),
           }));

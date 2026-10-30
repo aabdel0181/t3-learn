@@ -257,7 +257,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       }).pipe(Effect.provide(layerKeybindings())),
   );
 
-  it.effect("startup sync never writes sideChat.askSelection into keybindings.json", () =>
+  it.effect("startup sync never writes sideChat defaults into keybindings.json", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
       const keybindings = yield* Keybindings.Keybindings;
@@ -265,9 +265,13 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         readKeybindingsConfig(keybindingsConfigPath),
         (rules) => rules.some((entry) => entry.command === "sideChat.askSelection"),
       );
+      const persistsToggleMap = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+        rules.some((entry) => entry.command === "sideChat.toggleMap"),
+      );
 
       yield* keybindings.syncDefaultKeybindingsOnStartup;
       assert.isFalse(yield* persistsAskSelection);
+      assert.isFalse(yield* persistsToggleMap);
 
       yield* writeKeybindingsConfig(keybindingsConfigPath, [
         { key: "mod+shift+y", command: "terminal.toggle" },
@@ -276,6 +280,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
       assert.isTrue(persisted.some((entry) => entry.command === "sidebar.toggle"));
       assert.isFalse(yield* persistsAskSelection);
+      assert.isFalse(yield* persistsToggleMap);
 
       const configState = yield* keybindings.loadConfigState;
       assert.deepEqual(

@@ -81,6 +81,7 @@ Tell the user to open T3 Learn, go to **Settings → Environments → Add enviro
 ## 4. Tell the user how to learn from copied chats
 
 - Learn through side chats only. Highlight text in an old chat and choose **Ask in side chat**.
+- The side-chat header's map toggle (⌥⌘G on a Mac, Ctrl+Alt+G elsewhere) opens the lesson's map without leaving the chat.
 - Don't type in a copied chat's main box, revert it, or delete it along with its worktree. The copy shares T3 Code's agent session and git checkpoints, so any of those would land in the user's live T3 Code chat.
 - Side chats can run commands in the project's real folder. Don't ask one to edit files that a live agent is working on.
 - Older chats are under **Settled**, as in T3 Code.

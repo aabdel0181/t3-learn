@@ -164,6 +164,7 @@ function sideChatShell(
 }
 
 const SIDE_1 = sideChatShell("side-1", LESSON_ID, "observation space");
+const SIDE_2 = sideChatShell("side-2", LESSON_ID, "reward shaping");
 const NESTED_1 = sideChatShell("nested-1", "side-1", "Box");
 
 /** The side chat's detail, as the quiet projection carries it once loaded. */
@@ -451,6 +452,56 @@ it("puts the cursor in the composer of a side chat opened from the Map", async (
   await userEvent.keyboard("{Enter}");
 
   await expect.element(composer(screen)).toHaveFocus();
+});
+
+it("focuses another top-level side chat opened from an in-panel map", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, SIDE_2];
+  const panels = useRightPanelStore.getState();
+  panels.openSideChat(LESSON_REF, { topThreadId: "side-1", threadId: "side-1" });
+  panels.setSideChatView(LESSON_REF, "side-chat:side-1", "map");
+  panels.openSideChat(LESSON_REF, { topThreadId: "side-2", threadId: "side-2" });
+  panels.activateSurface(LESSON_REF, "side-chat:side-1");
+  const container = document.createElement("div");
+  container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
+  await using screen = await render(<ActiveTab />, { container });
+
+  await userEvent.click(screen.getByRole("treeitem", { name: "reward shaping", exact: true }));
+
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
+  ).toContainEqual({ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", view: "map" });
+});
+
+it("toggles the side-chat map, walks back to chat with its draft, and keeps lesson focus on the map", async () => {
+  setup();
+  state.shells = [LESSON_SHELL, SIDE_1, NESTED_1];
+  state.projections = { "side-1": sideChatProjection(SIDE_1) };
+  showSideChat("side-1", "side-1");
+  const onFocusLesson = vi.fn();
+  await using screen = await renderPanel({ onFocusLesson });
+
+  await userEvent.type(composer(screen), "kept draft");
+  const toggle = screen.getByRole("button", { name: "Side-chat map" });
+  await userEvent.click(toggle);
+  await expect.element(screen.getByRole("tree", { name: "Side chat map" })).toBeVisible();
+  await expect.element(composer(screen)).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("treeitem", { name: "observation space", exact: true }));
+  await expect.element(composer(screen)).toHaveFocus();
+  expect(draft("side-1")).toBe("kept draft");
+
+  await userEvent.click(screen.getByRole("button", { name: "Side-chat map" }));
+  await userEvent.click(screen.getByRole("treeitem", { name: "Box", exact: true }));
+  await expect.element(composer(screen)).toHaveFocus();
+
+  await userEvent.click(screen.getByRole("button", { name: "Side-chat map" }));
+  await userEvent.click(
+    screen.getByRole("treeitem", { name: "Reinforcement learning", exact: true }),
+  );
+  expect(onFocusLesson).toHaveBeenCalledOnce();
+  await expect.element(screen.getByRole("tree", { name: "Side chat map" })).toBeVisible();
 });
 
 it("puts the cursor in the composer of a nested side chat opened from its mark in the panel", async () => {
@@ -836,6 +887,7 @@ it("offers a read-only connection no nested side chat to ask", async () => {
   await expect
     .element(page.getByRole("button", { name: "Ask in side chat" }))
     .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: "Side-chat map" })).not.toBeDisabled();
 });
 
 /** A citation of side-1's own reply, which side-1's loaded history lacks. */

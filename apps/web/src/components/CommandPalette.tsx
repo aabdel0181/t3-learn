@@ -157,6 +157,7 @@ import {
 import {
   PULL_REQUESTS_PANEL_REF,
   selectThreadRightPanelState,
+  type SideChatSurface,
   useRightPanelStore,
 } from "../rightPanelStore";
 import {
@@ -1366,6 +1367,31 @@ function OpenCommandPaletteDialog(props: {
         });
       },
     });
+    const activeSideChatSurface = sideChatLessonPanel.isOpen
+      ? sideChatLessonPanel.surfaces.find(
+          (surface): surface is SideChatSurface =>
+            surface.id === sideChatLessonPanel.activeSurfaceId && surface.kind === "side-chat",
+        )
+      : undefined;
+    if (activeSideChatSurface !== undefined) {
+      actionItems.push({
+        kind: "action",
+        value: "action:toggle-side-chat-map",
+        searchTerms: ["side chat", "map", "toggle"],
+        title: "Toggle side-chat map",
+        icon: <NetworkIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "sideChat.toggleMap",
+        run: async () => {
+          useRightPanelStore
+            .getState()
+            .setSideChatView(
+              lessonRef,
+              activeSideChatSurface.id,
+              activeSideChatSurface.view === "map" ? "chat" : "map",
+            );
+        },
+      });
+    }
     const finishable = resolveFinishableSideChat({
       surfaces: sideChatLessonPanel.surfaces,
       activeSurfaceId: sideChatLessonPanel.isOpen ? sideChatLessonPanel.activeSurfaceId : null,

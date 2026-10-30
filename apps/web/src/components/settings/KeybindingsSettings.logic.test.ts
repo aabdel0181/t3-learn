@@ -240,14 +240,29 @@ describe("KeybindingsSettings.logic", () => {
     expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, true)).toContain(
       "sideChat.askSelection",
     );
+    const mapRow = rows.find((candidate) => candidate.command === "sideChat.toggleMap");
+    expect(mapRow?.key).toBe("mod+alt+g");
+    expect(mapRow?.conflicts).toEqual([]);
+    expect(commandLabel("sideChat.toggleMap")).toBe("Side Chat: Toggle Map");
+    expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, true)).toContain(
+      "sideChat.toggleMap",
+    );
 
     expect(
       buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, false).map(
         (candidate) => candidate.command,
       ),
     ).not.toContain("sideChat.askSelection");
+    expect(
+      buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, false).map(
+        (candidate) => candidate.command,
+      ),
+    ).not.toContain("sideChat.toggleMap");
     expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, false)).not.toContain(
       "sideChat.askSelection",
+    );
+    expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, false)).not.toContain(
+      "sideChat.toggleMap",
     );
   });
 
