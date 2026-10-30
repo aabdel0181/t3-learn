@@ -7,7 +7,7 @@ import {
 } from "../../lib/windowControlsOverlay";
 
 import { AttachmentImage } from "../media/AttachmentImage";
-import { fitZoomableImage, isVectorImage } from "./ZoomableImage.logic.ts";
+import { fitZoomableImage, isVectorImage } from "./ZoomableImage.logic";
 
 const MAX_ZOOM = 8;
 

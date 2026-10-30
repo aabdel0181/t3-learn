@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { fitZoomableImage, isVectorImage } from "./ZoomableImage.logic.ts";
+import { fitZoomableImage, isVectorImage } from "./ZoomableImage.logic";
 
 describe("fitZoomableImage", () => {
   it.each([
