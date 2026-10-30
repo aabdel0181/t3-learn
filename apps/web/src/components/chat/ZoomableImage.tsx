@@ -7,6 +7,7 @@ import {
 } from "../../lib/windowControlsOverlay";
 
 import { AttachmentImage } from "../media/AttachmentImage";
+import { fitZoomableImage, isVectorImage } from "./ZoomableImage.logic.ts";
 
 const MAX_ZOOM = 8;
 
@@ -71,11 +72,13 @@ export function ZoomableImage({
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const maxHeight = Math.max(1, Math.min(viewerSize.height * 0.86, viewerSize.height - 160));
-  const fit = Math.min(
-    1,
-    (viewerSize.width * 0.92 - (viewerSize.width >= 640 ? 96 : 0)) / (naturalSize.width || 1),
-    maxHeight / (naturalSize.height || 1),
-  );
+  const fit = fitZoomableImage({
+    availableWidth: viewerSize.width * 0.92 - (viewerSize.width >= 640 ? 96 : 0),
+    maxHeight,
+    naturalWidth: naturalSize.width,
+    naturalHeight: naturalSize.height,
+    allowUpscale: isVectorImage(src, mimeType),
+  });
   const width = naturalSize.width * fit * zoom;
   const height = naturalSize.height * fit * zoom;
 
