@@ -51,6 +51,20 @@
         // Keep this small boot-time copy in sync with the built-in palettes so
         // the selected theme is visible before the app has mounted.
         const BUILT_IN_THEME_PALETTES = {
+          "t3-learn": {
+            light: {
+              background: "#fbfaf5",
+              foreground: "#151918",
+              accent: "#0d6a45",
+              chrome: "#fbfaf5",
+            },
+            dark: {
+              background: "#0b110f",
+              foreground: "#f7f4ea",
+              accent: "#f6cf4e",
+              chrome: "#0b110f",
+            },
+          },
           "t3-chat": {
             light: {
               background: "oklch(0.982446 0.010114 325.653)",
@@ -132,6 +146,7 @@
           "system",
           "light",
           "dark",
+          "t3-learn",
           "t3-chat",
           "grove",
           "ocean",
@@ -213,7 +228,29 @@
         };
 
         try {
-          const storedTheme = window.localStorage.getItem("t3code:theme");
+          let storedTheme = window.localStorage.getItem("t3code:theme");
+          let defaulted = false;
+          if (
+            storedTheme === null &&
+            window.localStorage.getItem(THEME_HALVES_STORAGE_KEY) === null
+          ) {
+            defaulted = true;
+            storedTheme = "t3-learn";
+            const storedAppearanceMode = window.localStorage.getItem(
+              THEME_APPEARANCE_MODE_STORAGE_KEY,
+            );
+            const storedFollowSystem = window.localStorage.getItem(THEME_FOLLOW_SYSTEM_STORAGE_KEY);
+            try {
+              if (
+                !isThemePreferenceMode(storedAppearanceMode) &&
+                storedFollowSystem !== "true" &&
+                storedFollowSystem !== "false"
+              ) {
+                window.localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, "system");
+              }
+              window.localStorage.setItem("t3code:theme", storedTheme);
+            } catch {}
+          }
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           const LEGACY_THEME_IDS = {
             "t3-chat-dark": "t3-chat",
@@ -256,7 +293,7 @@
               ? "system"
               : storedFollowSystem === "false"
                 ? preferenceMode
-                : theme === "system"
+                : theme === "system" || defaulted
                   ? "system"
                   : preferenceMode;
           // A valid mix half for the wanted appearance takes over: it decides
@@ -377,12 +414,16 @@
           try {
             prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           } catch {}
-          delete document.documentElement.dataset.themeId;
-          delete document.documentElement.dataset.themeSelected;
+          const fallbackMode = prefersDark ? "dark" : "light";
+          const fallbackSplash = BUILT_IN_THEME_PALETTES["t3-learn"][fallbackMode];
+          document.documentElement.dataset.themeId = "t3-learn";
+          document.documentElement.dataset.themeSelected = "true";
           document.documentElement.classList.toggle("dark", prefersDark);
-          const fallbackColor = prefersDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
-          document.documentElement.style.backgroundColor = fallbackColor;
-          setThemeColor(fallbackColor);
+          for (const [name, value] of Object.entries(fallbackSplash)) {
+            document.documentElement.style.setProperty(`--boot-${name}`, value);
+          }
+          document.documentElement.style.backgroundColor = fallbackSplash.chrome;
+          setThemeColor(fallbackSplash.chrome);
         }
       })();
     </script>

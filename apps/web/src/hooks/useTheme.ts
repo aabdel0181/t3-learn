@@ -41,7 +41,7 @@ type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 const STORAGE_KEY = "t3code:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
-  theme: "system",
+  theme: "t3-learn",
   resolvedTheme: "light",
   systemDark: false,
   followSystem: true,
@@ -168,6 +168,18 @@ export function readAppearanceModePreference(theme: Theme): ThemePreferenceMode 
   }
 
   if (readStoredFollowSystem(theme)) return "system";
+  if (theme === "t3-learn") {
+    try {
+      if (
+        window.localStorage.getItem(STORAGE_KEY) === null &&
+        window.localStorage.getItem(THEME_HALVES_STORAGE_KEY) === null
+      ) {
+        return "system";
+      }
+    } catch {
+      return "system";
+    }
+  }
   return getThemePreferenceMode(theme) ?? "light";
 }
 
@@ -187,8 +199,10 @@ function writeAppearanceModePreference(appearanceMode: ThemePreferenceMode): voi
 export function readThemePreference(): Theme {
   if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT.theme;
   let raw: string | null;
+  let halvesRaw: string | null;
   try {
     raw = window.localStorage.getItem(STORAGE_KEY);
+    halvesRaw = window.localStorage.getItem(THEME_HALVES_STORAGE_KEY);
   } catch (cause) {
     throw new ThemeStorageError({
       operation: "read",
@@ -199,7 +213,8 @@ export function readThemePreference(): Theme {
   if (raw !== null && isKnownThemePreference(raw)) {
     return canonicalThemePreference(raw);
   }
-  return DEFAULT_THEME_SNAPSHOT.theme;
+  if (raw === null && halvesRaw === null) return DEFAULT_THEME_SNAPSHOT.theme;
+  return "system";
 }
 
 function writeThemePreference(theme: Theme): void {
