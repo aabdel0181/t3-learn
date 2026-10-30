@@ -243,7 +243,7 @@ const make = Effect.gen(function* () {
       const afterSequence = yield* eventSink.latestSequence();
       const records = yield* threads.getThreadRecords(
         input.threadId,
-        ["messages", "contextHandoffs"],
+        ["messages", "contextHandoffs", "runs"],
         { messageRoles: ["user", "assistant"] },
       );
       const { thread } = records;
@@ -287,6 +287,11 @@ const make = Effect.gen(function* () {
       };
       const nestedNoteLines = [...nestedSideChatNoteLines(nestedNotes)];
       const previousNote = sideChat.deliveredNote ?? null;
+      const cancelledBeforeStart = new Set(
+        records.runs
+          .filter((run) => run.status === "cancelled" && run.startedAt === null)
+          .map((run) => run.id),
+      );
 
       const lesson = yield* threads.getThreadRecords(sideChat.lessonThreadId, []);
       const { text } = yield* writeSideChatText({
@@ -296,7 +301,11 @@ const make = Effect.gen(function* () {
           ...nestedNotes,
           excerpt: sideChat.excerpt,
           messages: records.messages
-            .filter((message): message is TranscriptMessage => message.role !== "system")
+            .filter(
+              (message): message is TranscriptMessage =>
+                message.role !== "system" &&
+                !(message.runId !== null && cancelledBeforeStart.has(message.runId)),
+            )
             .toSorted(
               (left, right) =>
                 DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
