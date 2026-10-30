@@ -586,6 +586,7 @@ export function SideChatPanel(props: {
             )}
             <div className="min-h-0 flex-1">
               <SideChatTimeline
+                key={sideChatKey}
                 lessonRef={lessonRef}
                 sideChatRef={sideChatRef}
                 detailRef={detailRef}

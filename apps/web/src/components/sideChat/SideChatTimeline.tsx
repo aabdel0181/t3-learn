@@ -1,4 +1,5 @@
 import type { LegendListRef } from "@legendapp/list/react";
+import { useLayoutEffect, useRef } from "react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import {
@@ -23,8 +24,14 @@ import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
 import { useCitedHistory } from "../chat/citationProcedure";
 import { openExpandedImagePreview } from "../chat/ExpandedImageDialog";
 import { ThreadTimeline } from "../chat/ThreadTimeline";
+import { ScrollToEndButton } from "../chat/TimelineOverlays";
+import { useStableCallback } from "../../hooks/useStableCallback";
+import { useTimelineFollow } from "../chat/useTimelineFollow";
+import { readTimelinePosition } from "../chat/timelineScrollAnchoring";
+import type { TimelineViewport } from "../chat/timelineViewport";
 
 const noop = () => {};
+const EMPTY_TIMELINE_ENTRIES = [] as const;
 
 /**
  * A side chat's timeline in the lesson's panel. It stays out of the held-timeline
@@ -77,9 +84,49 @@ export function SideChatTimeline(props: {
   const runtime = projection === null ? null : deriveThreadStructureRuntime(projection);
   const runlessWorkStartedAt = projection === null ? null : deriveRunlessWorkStartedAt(projection);
   const isWorking = derivePhase(runtime) === "running" || runlessWorkStartedAt !== null;
+  const follow = useTimelineFollow({
+    legendListRef: props.listRef,
+    composerTimelineInset: 0,
+    routeThreadKey: sideChatKey,
+    activeThreadKey: sideChatKey,
+    isServerThread: false,
+    serverProjection: null,
+    threadStatus: "live",
+    activeActivityRun: activityRun,
+    activeRunningTurnId: runtime?.activeRunId ?? null,
+    timelineEntries: EMPTY_TIMELINE_ENTRIES,
+    timelineAnchorMessageId: null,
+    setTimelineAnchor: noop,
+    initialFollowEnd: readTimelinePosition(sideChatKey)?.atEnd !== false,
+  });
+  const attachTimelineViewport = useStableCallback((viewport: TimelineViewport) => {
+    const filteredViewport: TimelineViewport = {
+      ...viewport,
+      subscribe: (listener) =>
+        viewport.subscribe((navigation) => {
+          if (
+            navigation.source === "key" &&
+            !viewport.scrollNode.contains(document.activeElement)
+          ) {
+            return;
+          }
+          listener(navigation);
+        }),
+    };
+    return follow.attachTimelineViewport(filteredViewport);
+  });
+  const optimisticMessageId = props.optimisticMessages.at(-1)?.id ?? null;
+  const previousOptimisticMessageId = useRef(optimisticMessageId);
+  const scrollToEnd = useStableCallback(() => follow.scrollToEnd(true));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls to this panel's own send after the commit that adds its optimistic row
+  useLayoutEffect(() => {
+    const previous = previousOptimisticMessageId.current;
+    previousOptimisticMessageId.current = optimisticMessageId;
+    if (optimisticMessageId !== null && optimisticMessageId !== previous) scrollToEnd();
+  }, [optimisticMessageId, scrollToEnd]);
 
   return (
-    <div className="h-full min-h-0">
+    <div className="relative h-full min-h-0">
       <ThreadTimeline
         holdTimeline={false}
         pendingApprovals={props.pendingApprovals}
@@ -130,8 +177,10 @@ export function SideChatTimeline(props: {
         onAnchorReady={noop}
         onAnchorSizeChanged={noop}
         contentInsetEndAdjustment={0}
-        liveFollowEnabled
-        onIsAtEndChange={noop}
+        liveFollowEnabled={follow.timelineLiveFollowEnabled}
+        onIsAtEndChange={follow.onIsAtEndChangeStable}
+        onViewportAttach={attachTimelineViewport}
+        onFooterGrow={follow.onTimelineFooterGrowStable}
         hideEmptyPlaceholder={props.detailLoading}
         emptyPlaceholder={
           props.label === null ? undefined : (
@@ -143,6 +192,9 @@ export function SideChatTimeline(props: {
         }
         emptyPlaceholderInset={0}
       />
+      {follow.showScrollToBottom ? (
+        <ScrollToEndButton bottom={4} summary={null} onScrollToEnd={scrollToEnd} />
+      ) : null}
     </div>
   );
 }
