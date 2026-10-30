@@ -78,7 +78,7 @@ import { askInSideChat } from "./openSideChat";
 import { usePendingSideChatStore, selectStartingSideChat } from "./pendingSideChatStore";
 import { SideChatComposer, type SideChatComposerHandle } from "./SideChatComposer";
 import { SideChatExcerpt } from "./SideChatExcerpt";
-import { leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
+import { focusSideChat, leaveSideChat, revealSideChat, showLesson } from "./sideChatNavigation";
 import {
   type SideChatCrumb,
   sideChatAnchorCitation,
@@ -336,7 +336,7 @@ export function SideChatPanel(props: {
       return;
     }
     if (top !== null) {
-      revealSideChat(lessonRef, threadId);
+      focusSideChat(lessonRef, threadId);
       return;
     }
     props.onFocusLesson();
@@ -516,7 +516,7 @@ export function SideChatPanel(props: {
                 }
               />
               <TooltipPopup side="bottom">
-                {showMap ? "Back to side chat" : "Show side-chat map"}
+                Side-chat map
                 {mapShortcutLabel ? ` (${mapShortcutLabel})` : ""}
               </TooltipPopup>
             </Tooltip>

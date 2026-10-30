@@ -1442,6 +1442,7 @@ describe("side chat surfaces", () => {
               sideChat,
               { id: "side-chat:side-2", kind: "side-chat", threadId: 5 },
               { id: "side-chat:side-3", kind: "side-chat", threadId: "side-3", trail: [1] },
+              { id: "side-chat:side-4", kind: "side-chat", threadId: "side-4", view: "invalid" },
               { id: "map", kind: "thread-map" },
               { id: "thread-map", kind: "thread-map" },
             ],
@@ -1453,30 +1454,15 @@ describe("side chat surfaces", () => {
         "env-1:thread-A": {
           isOpen: true,
           activeSurfaceId: "side-chat:side-1",
-          surfaces: [sideChat, { id: "thread-map", kind: "thread-map" }],
+          surfaces: [
+            sideChat,
+            { id: "side-chat:side-4", kind: "side-chat", threadId: "side-4" },
+            { id: "thread-map", kind: "thread-map" },
+          ],
           lastSideChatSurfaceId: "side-chat:side-1",
         },
       },
       threadPanelVisibilityByThreadKey: {},
-    });
-    expect(
-      migratePersistedRightPanelState({
-        byThreadKey: {
-          "env-1:thread-A": {
-            isOpen: true,
-            activeSurfaceId: "side-chat:side-1",
-            surfaces: [
-              { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", view: "invalid" },
-            ],
-          },
-        },
-      }),
-    ).toMatchObject({
-      byThreadKey: {
-        "env-1:thread-A": {
-          surfaces: [{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }],
-        },
-      },
     });
   });
 });

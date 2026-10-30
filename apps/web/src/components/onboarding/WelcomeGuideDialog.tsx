@@ -79,8 +79,10 @@ export function WelcomeGuideHost({ hostedStatic }: { readonly hostedStatic: bool
 function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
   const [step, setStep] = useState(0);
   const nextRef = useRef<HTMLButtonElement>(null);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const steps = guideSteps(
-    shortcutLabelForCommand(useAtomValue(primaryServerKeybindingsAtom), "sideChat.askSelection"),
+    shortcutLabelForCommand(keybindings, "sideChat.askSelection"),
+    shortcutLabelForCommand(keybindings, "sideChat.toggleMap"),
   );
   const last = step === steps.length - 1;
 
@@ -165,7 +167,7 @@ function WelcomeGuideDialog({ onClose }: { readonly onClose: () => void }) {
   );
 }
 
-function guideSteps(askShortcut: string | null) {
+function guideSteps(askShortcut: string | null, mapShortcut: string | null) {
   return [
     {
       label: "Welcome",
@@ -206,7 +208,21 @@ function guideSteps(askShortcut: string | null) {
       label: "Map",
       illustration: <MapMock />,
       title: "See it all on the Map",
-      body: "The side-chat header's map toggle (⌥⌘G on a Mac, Ctrl+Alt+G elsewhere) shows every side chat in the lesson. Click one to pick it back up, or move around with the arrow keys.",
+      body: (
+        <>
+          The side-chat header's map toggle shows every side chat in the lesson.
+          {mapShortcut === null ? null : (
+            <>
+              {" "}
+              Press <Kbd>{mapShortcut}</Kbd> to open it, then click one to pick it back up or move
+              around with the arrow keys.
+            </>
+          )}
+          {mapShortcut === null
+            ? " Click one to pick it back up, or move around with the arrow keys."
+            : null}
+        </>
+      ),
       footnote: "You can open this guide again from Settings.",
     },
   ];
