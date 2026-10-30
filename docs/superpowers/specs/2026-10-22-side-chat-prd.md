@@ -76,7 +76,7 @@ The user needs to:
 - Syncing which side-chat panel is open across devices.
 - Agent/MCP tools for opening and closing side chats.
 - "Open side chat as a full thread".
-- Attachments, slash commands, or model switching in the side-chat composer.
+- Slash commands or plan mode in the side-chat composer.
 - An upstream pull request. That follows an upstream "Ideas" discussion once
   med loves the feature.
 
