@@ -5,11 +5,13 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { T3_LEARN_EXECUTABLE_NAME } from "@t3tools/shared/t3LearnIdentity";
 
 import * as ProcessRunner from "../processRunner.ts";
 import { BOOT_SERVICE_UNIT_FILE } from "./bootService.ts";
 
-const PROTECT_DROP_IN = "90-t3code-protect.conf";
+// T3 Code writes the same units' drop-ins; its own name keeps either undo off the other's.
+const PROTECT_DROP_IN = `90-${T3_LEARN_EXECUTABLE_NAME}-protect.conf`;
 const SYSTEM_UNIT_DIR = "/etc/systemd/system";
 export const REMOTE_ACCESS_UNITS = ["tailscaled.service", "ssh.service", "sshd.service"];
 
