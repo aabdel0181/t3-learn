@@ -199,8 +199,10 @@ function writeAppearanceModePreference(appearanceMode: ThemePreferenceMode): voi
 export function readThemePreference(): Theme {
   if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT.theme;
   let raw: string | null;
+  let halvesRaw: string | null;
   try {
     raw = window.localStorage.getItem(STORAGE_KEY);
+    halvesRaw = window.localStorage.getItem(THEME_HALVES_STORAGE_KEY);
   } catch (cause) {
     throw new ThemeStorageError({
       operation: "read",
@@ -211,7 +213,8 @@ export function readThemePreference(): Theme {
   if (raw !== null && isKnownThemePreference(raw)) {
     return canonicalThemePreference(raw);
   }
-  return DEFAULT_THEME_SNAPSHOT.theme;
+  if (raw === null && halvesRaw === null) return DEFAULT_THEME_SNAPSHOT.theme;
+  return "system";
 }
 
 function writeThemePreference(theme: Theme): void {

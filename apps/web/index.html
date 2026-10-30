@@ -229,13 +229,25 @@
 
         try {
           let storedTheme = window.localStorage.getItem("t3code:theme");
+          let defaulted = false;
           if (
             storedTheme === null &&
             window.localStorage.getItem(THEME_HALVES_STORAGE_KEY) === null
           ) {
+            defaulted = true;
             storedTheme = "t3-learn";
+            const storedAppearanceMode = window.localStorage.getItem(
+              THEME_APPEARANCE_MODE_STORAGE_KEY,
+            );
+            const storedFollowSystem = window.localStorage.getItem(THEME_FOLLOW_SYSTEM_STORAGE_KEY);
             try {
-              window.localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, "system");
+              if (
+                !isThemePreferenceMode(storedAppearanceMode) &&
+                storedFollowSystem !== "true" &&
+                storedFollowSystem !== "false"
+              ) {
+                window.localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, "system");
+              }
               window.localStorage.setItem("t3code:theme", storedTheme);
             } catch {}
           }
@@ -281,7 +293,7 @@
               ? "system"
               : storedFollowSystem === "false"
                 ? preferenceMode
-                : theme === "system"
+                : theme === "system" || defaulted
                   ? "system"
                   : preferenceMode;
           // A valid mix half for the wanted appearance takes over: it decides

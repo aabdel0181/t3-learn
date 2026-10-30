@@ -6,7 +6,6 @@ import {
   getDefaultThemeColors,
   getThemeColorsForMode,
   invalidateCustomThemes,
-  isKnownThemePreference,
   resolveThemeAppearance,
   T3_CHAT_THEME,
   T3_LEARN_THEME,
@@ -18,8 +17,14 @@ import {
   THEME_FOLLOW_SYSTEM_STORAGE_KEY,
   toCanonicalThemeColor,
 } from "./themePalette";
+import {
+  readAppearanceModePreference,
+  readThemeHalves,
+  readThemePreference,
+} from "./hooks/useTheme";
 
 const THEME_STORAGE_KEY = "t3code:theme";
+const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
 const DEFAULT_DARK_CHROME = getDefaultThemeColors("dark").chrome;
 
 const bootScript = (() => {
@@ -40,6 +45,7 @@ type BootResult = {
 function runBootScript(options: {
   storage?: Record<string, string>;
   storageThrows?: boolean;
+  storageWritesThrow?: boolean;
   prefersDark: boolean;
 }): BootResult {
   const classes = new Set<string>();
@@ -80,7 +86,7 @@ function runBootScript(options: {
         return options.storage?.[key] ?? null;
       },
       setItem: (key: string, value: string): void => {
-        if (options.storageThrows) throw new Error("storage blocked");
+        if (options.storageThrows || options.storageWritesThrow) throw new Error("storage blocked");
         (options.storage ??= {})[key] = value;
       },
     },
@@ -107,29 +113,27 @@ function runBootScript(options: {
 function runtimeResolvedAppearance(
   storage: Record<string, string>,
   prefersDark: boolean,
-): "light" | "dark" {
+): { theme: string; resolvedAppearance: "light" | "dark" } {
   vi.stubGlobal("window", {
     localStorage: { getItem: (key: string) => storage[key] ?? null },
     matchMedia: () => ({ matches: prefersDark }),
   });
   invalidateCustomThemes();
   try {
-    const raw = storage[THEME_STORAGE_KEY] ?? null;
-    const theme = raw === null ? "t3-learn" : isKnownThemePreference(raw) ? raw : "system";
-    const followRaw = storage[THEME_FOLLOW_SYSTEM_STORAGE_KEY] ?? null;
-    const appearanceRaw = storage[THEME_APPEARANCE_MODE_STORAGE_KEY] ?? null;
-    const appearanceMode =
-      appearanceRaw === "light" || appearanceRaw === "dark" || appearanceRaw === "system"
-        ? appearanceRaw
-        : followRaw === "true"
-          ? "system"
-          : followRaw === "false"
-            ? null
-            : theme === "system" || (theme === "t3-learn" && raw === null)
-              ? "system"
-              : null;
-    const followSystem = appearanceMode === "system";
-    return resolveThemeAppearance(theme, prefersDark, followSystem, appearanceMode ?? undefined);
+    const theme = readThemePreference();
+    const appearanceMode = readAppearanceModePreference(theme);
+    const themeHalves = readThemeHalves();
+    const resolvedAppearance = resolveThemeAppearance(
+      theme,
+      prefersDark,
+      appearanceMode === "system",
+      appearanceMode,
+      themeHalves,
+    );
+    return {
+      theme: themeHalves?.[resolvedAppearance] ?? theme,
+      resolvedAppearance,
+    };
   } finally {
     vi.unstubAllGlobals();
     invalidateCustomThemes();
@@ -155,6 +159,9 @@ describe("index.html boot script", () => {
     name: string;
     storage: Record<string, string>;
     prefersDark: boolean;
+    storageWritesThrow?: boolean;
+    expectedBootThemeId?: string | null;
+    expectedRuntimeTheme?: string;
   }> = [
     { name: "no stored preference on a dark OS", storage: {}, prefersDark: true },
     {
@@ -252,12 +259,58 @@ describe("index.html boot script", () => {
       storage: { [THEME_STORAGE_KEY]: "dark", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "false" },
       prefersDark: false,
     },
+    {
+      name: "dark appearance mode without a theme stays dark",
+      storage: { [THEME_APPEARANCE_MODE_STORAGE_KEY]: "dark" },
+      prefersDark: false,
+    },
+    {
+      name: "legacy follow-system false without a theme stays light",
+      storage: { [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "false" },
+      prefersDark: true,
+    },
+    {
+      name: "a halves-only preference follows the system",
+      storage: {
+        [THEME_HALVES_STORAGE_KEY]: JSON.stringify({ dark: GROVE_THEME.id }),
+      },
+      prefersDark: true,
+      expectedBootThemeId: GROVE_THEME.id,
+      expectedRuntimeTheme: GROVE_THEME.id,
+    },
+    {
+      name: "an unknown theme follows the system stock palette",
+      storage: { [THEME_STORAGE_KEY]: "unknown-theme" },
+      prefersDark: true,
+      expectedBootThemeId: null,
+      expectedRuntimeTheme: "system",
+    },
+    {
+      name: "write failures still follow the system",
+      storage: {},
+      prefersDark: true,
+      storageWritesThrow: true,
+      expectedBootThemeId: T3_LEARN_THEME.id,
+      expectedRuntimeTheme: T3_LEARN_THEME.id,
+    },
   ];
 
-  it.each(parityCases)("matches the runtime appearance: $name", ({ storage, prefersDark }) => {
-    const boot = runBootScript({ storage, prefersDark });
-    expect(boot.isDark).toBe(runtimeResolvedAppearance(storage, prefersDark) === "dark");
-  });
+  it.each(parityCases)(
+    "matches the runtime appearance: $name",
+    ({ storage, prefersDark, storageWritesThrow, expectedBootThemeId, expectedRuntimeTheme }) => {
+      const before = { ...storage };
+      const boot = runBootScript({
+        storage,
+        prefersDark,
+        ...(storageWritesThrow === undefined ? {} : { storageWritesThrow }),
+      });
+      expect(storage).toMatchObject(before);
+      const runtime = runtimeResolvedAppearance(storage, prefersDark);
+      expect(boot.isDark).toBe(runtime.resolvedAppearance === "dark");
+      if (expectedBootThemeId !== undefined) expect(boot.themeId ?? null).toBe(expectedBootThemeId);
+      if (expectedRuntimeTheme !== undefined) expect(runtime.theme).toBe(expectedRuntimeTheme);
+    },
+  );
 
   it("accepts exponent-form OKLCH before the runtime mounts", () => {
     const colors = {
