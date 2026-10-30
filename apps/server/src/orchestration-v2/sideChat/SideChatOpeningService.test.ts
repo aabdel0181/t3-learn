@@ -4,11 +4,14 @@ import {
   CommandId,
   MessageId,
   ProviderDriverKind,
+  ThreadId,
   TextGenerationError,
   type OrchestrationV2SideChatAnchor,
 } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -30,6 +33,7 @@ import {
   observationAnchor,
   pendingSideChat,
   seedSideChatThread,
+  seedThreadMessages,
   SIDE_CHAT_THREAD_ID,
 } from "../testkit/sideChatFixtures.ts";
 import * as SideChatOpening from "./SideChatOpeningService.ts";
@@ -90,11 +94,12 @@ const OPEN_REQUEST_ID = "command:side-chat:open";
 const seedPending = (
   requestId: string,
   anchor: OrchestrationV2SideChatAnchor = observationAnchor(),
+  options: { readonly createLesson?: boolean; readonly threadId?: ThreadId } = {},
 ) =>
   Effect.gen(function* () {
-    yield* createLesson();
+    if (options.createLesson ?? true) yield* createLesson();
     return yield* seedSideChatThread({
-      threadId: SIDE_CHAT_THREAD_ID,
+      threadId: options.threadId ?? SIDE_CHAT_THREAD_ID,
       anchorThreadId: LESSON_THREAD_ID,
       sideChat: pendingSideChat({ anchor, excerpt: "observation space", requestId }),
     });
@@ -119,20 +124,21 @@ function completeOpening(input: {
   });
 }
 
-const executeOpening = (requestId: string) =>
+const executeOpening = (requestId: string, threadId: ThreadId = SIDE_CHAT_THREAD_ID) =>
   Effect.gen(function* () {
     const opening = yield* SideChatOpening.SideChatOpeningService;
     yield* opening.execute({
-      threadId: SIDE_CHAT_THREAD_ID,
+      threadId,
       requestId: CommandId.make(requestId),
     });
   });
 
-const readSideChatThread = Effect.gen(function* () {
-  const threads = yield* ThreadManagement.ThreadManagementService;
-  const { thread } = yield* threads.getThreadRecords(SIDE_CHAT_THREAD_ID, []);
-  return thread;
-});
+const readSideChatThread = (threadId: ThreadId = SIDE_CHAT_THREAD_ID) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const { thread } = yield* threads.getThreadRecords(threadId, []);
+    return thread;
+  });
 
 describe("thread.side_chat.opening.complete", () => {
   it.effect("lands only the completion for the pending request", () =>
@@ -151,7 +157,7 @@ describe("thread.side_chat.opening.complete", () => {
         stale.storedEvents.map((stored) => stored.event.type),
         ["thread.metadata-updated"],
       );
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "pending",
         text: null,
         requestId: OPEN_REQUEST_ID,
@@ -169,7 +175,7 @@ describe("thread.side_chat.opening.complete", () => {
         status: "failed",
         text: null,
       });
-      const thread = yield* readSideChatThread;
+      const thread = yield* readSideChatThread();
       assert.deepEqual(thread.sideChat?.opening, {
         status: "ready",
         text: "Summary of the RL lesson",
@@ -192,14 +198,11 @@ describe("SideChatOpeningService", () => {
       assert.equal(harness.generateSideChatText.mock.calls.length, 1);
       const request = harness.generateSideChatText.mock.calls[0]?.[0];
       assert.equal(request?.kind, "opening_summary");
-      assert.include(
-        request?.prompt,
-        `ASSISTANT (the reply the learner highlighted):\n${LESSON_ANCHOR_TEXT}`,
-      );
+      assert.include(request?.prompt, `ASSISTANT:\n${LESSON_ANCHOR_TEXT}`);
       assert.include(request?.prompt, LESSON_TOPIC);
       assert.include(request?.cwd, "t3code-side-chat-");
       assert.deepEqual(request?.modelSelection, settings.textGenerationModelSelection);
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "ready",
         text: "Summary of the RL lesson",
         requestId: OPEN_REQUEST_ID,
@@ -207,49 +210,201 @@ describe("SideChatOpeningService", () => {
     }).pipe(Effect.provide(harness.layer));
   });
 
-  it.effect("records a failed summary instead of failing the effect", () =>
-    Effect.gen(function* () {
+  it.effect("shares a ready summary for side chats opened from the same lesson state", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      yield* seedPending(OPEN_REQUEST_ID);
+      const secondThreadId = ThreadId.make("thread:side-chat:second");
+      const secondRequestId = "command:side-chat:second";
+      yield* seedPending(
+        secondRequestId,
+        observationAnchor(LESSON_THREAD_ID, MessageId.make("message:lesson:a2")),
+        { createLesson: false, threadId: secondThreadId },
+      );
+
+      yield* executeOpening(OPEN_REQUEST_ID);
+      yield* executeOpening(secondRequestId, secondThreadId);
+
+      assert.equal(harness.generateSideChatText.mock.calls.length, 1);
+      assert.deepEqual(
+        (yield* readSideChatThread()).sideChat?.opening.text,
+        "Summary of the RL lesson",
+      );
+      assert.deepEqual(
+        (yield* readSideChatThread(secondThreadId)).sideChat?.opening.text,
+        "Summary of the RL lesson",
+      );
+    }).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("does not reuse a summary after the lesson changes", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      yield* seedPending(OPEN_REQUEST_ID);
+      yield* executeOpening(OPEN_REQUEST_ID);
+      yield* seedThreadMessages(LESSON_THREAD_ID, [
+        { id: MessageId.make("message:lesson:new"), role: "user", text: "A new question" },
+      ]);
+      const secondThreadId = ThreadId.make("thread:side-chat:changed");
+      const secondRequestId = "command:side-chat:changed";
+      yield* seedPending(secondRequestId, observationAnchor(), {
+        createLesson: false,
+        threadId: secondThreadId,
+      });
+      yield* executeOpening(secondRequestId, secondThreadId);
+      assert.equal(harness.generateSideChatText.mock.calls.length, 2);
+    }).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("coalesces summaries while the first write is in flight", () => {
+    return Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const sharedText = "Summary of the RL lesson";
+      const harness = makeHarness({
+        generateSideChatText: () =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(entered, undefined);
+            yield* Deferred.await(release);
+            return { text: sharedText };
+          }),
+      });
+      yield* Effect.gen(function* () {
+        yield* seedPending(OPEN_REQUEST_ID);
+        const secondThreadId = ThreadId.make("thread:side-chat:in-flight");
+        const secondRequestId = "command:side-chat:in-flight";
+        yield* seedPending(secondRequestId, observationAnchor(), {
+          createLesson: false,
+          threadId: secondThreadId,
+        });
+        const first = yield* executeOpening(OPEN_REQUEST_ID).pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const second = yield* executeOpening(secondRequestId, secondThreadId).pipe(
+          Effect.forkChild({ startImmediately: true }),
+        );
+        assert.equal(harness.generateSideChatText.mock.calls.length, 1);
+        assert.deepEqual((yield* readSideChatThread(secondThreadId)).sideChat?.opening, {
+          status: "pending",
+          text: null,
+          requestId: secondRequestId,
+        });
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(first);
+        yield* Fiber.join(second);
+        assert.equal(harness.generateSideChatText.mock.calls.length, 1);
+        assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
+          status: "ready",
+          text: sharedText,
+          requestId: OPEN_REQUEST_ID,
+        });
+        assert.deepEqual((yield* readSideChatThread(secondThreadId)).sideChat?.opening, {
+          status: "ready",
+          text: sharedText,
+          requestId: secondRequestId,
+        });
+      }).pipe(Effect.provide(harness.layer));
+    });
+  });
+
+  it.effect("does not share a fallback result with an in-flight waiter", () => {
+    return Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let calls = 0;
+      const harness = makeHarness({
+        generateSideChatText: () => {
+          calls += 1;
+          return calls === 1
+            ? Effect.void.pipe(
+                Effect.tap(() => Deferred.succeed(entered, undefined)),
+                Effect.andThen(Deferred.await(release)),
+                Effect.as({ text: null }),
+              )
+            : Effect.succeed({ text: "RETRY SUMMARY" });
+        },
+      });
+      yield* Effect.gen(function* () {
+        yield* seedPending(OPEN_REQUEST_ID);
+        const secondThreadId = ThreadId.make("thread:side-chat:fallback-waiter");
+        const secondRequestId = "command:side-chat:fallback-waiter";
+        yield* seedPending(secondRequestId, observationAnchor(), {
+          createLesson: false,
+          threadId: secondThreadId,
+        });
+        const first = yield* executeOpening(OPEN_REQUEST_ID).pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const second = yield* executeOpening(secondRequestId, secondThreadId).pipe(
+          Effect.forkChild({ startImmediately: true }),
+        );
+        assert.equal(calls, 1);
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(first);
+        yield* Fiber.join(second);
+        assert.equal(calls, 2);
+        assert.deepEqual((yield* readSideChatThread()).sideChat?.opening.status, "fallback");
+        assert.deepEqual((yield* readSideChatThread(secondThreadId)).sideChat?.opening, {
+          status: "ready",
+          text: "RETRY SUMMARY",
+          requestId: secondRequestId,
+        });
+      }).pipe(Effect.provide(harness.layer));
+    });
+  });
+
+  it.effect("records a failed summary instead of failing the effect", () => {
+    const harness = makeHarness({
+      generateSideChatText: () =>
+        Effect.fail(
+          new TextGenerationError({
+            operation: "generateSideChatText",
+            detail: "model unavailable",
+          }),
+        ),
+    });
+    return Effect.gen(function* () {
       yield* seedPending(OPEN_REQUEST_ID);
 
       yield* executeOpening(OPEN_REQUEST_ID);
 
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      const secondThreadId = ThreadId.make("thread:side-chat:failed-again");
+      yield* seedPending("command:side-chat:failed-again", observationAnchor(), {
+        createLesson: false,
+        threadId: secondThreadId,
+      });
+      yield* executeOpening("command:side-chat:failed-again", secondThreadId);
+      assert.equal(harness.generateSideChatText.mock.calls.length, 2);
+
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "failed",
         text: null,
         requestId: OPEN_REQUEST_ID,
       });
-    }).pipe(
-      Effect.provide(
-        makeHarness({
-          generateSideChatText: () =>
-            Effect.fail(
-              new TextGenerationError({
-                operation: "generateSideChatText",
-                detail: "model unavailable",
-              }),
-            ),
-        }).layer,
-      ),
-    ),
-  );
+    }).pipe(Effect.provide(harness.layer));
+  });
 
-  it.effect("falls back when the model has nothing to summarize", () =>
-    Effect.gen(function* () {
+  it.effect("does not cache a fallback result", () => {
+    const harness = makeHarness({ generateSideChatText: () => Effect.succeed({ text: null }) });
+    return Effect.gen(function* () {
       yield* seedPending(OPEN_REQUEST_ID);
 
       yield* executeOpening(OPEN_REQUEST_ID);
 
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      const secondThreadId = ThreadId.make("thread:side-chat:fallback-again");
+      const secondRequestId = "command:side-chat:fallback-again";
+      yield* seedPending(secondRequestId, observationAnchor(), {
+        createLesson: false,
+        threadId: secondThreadId,
+      });
+      yield* executeOpening(secondRequestId, secondThreadId);
+      assert.equal(harness.generateSideChatText.mock.calls.length, 2);
+
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "fallback",
         text: null,
         requestId: OPEN_REQUEST_ID,
       });
-    }).pipe(
-      Effect.provide(
-        makeHarness({ generateSideChatText: () => Effect.succeed({ text: null }) }).layer,
-      ),
-    ),
-  );
+    }).pipe(Effect.provide(harness.layer));
+  });
 
   it.effect("falls back when the highlighted reply is gone", () => {
     const harness = makeHarness();
@@ -261,7 +416,7 @@ describe("SideChatOpeningService", () => {
 
       yield* executeOpening(OPEN_REQUEST_ID);
 
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "fallback",
         text: null,
         requestId: OPEN_REQUEST_ID,
@@ -278,7 +433,7 @@ describe("SideChatOpeningService", () => {
       yield* executeOpening("command:side-chat:older");
 
       assert.equal(harness.generateSideChatText.mock.calls.length, 0);
-      assert.deepEqual((yield* readSideChatThread).sideChat?.opening, {
+      assert.deepEqual((yield* readSideChatThread()).sideChat?.opening, {
         status: "pending",
         text: null,
         requestId: OPEN_REQUEST_ID,

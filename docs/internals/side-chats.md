@@ -32,6 +32,10 @@ starts. Neither effect fails: errors are recorded on the side chat as `failed`, 
 row pins the lesson's worktree. Text uses the lesson provider's text model, its small default or the
 global setting ([`resolveSideChatTextModel`](../../packages/shared/src/serverSettings.ts)), in an empty
 temp directory so the project's `AGENTS.md` and `CLAUDE.md` cannot leak into summaries.
+Side chats opened from the same conversation state with the same text model share one summary,
+including while one is still being written. That state is the anchor thread's visible messages plus,
+for a nested side chat, the parent side chat's summary. A new or changed message produces a fresh
+summary. The cache is in memory, so a server restart writes a new one.
 
 ## Context in
 
