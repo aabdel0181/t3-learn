@@ -793,6 +793,8 @@ it("hands the cursor to the lesson when Discard closes the side chat's tab", asy
 
   (actions.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitem", { name: "Side chat settings" })).toHaveFocus();
+  await userEvent.keyboard("{ArrowDown}");
   await expect.element(page.getByRole("menuitem", { name: "Discard" })).toHaveFocus();
   await userEvent.keyboard("{Enter}");
 

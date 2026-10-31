@@ -4329,6 +4329,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       creationSource: command.creationSource,
       createdAt: now,
     });
+    const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+    const configuredSideChatModel = settings.sideChatModelSelection;
+    if (
+      configuredSideChatModel !== null &&
+      resolveProjectProviderInstanceEnabled(
+        settings,
+        anchorThread.projectId,
+        configuredSideChatModel.instanceId,
+      )
+    ) {
+      const metadata =
+        providerAdapters.getMetadata === undefined
+          ? undefined
+          : yield* providerAdapters
+              .getMetadata(configuredSideChatModel.instanceId)
+              .pipe(Effect.orElseSucceed(() => undefined));
+      if (metadata?.enabled === true) {
+        Object.assign(thread, {
+          providerInstanceId: configuredSideChatModel.instanceId,
+          modelSelection: configuredSideChatModel,
+        });
+      }
+    }
     yield* emit(
       events,
       command,

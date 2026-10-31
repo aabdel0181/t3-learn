@@ -290,6 +290,34 @@ it("frames the side chat and gives the summary and the highlight", () => {
   assert.notInclude(text, "LESSON-TOPIC");
 });
 
+it("keeps the default framing byte-identical for blank instructions", () => {
+  const text = buildSideChatOpeningSummaryText({
+    opening: READY_OPENING,
+    excerpt: "observation space",
+    excerptContext: "",
+    lessonTopic: null,
+    parentOpeningText: null,
+    sideChatInstructions: "   ",
+  });
+  assert.strictEqual(text.split("\n\n", 1)[0], SIDE_CHAT_OPENING_FRAMING);
+});
+
+it("replaces only the teaching line when custom instructions are set", () => {
+  const text = buildSideChatOpeningSummaryText({
+    opening: READY_OPENING,
+    excerpt: "observation space",
+    excerptContext: "",
+    lessonTopic: null,
+    parentOpeningText: null,
+    sideChatInstructions: "Use a concrete example.",
+  });
+
+  const lines = text.split("\n");
+  assert.strictEqual(lines[0], SIDE_CHAT_OPENING_FRAMING.split("\n")[0]);
+  assert.strictEqual(lines[1], "Use a concrete example.");
+  assert.strictEqual(lines[2], SIDE_CHAT_OPENING_FRAMING.split("\n")[2]);
+});
+
 it.each(["pending", "fallback", "failed"] as const)(
   "falls back to the lesson topic when the summary is %s",
   (status) => {
@@ -335,6 +363,34 @@ it("does not split an emoji when clipping the lesson topic", () => {
   });
 
   assert.include(text, `${"T".repeat(998)}…\n\n`);
+  assert.isFalse(LONE_SURROGATE.test(text));
+});
+
+it("clips custom instructions on UTF-8 boundaries", () => {
+  const instructions = `${"x".repeat(1997)}😀y`;
+  const text = buildSideChatOpeningSummaryText({
+    opening: READY_OPENING,
+    excerpt: "x",
+    excerptContext: "",
+    lessonTopic: null,
+    parentOpeningText: null,
+    sideChatInstructions: instructions,
+  });
+  assert.isFalse(LONE_SURROGATE.test(text));
+  assert.include(text, `${"x".repeat(1997)}\nDon't change files`);
+});
+
+it("keeps non-Latin instructions within the byte cap", () => {
+  const text = buildSideChatOpeningSummaryText({
+    opening: READY_OPENING,
+    excerpt: "x",
+    excerptContext: "",
+    lessonTopic: null,
+    parentOpeningText: null,
+    sideChatInstructions: "я".repeat(1900),
+  });
+  const teaching = text.split("\n")[1]!;
+  assert.isAtMost(new TextEncoder().encode(teaching).length, 2000);
   assert.isFalse(LONE_SURROGATE.test(text));
 });
 

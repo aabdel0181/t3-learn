@@ -278,6 +278,8 @@ export function layerWithRegistry<Error>(
     readonly continueThreadsAfterServerUpdate?: boolean;
     /** The model behind every side-chat summary and note; it writes nothing by default. */
     readonly sideChatTextGeneration?: TextGeneration.TextGeneration["Service"]["generateSideChatText"];
+    readonly providers?: ReadonlyArray<import("@t3tools/contracts").ServerProvider>;
+    readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
   } = {},
 ): Layer.Layer<
   | Orchestrator.OrchestratorV2
@@ -306,6 +308,7 @@ export function layerWithRegistry<Error>(
   );
   const layerServerSettings = ServerSettings.layerTest({
     responseStreamingMode: "turn",
+    ...options.settings,
     ...(options.continueThreadsAfterServerUpdate === undefined
       ? {}
       : { continueThreadsAfterServerUpdate: options.continueThreadsAfterServerUpdate }),
@@ -415,6 +418,9 @@ export function layerWithRegistry<Error>(
         layerRuntime,
         layerServerConfig,
         layerServerSettings,
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed(options.providers ?? []),
+        }),
       ),
     ),
   );

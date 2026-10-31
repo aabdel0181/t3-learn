@@ -166,6 +166,22 @@ function makeRegistry(
       return adapter;
     }),
     list: () => Effect.succeed(adapters.map((adapter) => adapter.instanceId)),
+    getMetadata: Effect.fn("ProviderAdapterRegistry.getMetadata")(function* (instanceId) {
+      const adapter = adapters.find((candidate) => candidate.instanceId === instanceId);
+      if (!adapter) return yield* new ProviderAdapterRegistryLookupError({ instanceId });
+      return {
+        driver: adapter.driver,
+        continuationKey: String(adapter.instanceId),
+        enabled: true,
+        capabilities: yield* adapter
+          .getCapabilities()
+          .pipe(
+            Effect.mapError(
+              (cause) => new ProviderAdapterRegistryMetadataError({ instanceId, cause }),
+            ),
+          ),
+      };
+    }),
   };
 }
 

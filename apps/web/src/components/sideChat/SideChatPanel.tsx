@@ -86,6 +86,7 @@ import {
 import { ComposerPendingUserInputPanel } from "../chat/ComposerPendingUserInputPanel";
 import { createPageScrollController } from "../chat/pageScrollController";
 import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
+import { useProviderWorkspaceSnapshotRefresh } from "../chat/useProviderWorkspaceSnapshotRefresh";
 import { Button } from "../ui/button";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -194,6 +195,25 @@ export function SideChatPanel(props: {
     shell === null ? null : scopeProjectRef(environmentId, shell.projectId),
   );
   const workspaceRoot = shell?.worktreePath ?? project?.workspaceRoot ?? undefined;
+  const refreshWorkspaceSnapshotOnTyping = useProviderWorkspaceSnapshotRefresh({
+    environmentId,
+    gitCwd: workspaceRoot ?? null,
+    instanceId: shell?.modelSelection.instanceId,
+  });
+  const warmedWorkspaceRef = useRef<string | null>(null);
+  // Warm the provider's workspace skill catalog while a side chat is open.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the provider workspace skill registry while this panel is mounted
+  useEffect(() => {
+    const warmKey = `${sideChatKey}:${shell?.modelSelection.instanceId ?? ""}:${workspaceRoot ?? ""}`;
+    if (warmedWorkspaceRef.current === warmKey) return;
+    warmedWorkspaceRef.current = warmKey;
+    refreshWorkspaceSnapshotOnTyping();
+  }, [
+    refreshWorkspaceSnapshotOnTyping,
+    sideChatKey,
+    shell?.modelSelection.instanceId,
+    workspaceRoot,
+  ]);
   const activityRun = projection === null ? null : deriveThreadActivityRun(projection);
   const runtime = projection === null ? null : deriveThreadStructureRuntime(projection);
   const runActive = activityRun !== null && !isLatestRunSettled(activityRun, runtime);
@@ -606,6 +626,17 @@ export function SideChatPanel(props: {
                   return false;
                 }}
               >
+                <MenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: "/settings/threads",
+                      search: { machine: environmentId },
+                      hash: "side-chat-model",
+                    })
+                  }
+                >
+                  Side chat settings
+                </MenuItem>
                 <MenuItem
                   variant="destructive"
                   onClick={() => {

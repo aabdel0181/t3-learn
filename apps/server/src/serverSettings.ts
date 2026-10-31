@@ -435,6 +435,7 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "providerHealthRefreshInterval",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
+  "sideChatModelSelection",
   "textGenerationModelSelection",
   "fallbackModelSelection",
   "pullRequestMergeMethod",

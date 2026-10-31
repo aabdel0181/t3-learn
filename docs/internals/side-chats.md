@@ -52,6 +52,18 @@ the summary in its own opening, which drops a late summary still carried from a 
 is the record because the summary can land while a turn start, which holds no lock, is writing a
 fallback opening.
 
+A new side chat, including nested ones, starts with `sideChatModelSelection` when that instance is
+enabled; otherwise it uses the anchor's model. It may use another provider than the lesson, and that
+provider receives the opening: the lesson summary, the highlight and the text around it. Summaries
+and notes still use the lesson's text model described above. Skills are appended as `$name` after the
+user text, in provider text only, on the turn that delivers the opening (the first turn or a later
+fresh native thread), when the run's provider lists them in its cached catalog (the run's cwd snapshot
+if a client warmed it, otherwise the machine list); nothing is scanned at turn start. A
+first message that is a slash command, `/goal` or `/compact` gets none. After `/goal` or `/compact`,
+Claude's opening and skills wait for the next turn, while Codex injects the opening during the command
+turn. Grok expands only a leading mention, so it gets none; Claude expands one skill natively per
+message; OpenCode v1, Antigravity, the ACP registry and Muse get the text only.
+
 Notes attach at run start, not dispatch, so a queued message sees notes that became ready meanwhile.
 [`awaitNotesForRunStart`](../../apps/server/src/orchestration-v2/sideChat/SideChatLifecycleService.ts)
 runs inside the `provider-turn.start` effect. It returns before any tree read unless a person sent the
@@ -102,6 +114,8 @@ The fork's service-switch script, not the server, is where both are checked. Rou
   `sideChatNoteDeliveries`. After a later switch forward, those side chats show as ordinary forks, and
   ready notes may be sent to the lesson once more.
 - Persisted side-chat and Map panel tabs show as blank tabs on an official client; close them.
+- The Side chats settings are environment-wide `settings.json` keys; an official server drops them
+  when it rewrites the file.
 
 Older servers reject the commands and strip the optional fields, so clients hide every entry point
 unless the server advertises `sideChats`

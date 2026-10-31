@@ -324,6 +324,34 @@ export const SIDE_CHAT_OPENING_FRAMING = [
   "Don't change files unless the user explicitly asks you to.",
 ].join("\n");
 
+const SIDE_CHAT_DEFAULT_TEACHING_LINE =
+  "Answer at their level, briefly and clearly, and stay on the highlighted topic; the lesson continues elsewhere.";
+const SIDE_CHAT_INSTRUCTIONS_BYTE_CAP = 2_000;
+
+function clipSideChatInstructions(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.length <= SIDE_CHAT_INSTRUCTIONS_BYTE_CAP) return value;
+  let end = Math.min(value.length, SIDE_CHAT_INSTRUCTIONS_BYTE_CAP);
+  while (
+    end > 0 &&
+    new TextEncoder().encode(value.slice(0, end)).length > SIDE_CHAT_INSTRUCTIONS_BYTE_CAP
+  ) {
+    end -= 1;
+  }
+  return value.slice(0, safeCut(value, end));
+}
+
+function sideChatOpeningFraming(instructions: string | undefined): string {
+  const teaching = clipSideChatInstructions(
+    instructions?.trim() || SIDE_CHAT_DEFAULT_TEACHING_LINE,
+  );
+  return [
+    "You are in a side chat. The user is learning in a separate main conversation (the lesson), highlighted part of an answer there, and opened this chat to ask about it.",
+    teaching,
+    "Don't change files unless the user explicitly asks you to.",
+  ].join("\n");
+}
+
 const OPENING_TOPIC_MAX_CHARS = 1_000;
 
 function clipLessonTopic(topic: string): string {
@@ -366,9 +394,11 @@ export function buildSideChatOpeningSummaryText(input: {
   readonly excerptContext: string;
   readonly lessonTopic: string | null;
   readonly parentOpeningText: string | null;
+  readonly sideChatInstructions?: string;
 }): string {
-  const { opening, excerpt, excerptContext, lessonTopic, parentOpeningText } = input;
-  const sections = [SIDE_CHAT_OPENING_FRAMING];
+  const { opening, excerpt, excerptContext, lessonTopic, parentOpeningText, sideChatInstructions } =
+    input;
+  const sections = [sideChatOpeningFraming(sideChatInstructions)];
   if (parentOpeningText !== null) {
     sections.push(`Context from the side chat this one was opened from:\n${parentOpeningText}`);
   }
