@@ -59,7 +59,7 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       ? null
       : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
   }) as never,
-  useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
+  useTimelineVisibleTurnItems: (() => state.visibleTurnItems) as never,
   useSideChatMarks: ((ref: { threadId: string } | null, messageId: string) =>
     ref === null
       ? state.noMarks
@@ -268,7 +268,7 @@ function setup(dispatchResult: Promise<unknown> = Promise.resolve(AsyncResult.su
 
 /** Shows `threadId` in the tab of the top-level side chat `topThreadId`. */
 function showSideChat(topThreadId: string, threadId: string) {
-  useRightPanelStore.getState().openSideChat(LESSON_REF, { topThreadId, threadId });
+  useRightPanelStore.getState().openLessonSideChat(LESSON_REF, { topThreadId, threadId });
 }
 
 /** The replies the panel's timeline was asked to reveal, one per activation. */
@@ -283,7 +283,7 @@ const surfaces = () =>
 function Panel(props: { readonly onFocusLesson: () => void }) {
   const surface = useRightPanelStore((store) =>
     selectThreadRightPanelState(store.byThreadKey, LESSON_REF).surfaces.find(
-      (entry): entry is SideChatSurface => entry.kind === "side-chat",
+      (entry): entry is SideChatSurface => entry.kind === "lesson-side-chat",
     ),
   );
   if (surface === undefined) return null;
@@ -426,7 +426,7 @@ function ActiveTab() {
   if (surface?.kind === "thread-map") {
     return <SideChatMapSurface threadRef={LESSON_REF} onFocusLesson={() => {}} />;
   }
-  if (surface?.kind !== "side-chat") return null;
+  if (surface?.kind !== "lesson-side-chat") return null;
   return (
     <SideChatPanel
       key={`${scopedThreadKey(LESSON_REF)}:${surface.id}`}
@@ -458,9 +458,9 @@ it("focuses another top-level side chat opened from an in-panel map", async () =
   setup();
   state.shells = [LESSON_SHELL, SIDE_1, SIDE_2];
   const panels = useRightPanelStore.getState();
-  panels.openSideChat(LESSON_REF, { topThreadId: "side-1", threadId: "side-1" });
+  panels.openLessonSideChat(LESSON_REF, { topThreadId: "side-1", threadId: "side-1" });
   panels.setSideChatView(LESSON_REF, "side-chat:side-1", "map");
-  panels.openSideChat(LESSON_REF, { topThreadId: "side-2", threadId: "side-2" });
+  panels.openLessonSideChat(LESSON_REF, { topThreadId: "side-2", threadId: "side-2" });
   panels.activateSurface(LESSON_REF, "side-chat:side-1");
   const container = document.createElement("div");
   container.style.cssText = "height: 480px; width: 900px; display: flex; flex-direction: column;";
@@ -471,7 +471,12 @@ it("focuses another top-level side chat opened from an in-panel map", async () =
   await expect.element(composer(screen)).toHaveFocus();
   expect(
     selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
-  ).toContainEqual({ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1", view: "map" });
+  ).toContainEqual({
+    id: "side-chat:side-1",
+    kind: "lesson-side-chat",
+    threadId: "side-1",
+    view: "map",
+  });
 });
 
 it("toggles the side-chat map, walks back to chat with its draft, and keeps lesson focus on the map", async () => {
@@ -603,7 +608,7 @@ it("Done on a nested side chat returns to its parent without waiting for the not
   expect(surfaces()).toEqual([
     {
       id: "side-chat:side-1",
-      kind: "side-chat",
+      kind: "lesson-side-chat",
       threadId: "side-1",
       trail: ["side-1", "nested-1"],
     },
@@ -628,7 +633,7 @@ it("Done on a top-level side chat closes its tab and remembers it for reopening"
       id: expect.any(String),
       kind: "panel-tab",
       threadRef: LESSON_REF,
-      surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+      surface: { id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "side-1" },
     },
   ]);
 });
@@ -727,7 +732,7 @@ it("walks the breadcrumb Lesson › observation space › Box in place", async (
   expect(surfaces()).toEqual([
     {
       id: "side-chat:side-1",
-      kind: "side-chat",
+      kind: "lesson-side-chat",
       threadId: "side-1",
       trail: ["side-1", "nested-1"],
     },
@@ -735,7 +740,9 @@ it("walks the breadcrumb Lesson › observation space › Box in place", async (
   await expect.element(crumb(screen, "observation space")).toHaveAttribute("aria-current", "page");
 
   await crumb(screen, "Box").click();
-  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+  expect(surfaces()).toEqual([
+    { id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "nested-1" },
+  ]);
 
   await crumb(screen, "Lesson").click();
   expect(onFocusLesson).toHaveBeenCalledOnce();
@@ -927,7 +934,9 @@ it("reveals a side-chat reply cited in its draft in the panel, not on the side c
 
   await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
-  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
+  expect(surfaces()).toEqual([
+    { id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "side-1" },
+  ]);
 });
 
 it("goes to the source of a sent side-chat citation in the panel, not on its route", async () => {
@@ -941,7 +950,9 @@ it("goes to the source of a sent side-chat citation in the panel, not on its rou
 
   await vi.waitFor(() => expect(citedReplies()).toEqual([SIDE_1_REPLY]));
   expect(screen.router?.state.location.pathname).toBe(LESSON_PATH);
-  expect(surfaces()).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
+  expect(surfaces()).toEqual([
+    { id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "side-1" },
+  ]);
 });
 
 it("leaves the lesson's find alone while the side chat's timeline shows", async () => {

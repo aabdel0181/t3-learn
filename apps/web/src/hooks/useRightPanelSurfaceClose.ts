@@ -1,10 +1,11 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  AuthOrchestrationOperateScope,
   AuthPreviewOperateScope,
   AuthTerminalOperateScope,
   type ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
 import { closePreviewSession } from "../components/preview/closePreviewSession";
@@ -21,9 +22,11 @@ import {
   useRightPanelStore,
   type RightPanelSurface,
 } from "../rightPanelStore";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readThreadShell } from "../state/entities";
 import { previewEnvironment } from "../state/preview";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
+import { environmentShell } from "../state/shell";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
@@ -31,7 +34,8 @@ import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
 
 /**
- * Closing releases preview and terminal sessions, and a side chat nobody wrote to.
+ * Closing releases preview and terminal sessions, deletes a side chat that never ran,
+ * and finishes a T3 Learn side chat nobody wrote to.
  * Agent-driven browsers and terminal tabs require confirmation.
  */
 export function useRightPanelSurfaceClose(input: {
@@ -40,6 +44,7 @@ export function useRightPanelSurfaceClose(input: {
 }) {
   const { threadRef, terminalLabelsById } = input;
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
+  const deleteThread = useAtomCommand(threadEnvironment.delete, "side chat delete");
   const finishSideChat = useOrchestrationCommand(threadEnvironment.finishSideChat, {
     reportFailure: false,
   });
@@ -70,10 +75,10 @@ export function useRightPanelSurfaceClose(input: {
     ) {
       for (const terminalId of surface.terminalIds) {
         storeCloseTerminal(ref, terminalId);
-        terminalActions.closeTerminalSession(terminalId);
+        terminalActions.closeTerminalSession(terminalId, ref);
       }
     }
-    if (surface.kind === "side-chat") {
+    if (surface.kind === "lesson-side-chat") {
       const sideChatRef = scopeThreadRef(ref.environmentId, ThreadId.make(surface.threadId));
       const shell = readThreadShell(sideChatRef);
       // The server throws the empty side chat away, so it leaves no mark in the lesson,
@@ -88,6 +93,21 @@ export function useRightPanelSurfaceClose(input: {
           }
         });
       }
+    }
+    if (
+      surface.kind === "side-chat" &&
+      readEnvironmentScope(ref.environmentId, AuthOrchestrationOperateScope) &&
+      // A live shell without the side chat means it is already deleted.
+      !(
+        appAtomRegistry.get(environmentShell.stateValueAtom(ref.environmentId)).status === "live" &&
+        readThreadShell(scopeThreadRef(ref.environmentId, surface.threadId)) === null
+      )
+    ) {
+      // The server keeps a side chat with a run or message. Reopen skips one it deleted.
+      void deleteThread({
+        environmentId: ref.environmentId,
+        input: { threadId: surface.threadId, onlyIfUnused: true },
+      });
     }
   };
   const closeAfterAgentBrowserConfirmation = (

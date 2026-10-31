@@ -27,6 +27,7 @@ import {
   type KeybindingWhenNode,
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
+  supportsLessonSideChats,
 } from "@t3tools/contracts";
 import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import {
@@ -852,8 +853,13 @@ function WhenClauseControl({
   onChange: (value: KeybindingWhenNode | undefined) => void;
   onValidityChange: (valid: boolean) => void;
 }) {
+  // Closing unmounts the builder, which drops an unparsed draft and keeps the last valid value.
+  const handleOpenChange = (open: boolean) => {
+    if (!open) onValidityChange(true);
+  };
+
   return (
-    <Popover>
+    <Popover onOpenChange={handleOpenChange}>
       <PopoverTrigger
         render={
           <Button
@@ -1276,16 +1282,16 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
   return ids;
 }
 
-// Cache rows in a separate hook, keyed on the keybindings and the sideChats
-// capability, so the compiler does not rebuild them per search keystroke.
+// Cache rows in a separate hook, keyed on the keybindings and the T3 Learn side
+// chats capability, so the compiler does not rebuild them per search keystroke.
 function useKeybindingCatalog() {
   const serverConfig = useSettingsScope().environment?.serverConfig;
   const serverKeybindings = serverConfig?.keybindings;
-  const sideChats = serverConfig?.environment.capabilities.sideChats === true;
+  const lessonSideChats = serverConfig ? supportsLessonSideChats(serverConfig.environment) : false;
   const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
   return {
-    commandOptions: buildKeybindingCommandOptions(merged, sideChats),
-    allRows: buildKeybindingRows(merged, sideChats),
+    commandOptions: buildKeybindingCommandOptions(merged, lessonSideChats),
+    allRows: buildKeybindingRows(merged, navigator.platform, lessonSideChats),
   };
 }
 

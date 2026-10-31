@@ -1,4 +1,5 @@
 import {
+  isListedThreadLineage,
   isOlderSettledThreadShell,
   isSideChatThread,
   ORCHESTRATION_V2_WS_METHODS,
@@ -78,7 +79,7 @@ export function olderSettledCountKey(
   for (const sequence of removedAt.values()) lastRemoval = Math.max(lastRemoval, sequence);
   const rows: string[] = [];
   for (const thread of threads) {
-    if (thread.lineage.relationshipToParent === "subagent" || isSideChatThread(thread)) continue;
+    if (!isListedThreadLineage(thread.lineage) || isSideChatThread(thread)) continue;
     const older = isOlderSettledThreadShell(thread, beforeMs);
     if (older || DateTime.toEpochMillis(thread.createdAt) < beforeMs) {
       rows.push(`${thread.id}:${older ? 1 : 0}`);
