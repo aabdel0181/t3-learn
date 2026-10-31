@@ -706,7 +706,10 @@ export function useComposerStash(input: {
       {
         capture: true,
         context: readShortcutContext,
-        when: (event) => !isInSideChatPane(event.target),
+        // T3 Learn's panel reaches the handler, which claims the chord there and does nothing.
+        when: (event) =>
+          !isInSideChatPane(event.target) ||
+          eventPathContainsSelector(event, SIDE_CHAT_PANEL_SELECTOR),
       },
     );
   }, [backgroundThread, handleStashShortcut, readShortcutContext]);
