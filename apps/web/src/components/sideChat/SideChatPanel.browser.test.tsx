@@ -10,6 +10,8 @@ import {
   type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
   ProviderSessionId,
+  ProviderInstanceId,
+  RunId,
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
@@ -18,7 +20,9 @@ import {
   collectAssistantCitations,
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
+import { createModelSelection } from "@t3tools/shared/model";
 import { AsyncResult } from "effect/reactivity";
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -45,6 +49,8 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       ? null
       : (state.shells.find((shell) => shell.id === ref.threadId) ?? null)) as never,
   useQuietThreadProjection: ((ref: { threadId: string } | null) =>
+    ref === null ? null : (state.projections[ref.threadId] ?? null)) as never,
+  useThreadProjection: ((ref: { threadId: string } | null) =>
     ref === null ? null : (state.projections[ref.threadId] ?? null)) as never,
   useSideChatNoteDelivered: ((
     parentRef: { threadId: string } | null,
@@ -109,8 +115,8 @@ vi.mock(import("../../hooks/useSettings"), async (importOriginal) => ({
   ...(await importOriginal()),
   useEnvironmentSettings: ((
     _environmentId: EnvironmentId,
-    selector: (settings: { sendShortcut: "enter" }) => unknown,
-  ) => selector({ sendShortcut: "enter" })) as never,
+    selector: (settings: typeof DEFAULT_UNIFIED_SETTINGS) => unknown,
+  ) => selector({ ...DEFAULT_UNIFIED_SETTINGS, sendShortcut: "enter" })) as never,
 }));
 
 import { act, render, type Screen } from "../../../test/render";
@@ -587,6 +593,63 @@ it("asks for a follow-up once the side chat has a message", async () => {
   await expect.element(composer(screen)).toHaveAttribute("aria-placeholder", "Ask a follow-up…");
 });
 
+it("shows the side chat's queued messages under its timeline", async () => {
+  setup();
+  const at = makeThreadProjectionFixture().updatedAt;
+  const run = (id: string, ordinal: number, status: "running" | "queued") =>
+    ({
+      id: RunId.make(id),
+      threadId: SIDE_1.id,
+      ordinal,
+      providerInstanceId: SIDE_1.modelSelection.instanceId,
+      modelSelection: SIDE_1.modelSelection,
+      providerThreadId: null,
+      userMessageId: MessageId.make(`${id}-question`),
+      rootNodeId: null,
+      activeAttemptId: null,
+      status,
+      requestedAt: at,
+      startedAt: status === "running" ? at : null,
+      completedAt: null,
+      checkpointId: null,
+      contextHandoffId: null,
+    }) satisfies OrchestrationV2ThreadProjection["runs"][number];
+  const question = (runId: string, text: string) =>
+    ({
+      id: MessageId.make(`${runId}-question`),
+      threadId: SIDE_1.id,
+      runId: RunId.make(runId),
+      nodeId: null,
+      role: "user",
+      text,
+      attachments: [],
+      streaming: false,
+      createdBy: "user",
+      creationSource: "web",
+      createdAt: at,
+      updatedAt: at,
+    }) satisfies OrchestrationV2ThreadProjection["messages"][number];
+  state.shells = [LESSON_SHELL, SIDE_1];
+  state.projections = {
+    "side-1": sideChatProjection(
+      SIDE_1,
+      {},
+      {
+        runs: [run("run-1", 1, "running"), run("run-2", 2, "queued")],
+        messages: [
+          question("run-1", "What is a Box?"),
+          question("run-2", "Is a Discrete space a Box too?"),
+        ],
+      },
+    ),
+  };
+  showSideChat("side-1", "side-1");
+  await using screen = await renderPanel();
+  const queue = screen.getByRole("region", { name: "1 queued message" });
+  await expect.element(queue.getByText("Is a Discrete space a Box too?")).toBeVisible();
+  await expect.element(queue.getByRole("button", { name: "Edit queued message" })).toBeDisabled();
+});
+
 it("Done on a nested side chat returns to its parent without waiting for the note", async () => {
   // The finish never settles: the panel must not wait for the note.
   const dispatch = setup(new Promise(() => {}));
@@ -641,6 +704,23 @@ it("Discard finishes the side chat without a note and forgets its draft", async 
   };
   state.shells = [LESSON_SHELL, written];
   useComposerDraftStore.getState().setPrompt(sideChatRef("side-1"), "And the reward?");
+  const file = new File([new Uint8Array([137, 80, 78])], "reward.png", { type: "image/png" });
+  useComposerDraftStore.getState().addImage(sideChatRef("side-1"), {
+    type: "image",
+    id: "reward-image",
+    name: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    previewUrl: URL.createObjectURL(file),
+    file,
+  });
+  useComposerDraftStore
+    .getState()
+    .setModelSelection(
+      sideChatRef("side-1"),
+      createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3"),
+      { explicit: true },
+    );
   showSideChat("side-1", "side-1");
   await using screen = await renderPanel();
 
@@ -652,7 +732,9 @@ it("Discard finishes the side chat without a note and forgets its draft", async 
     input: { threadId: "side-1", discard: true },
   });
   expect(surfaces()).toEqual([]);
-  await vi.waitFor(() => expect(draft("side-1")).toBe(""));
+  await vi.waitFor(() =>
+    expect(useComposerDraftStore.getState().getComposerDraft(sideChatRef("side-1"))).toBeNull(),
+  );
 });
 
 it("Done on an empty side chat forgets its draft, which nothing can reach once it is deleted", async () => {

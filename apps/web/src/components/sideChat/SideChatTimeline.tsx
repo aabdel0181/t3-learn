@@ -1,4 +1,5 @@
 import type { LegendListRef } from "@legendapp/list/react";
+import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
@@ -48,6 +49,7 @@ export function SideChatTimeline(props: {
   readonly label: string | null;
   readonly detailLoading: boolean;
   readonly optimisticMessages: ReadonlyArray<ChatMessage>;
+  readonly attachmentUrlById?: ReadonlyMap<string, string>;
   readonly listRef: React.RefObject<LegendListRef | null>;
   readonly citationRequest: AssistantCitationRequest | null;
   readonly askInSideChatPending: boolean;
@@ -71,6 +73,7 @@ export function SideChatTimeline(props: {
     requestId: RuntimeRequestId,
     decision: ProviderApprovalDecision,
   ) => Promise<unknown>;
+  readonly footer?: ReactNode;
 }) {
   const { projection, workspaceRoot } = props;
   const sideChatKey = scopedThreadKey(props.sideChatRef);
@@ -136,6 +139,9 @@ export function SideChatTimeline(props: {
         threadDetailRef={props.detailRef}
         entriesInput={{
           optimisticMessages: props.optimisticMessages,
+          ...(props.attachmentUrlById === undefined
+            ? {}
+            : { attachmentUrlById: props.attachmentUrlById }),
           ...(projection === null
             ? {}
             : { attempts: projection.attempts, nodes: projection.nodes, plans: projection.plans }),
@@ -191,6 +197,7 @@ export function SideChatTimeline(props: {
           )
         }
         emptyPlaceholderInset={0}
+        footer={props.footer}
       />
       {follow.showScrollToBottom ? (
         <ScrollToEndButton bottom={4} summary={null} onScrollToEnd={scrollToEnd} />

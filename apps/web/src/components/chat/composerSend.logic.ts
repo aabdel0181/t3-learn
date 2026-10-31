@@ -5,6 +5,8 @@ import type {
 } from "@t3tools/contracts";
 import { collectInlineContextIds } from "../../lib/composerContextReferences";
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
+import { getAntigravitySendBlockReason } from "../ChatView.logic";
 import { formatOutgoingPrompt, withMessageContext } from "../ChatView.logic";
 import { getComposerPromptLengthValidationMessage } from "./composerSubmission";
 
@@ -95,8 +97,9 @@ export type SideChatSendPlan =
         | "in-flight"
         | "starting"
         | "provider-unavailable"
-        | "run-active"
+        | "antigravity-unavailable"
         | "empty";
+      readonly message?: string;
     }
   | { readonly _tag: "AnswerPendingInput" }
   | { readonly _tag: "Invalid"; readonly message: string }
@@ -108,7 +111,7 @@ export type SideChatSendPlan =
 
 /**
  * What Send does in the side-chat composer. The checks run in order: scope, in-flight, starting,
- * pending-input answer, provider, run active, empty, then length. It reuses the lesson
+ * pending-input answer, provider, Antigravity, empty, then length. It reuses the lesson
  * composer's prompt helpers; `useComposerSend`'s own guards carry lesson-only concerns.
  */
 export function planSideChatSend(input: {
@@ -117,10 +120,11 @@ export function planSideChatSend(input: {
   readonly shellReady: boolean;
   readonly answeringPendingUserInput: boolean;
   readonly providerEntry:
-    | Pick<ProviderInstanceEntry, "driverKind" | "enabled" | "isAvailable" | "models">
+    | (Pick<ProviderInstanceEntry, "driverKind" | "enabled" | "isAvailable" | "models"> &
+        Partial<Pick<ProviderInstanceEntry, "snapshot">>)
     | undefined;
   readonly model: string;
-  readonly runActive: boolean;
+  readonly attachmentCount?: number;
   readonly prompt: string;
 }): SideChatSendPlan {
   if (!input.canOperate) return { _tag: "Blocked", reason: "no-operate-scope" };
@@ -131,22 +135,30 @@ export function planSideChatSend(input: {
   if (entry === undefined || !entry.enabled || !entry.isAvailable) {
     return { _tag: "Blocked", reason: "provider-unavailable" };
   }
-  if (input.runActive) return { _tag: "Blocked", reason: "run-active" };
   const text = input.prompt.trim();
-  if (text.length === 0) return { _tag: "Blocked", reason: "empty" };
+  const messageText =
+    text.length === 0
+      ? input.attachmentCount && input.attachmentCount > 0
+        ? ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+        : ""
+      : text;
+  const antigravityBlock = getAntigravitySendBlockReason(entry.snapshot, input.model);
+  if (antigravityBlock !== null)
+    return { _tag: "Blocked", reason: "antigravity-unavailable", message: antigravityBlock };
+  if (messageText.length === 0) return { _tag: "Blocked", reason: "empty" };
   const outgoingText = formatOutgoingPrompt({
     provider: entry.driverKind,
     model: input.model,
     models: entry.models,
     effort: null,
-    text,
+    text: messageText,
   });
   const lengthMessage = getComposerPromptLengthValidationMessage(outgoingText);
   if (lengthMessage !== null) return { _tag: "Invalid", message: lengthMessage };
   return {
     _tag: "Ready",
     outgoingText,
-    // Composer v1 sends text and inline quotes only, so there are no context records to inline.
+    // The side chat sends images as attachments and quotes as text, so there are no context records to inline.
     message: withMessageContext({
       text: outgoingText,
       context: undefined,

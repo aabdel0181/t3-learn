@@ -132,16 +132,19 @@ export function sideChatComposerStatus(input: {
    * its instance was removed, or it is off or not ready.
    */
   readonly providerUnavailable: "missing" | "unavailable" | null;
+  readonly blockedReason?: string | null;
 }):
   | "Starting side chat…"
   | "Preparing context…"
   | typeof SIDE_CHAT_PROVIDER_UNAVAILABLE
   | typeof SIDE_CHAT_PROVIDER_MISSING
+  | string
   | null {
   if (!input.shellExists) return "Starting side chat…";
   if (input.openingStatus === "pending" && input.runActive) return "Preparing context…";
   if (input.providerUnavailable === "missing") return SIDE_CHAT_PROVIDER_MISSING;
   if (input.providerUnavailable === "unavailable") return SIDE_CHAT_PROVIDER_UNAVAILABLE;
+  if (input.blockedReason) return input.blockedReason;
   return null;
 }
 
