@@ -56,14 +56,15 @@ export function resolveVersionMismatch(
 
   const clientCore = versionCore(normalizedClientVersion);
   const serverCore = versionCore(normalizedServerVersion);
-  const compareNightlyBuilds =
-    parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
-    parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly";
+  const clientPrerelease = parseSemver(normalizedClientVersion)?.prerelease[0];
+  const serverPrerelease = parseSemver(normalizedServerVersion)?.prerelease[0];
+  const compareNightlyBuilds = clientPrerelease === "nightly" && serverPrerelease === "nightly";
+  const compareLearnBuilds = clientPrerelease === "learn" && serverPrerelease === "learn";
   const serverIsBehind =
     parseSemver(clientCore) && parseSemver(serverCore)
       ? compareSemverVersions(
-          compareNightlyBuilds ? normalizedServerVersion : serverCore,
-          compareNightlyBuilds ? normalizedClientVersion : clientCore,
+          compareNightlyBuilds || compareLearnBuilds ? normalizedServerVersion : serverCore,
+          compareNightlyBuilds || compareLearnBuilds ? normalizedClientVersion : clientCore,
         ) < 0
       : normalizedServerVersion !== normalizedClientVersion;
   if (!serverIsBehind) {

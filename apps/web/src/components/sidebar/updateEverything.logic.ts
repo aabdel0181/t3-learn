@@ -127,6 +127,7 @@ export function collectServerUpdateTargets(
     targets.push(target);
     if (
       selfUpdate !== "desktop-managed" &&
+      selfUpdate !== "boot-service" &&
       (!releaseArchivesPublished ||
         selfUpdate === "respawn" ||
         compareSemverVersions(serverVersion, RELEASE_ARCHIVE_SELF_UPDATE_SINCE) < 0)
