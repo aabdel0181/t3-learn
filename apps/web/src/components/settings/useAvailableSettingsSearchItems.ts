@@ -11,6 +11,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentScope } from "~/state/session";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
+import { hasSideChatSettings } from "./sideChatSettingsSupport";
 import type { SettingsScopeSearch } from "./settingsScope";
 import {
   filterAvailableSettingsSearchItems,
@@ -41,6 +42,12 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     ) === true;
   const hasThreadAutoSettlement =
     getThreadAutoSettlementSearchAvailability(environments).eligibleEnvironmentIds.length > 0;
+  const hasSideChats = environments.some(
+    (environment) =>
+      environment.connection.phase === "connected" &&
+      environment.serverConfig?.environment.capabilities.sideChats === true &&
+      hasSideChatSettings(environment.serverConfig.settings),
+  );
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const hasPeerLinkHost = usePeerLinkHosts().length > 0;
@@ -67,6 +74,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     canManageLocalBackend,
     isWslSettingsRowVisible: wslSettingsRowVisible,
     hasThreadAutoSettlement,
+    hasSideChats,
     managedTunnelActive,
     hasPeerLinkHost,
   });

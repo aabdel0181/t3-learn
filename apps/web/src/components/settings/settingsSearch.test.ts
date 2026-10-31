@@ -127,6 +127,24 @@ describe("searchSettings", () => {
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
 
+  it("gates side-chat settings on the capability", () => {
+    const base = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: true,
+      hasProviderSettingsEnvironment: true,
+      hasMacProviderSettingsEnvironment: false,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+    };
+    const without = filterAvailableSettingsSearchItems(base);
+    expect(without.some((item) => item.id === "side-chat-model")).toBe(false);
+    const withSideChats = filterAvailableSettingsSearchItems({ ...base, hasSideChats: true });
+    expect(withSideChats.some((item) => item.id === "side-chat-model")).toBe(true);
+    expect(withSideChats.some((item) => item.id === "side-chat-instructions")).toBe(true);
+    expect(withSideChats.some((item) => item.id === "side-chat-skills")).toBe(true);
+  });
+
   it("finds linked environments on a remote host without local maintenance access", () => {
     const availability = {
       hasCloudPublicConfig: false,

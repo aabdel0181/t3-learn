@@ -17,6 +17,8 @@ import {
   RunId,
   ThreadId,
   ProjectId,
+  ServerSettingsError,
+  type ServerProvider,
   type OrchestrationV2SideChat,
   type OrchestrationV2ThreadProjection,
   OrchestrationV2DomainEvent,
@@ -54,6 +56,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
@@ -74,11 +77,14 @@ const normalize = (target: string) => {
   }
   return `/${parts.join("/")}`;
 };
-const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
+const layerWorktreeLocation = (
+  worktreesDir = managedWorktreesDir,
+  settings: Parameters<typeof ServerSettings.layerTest>[0] = {},
+) =>
   Layer.mergeAll(
     Path.layer,
     Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
-    ServerSettings.layerTest(),
+    ServerSettings.layerTest(settings),
   );
 
 function startWithMissingWorktree(
@@ -140,6 +146,7 @@ function startWithMissingWorktree(
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
@@ -293,6 +300,10 @@ function makeLocalCommandHarness(input: {
   readonly failReadsAfterRunning?: boolean;
   readonly sideChat?: OrchestrationV2SideChat;
   readonly awaitSettled?: EffectOutbox.EffectOutboxV2Shape["awaitSettled"];
+  readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
+  readonly providers?: ReadonlyArray<ServerProvider>;
+  readonly captureProviderTurn?: boolean;
+  readonly failSettings?: boolean;
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -555,6 +566,7 @@ function makeLocalCommandHarness(input: {
       if (input.previousTurn?.interruptCurrentRun) interruptRun();
     }),
   );
+  const providerTexts: string[] = [];
   const events: Array<OrchestrationV2DomainEvent> = [];
   const interruptRun = () => {
     projection = {
@@ -614,7 +626,9 @@ function makeLocalCommandHarness(input: {
                   ),
                 ),
               )
-            : input.failReadsAfterRunning === true || input.previousTurn !== undefined
+            : input.failReadsAfterRunning === true ||
+                input.previousTurn !== undefined ||
+                input.captureProviderTurn === true
               ? Effect.succeed({
                   driver: providerThread.driver,
                   providerSession: {
@@ -631,20 +645,48 @@ function makeLocalCommandHarness(input: {
                   },
                   ensureThread: () => Effect.succeed(providerThread),
                   resumeThread: () => Effect.succeed(projection.providerThreads[0]),
+                  ...(input.captureProviderTurn === true
+                    ? {
+                        startTurn: (turn: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                          Effect.sync(() => {
+                            providerTexts.push(turn.message.text);
+                          }),
+                      }
+                    : {}),
                 } as never)
               : Effect.die("A local command must not open a native session."),
   );
   const startRootRun = vi.fn<
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
-  >(() =>
-    input.failReadsAfterRunning === true || input.previousTurn !== undefined
-      ? Effect.suspend(() =>
-          providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
-        )
-      : Effect.die("A local command must not start a native turn."),
+  >((startInput) =>
+    input.captureProviderTurn === true
+      ? startInput.session
+          .startTurn({
+            appThread: startInput.appThread,
+            threadId,
+            runId,
+            runOrdinal: startInput.run.ordinal,
+            ...(startInput.nativeThreadHasTurns === undefined
+              ? {}
+              : { nativeThreadHasTurns: startInput.nativeThreadHasTurns }),
+            providerTurnOrdinal: startInput.providerTurnOrdinal,
+            attemptId: startInput.attemptId,
+            rootNodeId: startInput.rootNode.id,
+            providerThread: startInput.providerThread,
+            message: startInput.message,
+            modelSelection: startInput.modelSelection,
+            runtimePolicy: startInput.runtimePolicy,
+          })
+          .pipe(Effect.asVoid, Effect.orDie)
+      : input.failReadsAfterRunning === true || input.previousTurn !== undefined
+        ? Effect.suspend(() =>
+            providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
+          )
+        : Effect.die("A local command must not start a native turn."),
   );
   const failReadIfRunning = Effect.suspend(() =>
     input.failReadsAfterRunning === true &&
+    input.captureProviderTurn !== true &&
     projection.runs.find((candidate) => candidate.id === runId)?.status === "running"
       ? Effect.fail(
           new ProjectionStore.ProjectionStoreReadError({ threadId, cause: "database unavailable" }),
@@ -718,12 +760,28 @@ function makeLocalCommandHarness(input: {
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed(input.providers ?? []),
+        }),
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
           prepareProviderHandoff: () => Effect.die("history read must fail first"),
         }),
         Layer.mock(EventSink.EventSinkV2)({ write, writeIfRunCurrent }),
         IdAllocator.layer,
-        layerWorktreeLocation(input.worktreesDir),
+        Layer.merge(
+          layerWorktreeLocation(input.worktreesDir, input.settings),
+          input.failSettings === true
+            ? Layer.mock(ServerSettings.ServerSettingsService)({
+                getSettings: Effect.fail(
+                  new ServerSettingsError({
+                    settingsPath: "<test>",
+                    operation: "read-file",
+                    cause: new Error("settings read failed"),
+                  }),
+                ),
+              })
+            : Layer.empty,
+        ),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
           : Layer.succeed(FileSystem.FileSystem, input.fileSystem),
@@ -800,6 +858,7 @@ function makeLocalCommandHarness(input: {
     interruptTurn,
     tryHandlePromptCommand,
     events,
+    providerTexts,
     oldInstanceId,
     newInstanceId,
     attemptId,
@@ -1360,6 +1419,30 @@ effectIt.effect(
       const harness = makeLocalCommandHarness({
         text: "What is an observation space?",
         failReadsAfterRunning: true,
+        captureProviderTurn: true,
+        settings: { sideChatSkills: ["review"] },
+        providers: [
+          {
+            instanceId: ProviderInstanceId.make("codex-personal"),
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+            installed: true,
+            version: null,
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "2026-01-01T00:00:00.000Z",
+            models: [],
+            slashCommands: [],
+            skills: [
+              {
+                name: "review",
+                path: "/skills/review/SKILL.md",
+                enabled: true,
+                userInvocable: true,
+              },
+            ],
+          } satisfies ServerProvider,
+        ],
         sideChat: {
           ...pendingSideChat,
           opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
@@ -1394,8 +1477,70 @@ effectIt.effect(
       yield* harness.start;
 
       expect(harness.startRootRun).toHaveBeenCalledOnce();
-      expect(openingSummaryText(harness.events)).toEqual([]);
+      expect(harness.events).not.toContainEqual(
+        expect.objectContaining({
+          type: "context-handoff.updated",
+          payload: expect.objectContaining({ id: sideChatOpeningHandoffId(run.id) }),
+        }),
+      );
+      expect(harness.providerTexts).toHaveLength(1);
+      expect(harness.providerTexts[0]).toContain("Summary of the lesson so far:\nLESSON SUMMARY");
+      expect(
+        harness.providerTexts[0]!.endsWith("User message:\nWhat is an observation space?\n$review"),
+      ).toBe(true);
     }),
+);
+
+effectIt.effect("uses configured side-chat instructions when building an opening", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "What is an observation space?",
+      failReadsAfterRunning: true,
+      settings: { sideChatInstructions: "Use a concrete example." },
+      sideChat: {
+        ...pendingSideChat,
+        opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
+      },
+    });
+
+    yield* harness.start;
+
+    const [summary] = openingSummaryText(harness.events);
+    expect(summary).toContain("Summary of the lesson so far:\nLESSON SUMMARY");
+    expect(summary).toContain("Use a concrete example.");
+    expect(summary).not.toContain(
+      "Answer at their level, briefly and clearly, and stay on the highlighted topic; the lesson continues elsewhere.",
+    );
+    expect(summary).toContain("Don't change files unless the user explicitly asks you to.");
+  }),
+);
+
+effectIt.effect("uses default side-chat settings when settings cannot be read", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "What is an observation space?",
+      captureProviderTurn: true,
+      failSettings: true,
+      sideChat: {
+        ...pendingSideChat,
+        opening: { ...pendingSideChat.opening, status: "ready", text: "LESSON SUMMARY" },
+      },
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).toHaveBeenCalledOnce();
+    const summaries = openingSummaryText(harness.events);
+    expect(
+      summaries.some((summary) =>
+        summary.includes(
+          "Answer at their level, briefly and clearly, and stay on the highlighted topic; the lesson continues elsewhere.",
+        ),
+      ),
+    ).toBe(true);
+    expect(harness.providerTexts).toHaveLength(1);
+    expect(harness.providerTexts[0]).not.toContain("$");
+  }),
 );
 
 effectIt.effect("leaves a summary that landed before a retried start for the next run", () =>
