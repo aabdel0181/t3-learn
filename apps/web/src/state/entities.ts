@@ -19,7 +19,6 @@ import {
 } from "@t3tools/client-runtime/state/entities";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import {
-  isSideChatThread,
   MessageId,
   type EnvironmentId,
   type OrchestrationV2ProjectedTurnItem,
@@ -29,6 +28,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
+import { isLineageThread } from "@t3tools/client-runtime/state/thread-relationships";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
@@ -366,14 +366,6 @@ function shellParentThreadId(
   return thread.forkedFrom?.type === "run"
     ? thread.forkedFrom.threadId
     : thread.lineage.parentThreadId;
-}
-
-/** Side chats live in their lesson's panel, so Lineage shows one only as the current thread. */
-export function isLineageThread(
-  thread: Pick<OrchestrationV2ThreadShell, "id" | "sideChat">,
-  currentThreadId: ThreadId,
-): boolean {
-  return thread.id === currentThreadId || !isSideChatThread(thread);
 }
 
 /** Retains unchanged reachable shells so unrelated streams do not re-render the panel. */

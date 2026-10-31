@@ -16,6 +16,7 @@ import { deriveProviderSubagentStatus } from "@t3tools/client-runtime/state/thre
 import {
   deriveThreadRelationshipGraph,
   immediateThreadRelationships,
+  isLineageThread,
   isParentThreadRelationship,
   threadRelationshipRowStatus,
   orderWebThreadLineageRows,
@@ -60,7 +61,6 @@ import { useRef, useState, type ReactNode } from "react";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import {
-  isLineageThread,
   useProjects,
   useQuietThreadShell,
   useThreadProjection,

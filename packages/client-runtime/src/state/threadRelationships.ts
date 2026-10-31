@@ -237,6 +237,14 @@ function compareSideChatSiblings(left: SideChatTreeMember, right: SideChatTreeMe
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
+/** Side chats live in their lesson's panel, so Lineage shows one only as the current thread. */
+export function isLineageThread(
+  thread: Pick<OrchestrationV2ThreadShell, "id" | "sideChat">,
+  currentThreadId: ThreadId,
+): boolean {
+  return thread.id === currentThreadId || !isSideChatThread(thread);
+}
+
 /**
  * The lesson and its side chats as rows for the map: the lesson first, then
  * depth-first preorder with siblings in creation order. A side chat whose
