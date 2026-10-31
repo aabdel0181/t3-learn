@@ -1,7 +1,8 @@
-import type {
-  OrchestrationV2PendingBackgroundTask,
-  OrchestrationV2ProviderGoal,
-  ThreadId,
+import {
+  isSideChatThread,
+  type OrchestrationV2PendingBackgroundTask,
+  type OrchestrationV2ProviderGoal,
+  type ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell, ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import {
@@ -48,7 +49,9 @@ export function childInputNowItem(input: {
       <MessageCircleIcon className="text-info-foreground" />
     ),
     title: childThreadInputsTitle(childThreadInputs),
-    waitingLabel: childThreadInputs.every((child) => child.lineage.sideChat === true)
+    waitingLabel: childThreadInputs.every(
+      (child) => child.lineage.sideChat === true || isSideChatThread(child),
+    )
       ? "Side chat waiting"
       : "Subagent waiting",
     description: childThreadInputs.map((child, index) => (
