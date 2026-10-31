@@ -1485,17 +1485,23 @@ describe("side chat surfaces", () => {
     expect(migratePersistedRightPanelState(saved("side-chat"), 15)).toEqual(migrated);
     expect(migratePersistedRightPanelState(saved("lesson-side-chat"))).toEqual(migrated);
 
+    // Official builds save their own side-chat tabs at version 14.
     const upstreamSideChat = { id: "side-chat:side-5", kind: "side-chat", threadId: "side-5" };
-    expect(
-      migratePersistedRightPanelState({
-        byThreadKey: {
-          "env-1:thread-A": {
-            isOpen: true,
-            activeSurfaceId: upstreamSideChat.id,
-            surfaces: [upstreamSideChat],
+    for (const version of [14, 16]) {
+      expect(
+        migratePersistedRightPanelState(
+          {
+            byThreadKey: {
+              "env-1:thread-A": {
+                isOpen: true,
+                activeSurfaceId: upstreamSideChat.id,
+                surfaces: [upstreamSideChat],
+              },
+            },
           },
-        },
-      }).byThreadKey["env-1:thread-A"]?.surfaces,
-    ).toEqual([upstreamSideChat]);
+          version,
+        ).byThreadKey["env-1:thread-A"]?.surfaces,
+      ).toEqual([upstreamSideChat]);
+    }
   });
 });

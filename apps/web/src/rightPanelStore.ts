@@ -637,8 +637,8 @@ export function migratePersistedRightPanelState(
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
-                    // Only T3 Learn wrote "side-chat" tabs before version 16.
-                    if (kind === "lesson-side-chat" || (kind === "side-chat" && version < 16)) {
+                    // T3 Learn wrote "side-chat" tabs only at version 15; official builds write at 14.
+                    if (kind === "lesson-side-chat" || (kind === "side-chat" && version === 15)) {
                       const sideChat = normalizeSideChatSurface({
                         ...surface,
                         kind: "lesson-side-chat",

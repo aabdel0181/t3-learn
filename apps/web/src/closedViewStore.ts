@@ -103,7 +103,7 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
   }
 };
 
-// Only T3 Learn wrote "side-chat" panel tabs before version 3.
+// Before version 3 both builds saved "side-chat" entries; reopen returns an official one to its tab.
 const renameLessonSideChatEntry = (entry: unknown): unknown => {
   const view = entry as { kind?: unknown; surface?: { kind?: unknown } } | null;
   if (view?.kind !== "panel-tab" || view.surface?.kind !== "side-chat") return entry;
