@@ -65,7 +65,7 @@ vi.mock(import("../../state/entities"), async (importOriginal) => ({
       ? null
       : parent.projection.thread.sideChatNoteDeliveries?.[ThreadId.make(sideChatId)] === requestId;
   }) as never,
-  useThreadVisibleTurnItems: (() => state.visibleTurnItems) as never,
+  useTimelineVisibleTurnItems: (() => state.visibleTurnItems) as never,
   useSideChatMarks: ((ref: { threadId: string } | null, messageId: string) =>
     ref === null
       ? state.noMarks
