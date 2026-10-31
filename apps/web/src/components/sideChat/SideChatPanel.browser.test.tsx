@@ -696,6 +696,25 @@ it("Done on a top-level side chat closes its tab and remembers it for reopening"
   ]);
 });
 
+it("Done on a finished side chat closes its tab without dispatching finish", async () => {
+  const dispatch = setup();
+  const finished = {
+    ...SIDE_1,
+    sideChat: { ...SIDE_1.sideChat!, state: "done" as const },
+  };
+  state.shells = [LESSON_SHELL, finished];
+  showSideChat("side-1", "side-1");
+  const onFocusLesson = vi.fn();
+  await using screen = await renderPanel({ onFocusLesson });
+
+  await expect.element(doneButton(screen)).toBeVisible();
+  await doneButton(screen).click();
+
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(surfaces()).toEqual([]);
+  expect(onFocusLesson).toHaveBeenCalledOnce();
+});
+
 it("Discard finishes the side chat without a note and forgets its draft", async () => {
   const dispatch = setup();
   const written: Thread = {
@@ -866,7 +885,7 @@ it("shows the note a finished side chat sent to the lesson", async () => {
   await using screen = await renderPanel();
 
   await expect.element(screen.getByText(`Sent to lesson: ${note}`)).toBeInTheDocument();
-  await expect.element(doneButton(screen)).not.toBeInTheDocument();
+  await expect.element(doneButton(screen)).toBeVisible();
 });
 
 it("says a nested side chat's note waits for the parent side chat it goes to", async () => {
