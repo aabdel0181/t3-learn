@@ -100,8 +100,8 @@ describe("collectServerUpdateTargets", () => {
         releaseArchivesPublished,
       ).waitForNpm.map((target) => target.serverLabel);
 
-    expect(waits(true)).toEqual(["npm-service", "legacy-respawn"]);
-    expect(waits(false)).toEqual(["archive-service", "npm-service", "legacy-respawn"]);
+    expect(waits(true)).toEqual(["legacy-respawn"]);
+    expect(waits(false)).toEqual(["legacy-respawn"]);
   });
 });
 

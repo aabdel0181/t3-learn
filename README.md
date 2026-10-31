@@ -34,6 +34,10 @@ T3 Learn opens when the installer finishes. After that, open it like any other a
 
 </details>
 
+### Updating
+
+New T3 Learn versions are released automatically from `main` after CI and the install tests pass. The app shows an update button that updates the app and its connected server together. On the server box, update the launcher with `t3-learn update --yes`; with the plain CLI, point `T3CODE_HOME` at `~/.t3-learn` first.
+
 The phone app pairs with T3 Learn the same way it pairs with T3 Code. T3 Connect isn't available in T3 Learn's builds. To use T3 Learn's command line, choose **Install** next to **t3-learn command** in **Settings → About**.
 
 **Want an agent to set it up, with your T3 Code chats along?** Give it [Set up T3 Learn with an agent](docs/user/t3-learn-agent-setup.md).

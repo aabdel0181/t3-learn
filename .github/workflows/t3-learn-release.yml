@@ -1,17 +1,11 @@
 name: T3 Learn Release
 
-# Builds the T3 Learn desktop app for macOS, Windows and Linux and publishes it
-# as a GitHub pre-release. Cut one from the commit to release:
-#
-#   git tag v0.1.3-learn.1 && git push origin v0.1.3-learn.1
-#
-# The version is upstream's package version plus a -learn.N counter. Install
-# the pre-release with T3LEARN_VERSION=0.1.3-learn.1 set for the installer,
-# check it, then mark it latest. The installers and the apps' updater only
-# follow the release marked latest:
-#
-#   gh release edit v0.1.3-learn.1 --prerelease=false --latest
-#
+# Builds and publishes a tested T3 Learn release after every successful merge
+# to main. The preflight uses the commit tested by T3 Learn CI, skips docs-only
+# changes and commits already released, then assigns the next -learn.N version.
+# A person can still cut a release from a tag such as v0.1.3-learn.1; that path
+# keeps the tag's version and commit. Installers and the app updater follow the
+# release after install tests pass and the promote job marks it latest.
 # Builds are unsigned; macOS builds get an ad hoc signature. Upstream's
 # release.yml also matches these tags but only runs in pingdotgg/t3code.
 
@@ -19,9 +13,13 @@ on:
   push:
     tags:
       - "v*-learn.*"
+  workflow_run:
+    workflows: ["T3 Learn CI"]
+    types: [completed]
+    branches: [main]
 
 concurrency:
-  group: t3-learn-release-${{ github.ref_name }}
+  group: t3-learn-release
   cancel-in-progress: false
 
 permissions:
@@ -36,20 +34,31 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.version.outputs.commit }}
+      skip: ${{ steps.version.outputs.skip }}
+    if: github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.event.after }}
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
       - id: version
-        name: Read the version from the tag
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-learn\.[0-9]+$ ]]; then
-            echo "Tag $GITHUB_REF_NAME must look like v0.1.3-learn.1" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        name: Compute release version
+        env:
+          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.event.after }}
+        run: bash .github/scripts/t3-learn-release-version.sh
 
   # The server bundle, web client and Electron main are built once and handed
   # to every platform job as `js-bundle`, as in upstream's release.yml.
   build_bundle:
+    if: needs.preflight.outputs.skip != 'true'
     name: Build JS bundle
     needs: preflight
     runs-on: ubuntu-24.04
@@ -58,6 +67,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.preflight.outputs.commit }}
           sparse-checkout: |
             /*
             !/.repos/
@@ -97,12 +107,13 @@ jobs:
           retention-days: 1
 
   desktop_mac_arm64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop macOS arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -121,12 +132,13 @@ jobs:
 
   # Cross-built on Apple silicon, as upstream does.
   desktop_mac_x64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop macOS x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -143,12 +155,13 @@ jobs:
 
   # The Linux CLI archives become the Windows builds' WSL runtime.
   desktop_linux_x64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop Linux x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -167,12 +180,13 @@ jobs:
 
   # node-pty compiles from source on Linux, so arm64 builds on arm64 hardware.
   desktop_linux_arm64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop Linux arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -190,12 +204,13 @@ jobs:
 
   # Windows builds on Linux and runs its native checks on Windows.
   desktop_win_x64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop Windows x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -213,12 +228,13 @@ jobs:
       cli_archive: true
 
   desktop_win_arm64:
+    if: needs.preflight.outputs.skip != 'true'
     name: Desktop Windows arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
     with:
       version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ github.sha }}
+      ref: ${{ needs.preflight.outputs.commit }}
       release_channel: stable
       relay_client_tracing: false
       clerk_publishable_key: ""
@@ -236,6 +252,7 @@ jobs:
       cli_archive: true
 
   release:
+    if: needs.preflight.outputs.skip != 'true'
     name: Publish GitHub pre-release
     needs:
       [
@@ -255,6 +272,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.preflight.outputs.commit }}
           sparse-checkout: |
             /*
             !/.repos/
@@ -331,7 +349,8 @@ jobs:
       - name: Publish pre-release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.commit }}
           name: T3 Learn ${{ needs.preflight.outputs.version }}
           body_path: release-notes.md
           prerelease: true
@@ -354,6 +373,7 @@ jobs:
   # Installs the pre-release with its one-line installer on each platform,
   # on a clean runner and next to an installed T3 Code, then uninstalls it.
   install_test:
+    if: needs.preflight.outputs.skip != 'true'
     name: Install on ${{ matrix.os }} (${{ matrix.scenario }})
     needs: [preflight, release]
     runs-on: ${{ matrix.os }}
@@ -381,6 +401,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.preflight.outputs.commit }}
           sparse-checkout: |
             /*
             !/.repos/
@@ -406,6 +427,10 @@ jobs:
         shell: powershell
         run: .github/scripts/t3-learn-install-test.ps1 -Scenario "${{ matrix.scenario }}" -Version $env:VERSION
 
+      - name: Explain withheld promotion
+        if: failure()
+        run: echo "Install tests failed; this release remains a pre-release and is invisible to update checks." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload screenshots and logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -413,3 +438,19 @@ jobs:
           name: install-test-${{ matrix.os }}-${{ matrix.scenario }}
           path: install-test
           if-no-files-found: ignore
+
+  promote:
+    name: Promote tested release
+    if: needs.install_test.result == 'success' && needs.preflight.outputs.skip != 'true'
+    needs: [preflight, install_test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - name: Mark release latest
+        run: gh release edit "v$VERSION" --prerelease=false --latest
+      - name: Summarize promotion
+        run: echo "T3 Learn v$VERSION passed install tests and is now latest." >> "$GITHUB_STEP_SUMMARY"

@@ -65,6 +65,16 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("9.9.9")).toBeNull();
   });
 
+  it("offers a newer T3 Learn build on the same upstream version", () => {
+    branding.APP_VERSION = "0.1.4-learn.2";
+    expect(resolveVersionMismatch("0.1.4-learn.1")).toEqual({
+      clientVersion: "0.1.4-learn.2",
+      serverVersion: "0.1.4-learn.1",
+      hint: MISMATCH_HINT,
+    });
+    expect(resolveVersionMismatch("0.1.4-learn.3")).toBeNull();
+  });
+
   it("does not warn when a nightly and a stable build share a core version", () => {
     expect(resolveVersionMismatch("0.0.34-nightly.20260818.1124")).toBeNull();
 

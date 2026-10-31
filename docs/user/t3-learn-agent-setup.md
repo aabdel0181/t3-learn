@@ -85,3 +85,7 @@ Tell the user to open T3 Learn, go to **Settings → Environments → Add enviro
 - Don't type in a copied chat's main box, revert it, or delete it along with its worktree. The copy shares T3 Code's agent session and git checkpoints, so any of those would land in the user's live T3 Code chat.
 - Side chats can run commands in the project's real folder. Don't ask one to edit files that a live agent is working on.
 - Older chats are under **Settled**, as in T3 Code.
+
+## Updating
+
+New versions are released automatically from `main` after CI and the install tests pass. T3 Learn shows an update button that updates the app and connected server together. On the Linux box, run `t3-learn update --yes`; when using the plain CLI, set `T3CODE_HOME=~/.t3-learn` first.
