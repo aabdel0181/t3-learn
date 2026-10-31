@@ -42,7 +42,7 @@ jobs:
       - name: Checkout tested commit
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.event.after }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           sparse-checkout: |
             /*
@@ -52,7 +52,7 @@ jobs:
       - id: version
         name: Compute release version
         env:
-          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.event.after }}
+          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: bash .github/scripts/t3-learn-release-version.sh
 
   # The server bundle, web client and Electron main are built once and handed
