@@ -69,7 +69,9 @@ expanded ([WireProjection](../../apps/server/src/orchestration-v2/WireProjection
 Every command on a side chat takes its lesson's lock before its own. Done, cascade Done and auto-Done
 write descendants holding only that lock, so a late write (a completion, a reopen) that read a row
 before Done could otherwise overwrite Done's `done`. The locks are not reentrant, so the order is
-always lesson, then thread.
+always lesson, then thread, then that thread's upstream side chats, which upstream's delete cascade
+locks. Neither kind of side chat may start the other (ThreadForkService and `thread.side_chat.open`
+refuse it); either nesting would invert that order.
 
 A side chat's note writer reads every ready note of its direct children, received or not (an earlier
 note carrying one may never have reached the lesson), and counts them delivered when its own note
@@ -100,8 +102,17 @@ The fork's service-switch script, not the server, is where both are checked. Rou
 - An official server that touches a lesson or side chat rewrites its payload without `sideChat` and
   `sideChatNoteDeliveries`. After a later switch forward, those side chats show as ordinary forks, and
   ready notes may be sent to the lesson once more.
-- Persisted side-chat and Map panel tabs show as blank tabs on an official client; close them.
+- Persisted `lesson-side-chat` and Map panel tabs are unknown kinds on an official client; close them.
 
 Older servers reject the commands and strip the optional fields, so clients hide every entry point
-unless the server advertises `sideChats`
-([ServerEnvironment](../../apps/server/src/environment/ServerEnvironment.ts)).
+unless [`supportsLessonSideChats`](../../packages/contracts/src/environment.ts) holds: the server
+advertises `lessonSideChats`, or `sideChats` with a `-learn.` version. Released T3 Learn servers used
+`sideChats` before upstream took the name; `supportsSideChats` refuses upstream's `/side` on them,
+since they would create a listed fork and delete it when its tab closes.
+
+## Upstream side chats
+
+Upstream has its own side chats: hidden forks with `lineage.sideChat` (`/side`, `/btw`, the panel's
+**+** menu). Both kinds coexist. Every list, search, older-settled and agent-listing rule hides or
+exempts both (`!isListedThreadLineage(lineage) || isSideChatThread(thread)`), and T3 Learn's panel tab
+kind is `lesson-side-chat`, so upstream's `side-chat` tab code never sees a T3 Learn side chat.

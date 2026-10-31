@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
+  isListedThreadLineage,
   isSideChatThread,
   type ModelSelection,
   type Project,
@@ -283,7 +284,7 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
     const existingThread = (yield* threads.listActiveShellIndex()).find(
       (thread) =>
         thread.projectId === project.id &&
-        thread.lineage.relationshipToParent !== "subagent" &&
+        isListedThreadLineage(thread.lineage) &&
         !isSideChatThread(thread),
     );
     if (existingThread === undefined) {

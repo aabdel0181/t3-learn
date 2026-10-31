@@ -22,6 +22,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "side-chat",
+  "lesson-side-chat",
   "thread-map",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -77,10 +78,11 @@ export type RightPanelSurface =
       detailTab?: PullRequestDetailTab;
     }
   | { id: "pull-requests"; kind: "pull-requests" }
+  | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
   | {
-      /** One tab per top-level side chat: `side-chat:<top-level side chat id>`. */
+      /** One tab per top-level T3 Learn side chat: `side-chat:<top-level side chat id>`. */
       id: `side-chat:${string}`;
-      kind: "side-chat";
+      kind: "lesson-side-chat";
       /** The side chat shown, which may be nested under the tab's top-level one. */
       threadId: string;
       /** Set while this tab shows the side-chat map in place of its chat. */
@@ -94,7 +96,7 @@ export type RightPanelSurface =
   | { id: "thread-map"; kind: "thread-map" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 15;
+const RIGHT_PANEL_STORAGE_VERSION = 16;
 
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
   EnvironmentId.make("pull-requests-panel"),
@@ -140,8 +142,12 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
+    kind: Exclude<
+      RightPanelKind,
+      "file" | "terminal" | "pull-request" | "side-chat" | "lesson-side-chat"
+    >,
   ) => void;
+  openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
@@ -155,10 +161,10 @@ interface RightPanelStoreState {
     keepSource?: boolean,
   ) => void;
   /**
-   * Shows `target.threadId` in the tab of its top-level side chat, replacing what the
-   * tab showed or adding the tab, and selects it.
+   * Shows `target.threadId` in the tab of its top-level T3 Learn side chat, replacing
+   * what the tab showed or adding the tab, and selects it.
    */
-  openSideChat: (
+  openLessonSideChat: (
     ref: ScopedThreadRef,
     target: { readonly topThreadId: string; readonly threadId: string },
     automatic?: boolean,
@@ -236,7 +242,10 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
+    kind: Exclude<
+      RightPanelKind,
+      "file" | "terminal" | "pull-request" | "side-chat" | "lesson-side-chat"
+    >,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -259,7 +268,10 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "side-chat">,
+  kind: Exclude<
+    RightPanelKind,
+    "file" | "preview" | "terminal" | "pull-request" | "side-chat" | "lesson-side-chat"
+  >,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -346,7 +358,7 @@ export function pullRequestSurface(target: {
   };
 }
 
-export type SideChatSurface = Extract<RightPanelSurface, { kind: "side-chat" }>;
+export type SideChatSurface = Extract<RightPanelSurface, { kind: "lesson-side-chat" }>;
 
 function sideChatSurfaceId(topThreadId: string): SideChatSurface["id"] {
   return `side-chat:${topThreadId}`;
@@ -367,7 +379,7 @@ export function normalizeSideChatSurface(value: unknown): SideChatSurface | null
     Record<keyof SideChatSurface, unknown>
   >;
   if (
-    kind !== "side-chat" ||
+    kind !== "lesson-side-chat" ||
     typeof id !== "string" ||
     !id.startsWith("side-chat:") ||
     id.length === "side-chat:".length ||
@@ -388,13 +400,15 @@ export function normalizeSideChatSurface(value: unknown): SideChatSurface | null
 }
 
 export function hasSideChatSurfaces(surfaces: readonly RightPanelSurface[]): boolean {
-  return surfaces.some((surface) => surface.kind === "side-chat" || surface.kind === "thread-map");
+  return surfaces.some(
+    (surface) => surface.kind === "lesson-side-chat" || surface.kind === "thread-map",
+  );
 }
 
 /** The side-chat tab the learner was last on, else the first side-chat tab. */
 export function selectLastSideChatSurface(state: ThreadRightPanelState): SideChatSurface | null {
   const sideChats = state.surfaces.filter(
-    (surface): surface is SideChatSurface => surface.kind === "side-chat",
+    (surface): surface is SideChatSurface => surface.kind === "lesson-side-chat",
   );
   return (
     sideChats.find((surface) => surface.id === state.lastSideChatSurfaceId) ?? sideChats[0] ?? null
@@ -421,7 +435,7 @@ const activeSideChatSurfaceId = (
   state: ThreadRightPanelState,
 ): SideChatSurface["id"] | undefined => {
   const active = state.surfaces.find((surface) => surface.id === state.activeSurfaceId);
-  return active?.kind === "side-chat" ? active.id : undefined;
+  return active?.kind === "lesson-side-chat" ? active.id : undefined;
 };
 
 /**
@@ -522,11 +536,39 @@ const automaticUpdate = (
   ...updateThread(state, threadKey, updater),
 });
 
+// A side chat pane has no panel of its own, so its panel actions open in its parent's panel.
+const panelHosts = new Map<string, ScopedThreadRef>();
+
+/** Routes `guest`'s panel actions to `host`'s panel until the returned cleanup runs. */
+export function hostRightPanel(guest: ScopedThreadRef, host: ScopedThreadRef): () => void {
+  const guestKey = scopedThreadKey(guest);
+  panelHosts.set(guestKey, host);
+  return () => {
+    if (panelHosts.get(guestKey) === host) panelHosts.delete(guestKey);
+  };
+}
+
+/** The thread whose panel shows `ref`'s panel actions, so it also owns their browser tabs. */
+export function rightPanelHostRef(ref: ScopedThreadRef): ScopedThreadRef {
+  return panelHosts.get(scopedThreadKey(ref)) ?? ref;
+}
+
 const userAction = (
+  state: RightPanelStoreState,
+  guestKey: string,
+  updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
+  closesView = false,
+): Partial<RightPanelStoreState> => {
+  const host = panelHosts.get(guestKey);
+  const threadKey = host === undefined ? guestKey : scopedThreadKey(host);
+  return userActionOnThread(state, threadKey, updater, closesView);
+};
+
+const userActionOnThread = (
   state: RightPanelStoreState,
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
-  closesView = false,
+  closesView: boolean,
 ): Partial<RightPanelStoreState> => ({
   ...updateThread(state, threadKey, (current) => {
     const next = updater(current);
@@ -571,7 +613,10 @@ function normalizeRevealLine(line: number | undefined): number | null {
   return Math.max(1, Math.trunc(line));
 }
 
-export function migratePersistedRightPanelState(persistedState: unknown): {
+export function migratePersistedRightPanelState(
+  persistedState: unknown,
+  version = RIGHT_PANEL_STORAGE_VERSION,
+): {
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
 } {
@@ -592,8 +637,12 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
-                    if (kind === "side-chat") {
-                      const sideChat = normalizeSideChatSurface(surface);
+                    // Only T3 Learn wrote "side-chat" tabs before version 16.
+                    if (kind === "lesson-side-chat" || (kind === "side-chat" && version < 16)) {
+                      const sideChat = normalizeSideChatSurface({
+                        ...surface,
+                        kind: "lesson-side-chat",
+                      });
                       return sideChat ? [sideChat] : [];
                     }
                     if (kind === "thread-map") {
@@ -691,7 +740,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 (isOpen || rawActiveSurfaceId === "agents" ? (surfaces[0]?.id ?? null) : null);
               const lastSideChatSurfaceId = surfaces.find(
                 (surface): surface is SideChatSurface =>
-                  surface.kind === "side-chat" &&
+                  surface.kind === "lesson-side-chat" &&
                   surface.id === validThreadState?.lastSideChatSurfaceId,
               )?.id;
               return [
@@ -835,6 +884,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             );
           }),
         ),
+      openSideChat: (ref, threadId) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, { id: `side-chat:${threadId}`, kind: "side-chat", threadId }),
+          ),
+        ),
       renameDevice: (ref, surfaceId, title) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => ({
@@ -896,13 +951,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           const existing = state.byThreadKey[threadKey]?.surfaces.find(
             (surface) => surface.id === surfaceId,
           );
-          if (existing?.kind !== "side-chat") return state;
+          if (existing?.kind !== "lesson-side-chat") return state;
           const { view: previousView, ...rest } = existing;
           if ((previousView ?? "chat") === view) return state;
           return automaticUpdate(state, threadKey, (current) => ({
             ...current,
             surfaces: current.surfaces.map((surface) =>
-              surface.id === surfaceId && surface.kind === "side-chat"
+              surface.id === surfaceId && surface.kind === "lesson-side-chat"
                 ? view === "map"
                   ? { ...rest, view: "map" as const }
                   : rest
@@ -971,12 +1026,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return { ...current, isOpen: true, activeSurfaceId: target.id, surfaces };
           }),
         ),
-      openSideChat: (ref, target, automatic = false) =>
+      openLessonSideChat: (ref, target, automatic = false) =>
         set((state) =>
           (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), (current) => {
             const surface: SideChatSurface = {
               id: sideChatSurfaceId(target.topThreadId),
-              kind: "side-chat",
+              kind: "lesson-side-chat",
               threadId: target.threadId,
             };
             const existing = current.surfaces.some((entry) => entry.id === surface.id);
@@ -995,11 +1050,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           userAction(state, scopedThreadKey(ref), (current) => {
             const surface = current.surfaces.find((entry) => entry.id === surfaceId);
             const threadId = targetPath.at(-1);
-            if (surface?.kind !== "side-chat" || threadId === undefined) return current;
+            if (surface?.kind !== "lesson-side-chat" || threadId === undefined) return current;
             const base = surface.trail ?? fromPath;
             const next: SideChatSurface = {
               id: surface.id,
-              kind: "side-chat",
+              kind: "lesson-side-chat",
               threadId,
               ...(strictlyExtends(base, targetPath) ? { trail: [...base] } : {}),
             };
@@ -1032,7 +1087,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             if (
               fallbackThreadId === null ||
               !current.surfaces.some(
-                (surface) => surface.kind === "side-chat" && surface.threadId === threadId,
+                (surface) => surface.kind === "lesson-side-chat" && surface.threadId === threadId,
               )
             ) {
               return current;
@@ -1040,8 +1095,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return {
               ...current,
               surfaces: current.surfaces.map((surface) =>
-                surface.kind === "side-chat" && surface.threadId === threadId
-                  ? { id: surface.id, kind: "side-chat", threadId: fallbackThreadId }
+                surface.kind === "lesson-side-chat" && surface.threadId === threadId
+                  ? { id: surface.id, kind: "lesson-side-chat", threadId: fallbackThreadId }
                   : surface,
               ),
             };
@@ -1280,7 +1335,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 changed = true;
                 return [];
               }
-              if (surface.kind !== "side-chat") return [surface];
+              if (surface.kind !== "lesson-side-chat") return [surface];
               const topThreadId = sideChatSurfaceTopThreadId(surface);
               if (!liveThreadIds.has(topThreadId)) {
                 changed = true;
@@ -1298,7 +1353,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 return [surface];
               }
               changed = true;
-              return [{ id: surface.id, kind: "side-chat", threadId, ...(trail ? { trail } : {}) }];
+              return [
+                { id: surface.id, kind: "lesson-side-chat", threadId, ...(trail ? { trail } : {}) },
+              ];
             });
             if (!changed) return current;
             const activeStillExists = surfaces.some(

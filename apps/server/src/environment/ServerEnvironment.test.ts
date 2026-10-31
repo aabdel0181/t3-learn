@@ -234,6 +234,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.projectProviderInstanceOverrides).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
       expect(second.capabilities.sideChats).toBe(true);
+      expect(second.capabilities.lessonSideChats).toBe(true);
     }),
   );
 

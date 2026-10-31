@@ -278,7 +278,7 @@ describe("root reopen shortcut", () => {
     const discarded = store.remember({
       kind: "panel-tab",
       threadRef: ref,
-      surface: { id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" },
+      surface: { id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "side-1" },
     });
     state.deletedThreadIds = ["side-1"];
     await using _view = await renderShortcut();

@@ -72,7 +72,7 @@ export async function openSideChatFromSelection(
   });
   usePendingSideChatStore.getState().requestFocus(pendingKey);
   const panels = useRightPanelStore.getState();
-  panels.openSideChat(lessonRef, { topThreadId: topThreadId ?? threadId, threadId });
+  panels.openLessonSideChat(lessonRef, { topThreadId: topThreadId ?? threadId, threadId });
   panels.setMaximized(lessonRef, false);
 
   const result = await input.run({
@@ -125,7 +125,7 @@ function wasClosedUnused(lessonRef: ScopedThreadRef, sideChatRef: ScopedThreadRe
     useRightPanelStore.getState().byThreadKey,
     lessonRef,
   ).surfaces.some(
-    (surface) => surface.kind === "side-chat" && surface.threadId === sideChatRef.threadId,
+    (surface) => surface.kind === "lesson-side-chat" && surface.threadId === sideChatRef.threadId,
   );
   if (shown) return false;
   const shell = readThreadShell(sideChatRef);

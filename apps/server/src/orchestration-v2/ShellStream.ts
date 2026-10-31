@@ -12,6 +12,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
+  isListedThreadLineage,
   isLiveSubagentShell,
   isOlderSettledThreadShell,
   isSideChatThread,
@@ -83,7 +84,7 @@ type ShellTrimRow = Pick<
  */
 interface ShellTrimFacts {
   readonly subagentParentIds: ReadonlySet<string>;
-  /** Subagents and side chats, whose transcripts reach clients through their thread subscription. */
+  /** Subagents and T3 Learn side chats: clients get their transcripts by thread subscription. */
   readonly transcriptQuietThreadIds: Set<string>;
   /** Undefined when no thread is settled, so none is older. */
   readonly olderSettledBeforeMs: number | undefined;
@@ -102,7 +103,11 @@ function shellTrimFacts(rows: ReadonlyArray<ShellTrimRow>): ShellTrimFacts {
       if (row.lineage.parentThreadId) subagentParentIds.add(row.lineage.parentThreadId);
     } else if (isSideChatThread(row)) {
       transcriptQuietThreadIds.add(row.id);
-    } else if (row.settledOverride === "settled" && row.settledAt !== null) {
+    } else if (
+      isListedThreadLineage(row.lineage) &&
+      row.settledOverride === "settled" &&
+      row.settledAt !== null
+    ) {
       settledTimes.push(DateTime.toEpochMillis(row.settledAt));
     }
   }
@@ -125,10 +130,12 @@ function shellTrimFacts(rows: ReadonlyArray<ShellTrimRow>): ShellTrimFacts {
   };
 }
 
-function subagentAncestorIds(threads: ReadonlyArray<Pick<OrchestrationV2ThreadShell, "lineage">>) {
+function hiddenChildAncestorIds(
+  threads: ReadonlyArray<Pick<OrchestrationV2ThreadShell, "lineage">>,
+) {
   const ancestorIds = new Set<string>();
   for (const thread of threads) {
-    if (thread.lineage.relationshipToParent !== "subagent") continue;
+    if (isListedThreadLineage(thread.lineage)) continue;
     if (thread.lineage.parentThreadId !== null) ancestorIds.add(thread.lineage.parentThreadId);
     ancestorIds.add(thread.lineage.rootThreadId);
   }
@@ -160,7 +167,7 @@ function omitOlderSettledShellsWith(
 } {
   const nowMs = DateTime.toEpochMillis(input.now);
   const beforeMs = facts.olderSettledBeforeMs ?? nowMs;
-  const ancestorIds = subagentAncestorIds(input.threads);
+  const ancestorIds = hiddenChildAncestorIds(input.threads);
   const threads = input.threads.filter(
     (thread) =>
       !isOlderSettledThreadShell(thread, beforeMs) ||
@@ -191,9 +198,9 @@ export function omitIdleSubagentShells(
 }
 
 /**
- * The active rows a shell subscriber gets, and the subagent and side-chat ids whose transcript
- * events its stream drops. The ids come from every row, so an omitted child that wakes keeps that
- * filter.
+ * The active rows a shell subscriber gets, and the subagent and T3 Learn side-chat ids whose
+ * transcript events its stream drops. The ids come from every row, so an omitted child that wakes
+ * keeps that filter.
  */
 export function activeShellRowsForSubscriber(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
@@ -212,8 +219,8 @@ export function activeShellRowsForSubscriber(
 /**
  * Opted-in snapshots keep the 25 newest settled top-level threads (and ties) and count the rest per
  * project in `olderSettled`; clients page them with `getOlderSettledThreads`. Older rows stay while
- * pinned, snoozed, live, or above a kept subagent, so walks over shell rows still find them. Side
- * chats have no list row to count, and a kept lesson's Map and side panel read them from the shell.
+ * pinned, snoozed, live, or above a kept subagent or side chat, so walks over shell rows still find
+ * them. T3 Learn side chats are never older rows: a kept lesson's Map and panel read them here.
  */
 export function omitOlderSettledShells(input: {
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
@@ -261,7 +268,10 @@ function shellSubscriberThreadIds(
       entry.lineage.relationshipToParent === "subagent" &&
       (!options.omitIdleSubagents || entry.mayBeLive || facts.subagentParentIds.has(entry.id)),
   );
-  const ancestorIds = subagentAncestorIds(subagents);
+  const ancestorIds = hiddenChildAncestorIds([
+    ...subagents,
+    ...index.filter((entry) => entry.lineage.sideChat === true),
+  ]);
   const keptSubagentIds = new Set(subagents.map((entry) => entry.id));
   const beforeMs = facts.olderSettledBeforeMs;
   return index.flatMap((entry) =>
@@ -406,7 +416,7 @@ export type ShellApplicationEvent =
       readonly event: Pick<OrchestrationV2StoredEvent["event"], "threadId">;
     };
 
-/** Focused subagents and side chats receive these updates through their thread subscription. */
+/** Focused subagents and T3 Learn side chats get these updates by their thread subscription. */
 export function shouldPublishShellApplicationEvent(
   stored: ApplicationStoredEvent,
   quietThreadIds: Set<string>,

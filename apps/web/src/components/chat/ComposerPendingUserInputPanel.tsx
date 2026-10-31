@@ -9,6 +9,7 @@ import { CheckboxMark } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Kbd } from "../ui/kbd";
 import { cn } from "~/lib/utils";
+import { isInSideChatPane } from "~/lib/sideChatPane";
 import { ComposerBanner } from "./ComposerBanner";
 import ChatMarkdown from "../ChatMarkdown";
 
@@ -85,6 +86,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const canRespond = prompt.responseCapability !== "not_resumable";
   const responseDisabled = disabled || isResponding || !canRespond;
   const autoAdvanceTimerRef = useRef<number | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const advance = useStableCallback(onAdvance);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
     questionId: string;
@@ -151,6 +153,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
+      // In a side panel, answer only keys from that panel; elsewhere, ignore every side panel.
+      const panel = triggerRef.current?.closest("[data-side-chat-pane], [data-side-chat-panel]");
+      if (panel ? !(target instanceof Node && panel.contains(target)) : isInSideChatPane(target)) {
+        return;
+      }
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -185,6 +192,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       }}
     >
       <CollapsibleTrigger
+        ref={triggerRef}
         render={<ComposerBanner.Row render={<button type="button" />} />}
         title={
           isCollapsed ? "Show the question and its options" : "Hide the question and its options"
@@ -193,7 +201,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         className="px-4 pt-1.5"
       >
         <ComposerBanner.Content>
-          <span className="shrink-0 text-muted-foreground">{activeQuestion.header}</span>
+          <span
+            className={cn("min-w-0 truncate text-muted-foreground", isCollapsed && "max-w-1/2")}
+          >
+            {activeQuestion.header}
+          </span>
           {isCollapsed ? (
             <>
               <ComposerBanner.Separator />

@@ -224,6 +224,7 @@ export const make = Effect.gen(function* () {
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
       pullRequests: true,
       pullRequestChecks: true,
+      sideChats: true,
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,
       threadSettlement: true,
@@ -263,8 +264,10 @@ export const make = Effect.gen(function* () {
       ...(hostPlatform === "win32" ? {} : { localServerStop: true }),
       environmentIcon: true,
       projectCloneTracking: true,
+      projectOrganization: true,
       ignoredFileListing: true,
       triage: true,
+      npmReleaseLookup: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       ...(serverInstallation === null ? {} : { serverInstallation }),
       ...(serverSelfUpdate === "boot-service" || desktopAppUpdate
@@ -273,7 +276,7 @@ export const make = Effect.gen(function* () {
       // T3 Learn ships one update track and has no control to leave another, so clients never move it.
       ...(desktopAppUpdate ? { desktopAppUpdate: true } : {}),
       serverBrowser: true,
-      sideChats: true,
+      lessonSideChats: true,
       peerLinks: true,
       mcpModeLimitHeader: true,
       linkFence: true,

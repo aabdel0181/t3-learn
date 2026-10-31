@@ -676,11 +676,20 @@ it.effect("agent thread listings never include side chats", () => {
       excerptLength: 3,
     },
   });
+  const upstreamSideChat = shell("aside", "2026-10-22T13:00:00.000Z", {
+    lineage: {
+      rootThreadId: ThreadId.make("lesson"),
+      parentThreadId: ThreadId.make("lesson"),
+      relationshipToParent: "fork",
+      sideChat: true,
+    },
+  });
   const layerTest = ThreadManagementService.layer.pipe(
     Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
     Layer.provide(
       Layer.mock(Orchestrator.OrchestratorV2)({
-        getShellSnapshot: () => Effect.succeed({ threads: [lesson, helper, sideChat] } as never),
+        getShellSnapshot: () =>
+          Effect.succeed({ threads: [lesson, helper, sideChat, upstreamSideChat] } as never),
       }),
     ),
     Layer.provide(ServerSettings.layerTest()),
