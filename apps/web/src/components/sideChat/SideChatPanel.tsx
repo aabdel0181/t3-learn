@@ -333,6 +333,7 @@ export function SideChatPanel(props: {
     void reportFinish(discard);
     return leaveSideChat(lessonRef, surface, rows);
   };
+  const leaveFinishedSideChat = () => leaveSideChat(lessonRef, surface, rows);
   // The menu refocuses a clicked item, then its trigger once it closes; a closed tab takes
   // both away, so the menu hands focus to the lesson as it closes.
   const discardClosedTabRef = useRef(false);
@@ -553,7 +554,28 @@ export function SideChatPanel(props: {
               </TooltipPopup>
             </Tooltip>
           )}
-          {sideChatState === "open" ? (
+          {shell === null ? null : sideChatState === "done" ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={!canOperate}
+                    onClick={() => {
+                      // A closed tab takes this button with it, so the cursor goes back to the lesson.
+                      if (leaveFinishedSideChat() === "closed") props.onFocusLesson();
+                    }}
+                  >
+                    Done
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">
+                Already finished. Done closes it; ask something here to reopen it.
+              </TooltipPopup>
+            </Tooltip>
+          ) : (
             <Button
               size="xs"
               variant="outline"
@@ -565,7 +587,7 @@ export function SideChatPanel(props: {
             >
               Done
             </Button>
-          ) : null}
+          )}
           {shell === null ? null : (
             <Menu>
               <MenuTrigger

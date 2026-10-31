@@ -165,12 +165,19 @@ export function resolveFinishableSideChat(input: {
   readonly threadId: ThreadId;
   readonly label: string;
   readonly surface: SideChatSurface;
+  readonly finished: boolean;
 } | null {
   const surface = input.surfaces.find((entry) => entry.id === input.activeSurfaceId);
   if (surface?.kind !== "side-chat") return null;
   const shell = input.shells.find(
     (entry) => entry.environmentId === input.environmentId && entry.id === surface.threadId,
   );
-  if (shell?.sideChat?.state !== "open") return null;
-  return { threadId: shell.id, label: shell.sideChat.label, surface };
+  const sideChat = shell?.sideChat;
+  if (shell === undefined || sideChat == null) return null;
+  return {
+    threadId: shell.id,
+    label: sideChat.label,
+    surface,
+    finished: sideChat.state === "done",
+  };
 }
