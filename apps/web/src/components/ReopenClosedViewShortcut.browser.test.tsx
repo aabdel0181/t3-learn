@@ -317,4 +317,12 @@ describe("root reopen shortcut", () => {
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref).surfaces,
     ).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "side-1" }]);
   });
+
+  it("forwards address-bar focus from a focused desktop page", async () => {
+    setup();
+    await using _shortcut = await renderShortcut();
+    expect(state.setShortcuts).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ command: "preview.focusUrl" })]),
+    );
+  });
 });

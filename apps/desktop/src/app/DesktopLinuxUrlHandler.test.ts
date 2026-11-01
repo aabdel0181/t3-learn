@@ -35,7 +35,6 @@ const makeEnvironment = (path: Path.Path, overrides: Record<string, unknown> = {
     isDevelopment: false,
     displayName: "T3 Learn (Alpha)",
     linuxDesktopEntryName: "io.github.aabdel0181.T3Learn.desktop",
-    linuxWmClass: "t3learn",
     linuxApplicationsDir: "/home/alice/.local/share/applications",
     desktopLauncherPath: Option.none(),
     appImagePath: Option.some("/home/alice/Applications/T3-Learn.AppImage"),
