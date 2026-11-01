@@ -1,6 +1,13 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import { type AssistantCitation, EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
+import {
+  type AssistantCitation,
+  EnvironmentId,
+  MessageId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import { createModelSelection } from "@t3tools/shared/model";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -260,7 +267,14 @@ describe("openSideChatFromSelection", () => {
       run,
     });
     const threadId = startedThreadId();
-    useComposerDraftStore.getState().setPrompt(scopeThreadRef(environmentId, threadId), "What");
+    const sideChatRef = scopeThreadRef(environmentId, threadId);
+    useComposerDraftStore.getState().setPrompt(sideChatRef, "What");
+    useComposerDraftStore
+      .getState()
+      .setModelSelection(
+        sideChatRef,
+        createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5"),
+      );
     useRightPanelStore.getState().closeSurface(lessonRef, `side-chat:${threadId}`);
 
     settle(AsyncResult.success({ sequence: 1 }));

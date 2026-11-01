@@ -9,7 +9,6 @@ import {
 import { useEffect } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { releaseComposerDraftUploads } from "../../lib/composerDraftUploads";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import type { AssistantCitationSourceAnchor } from "../../lib/assistantTextSelection";
 import {
@@ -126,8 +125,7 @@ function clearGoneSideChatDrafts(lessonRef: ScopedThreadRef, live: ReadonlySet<s
       const ref = scopeThreadRef(lessonRef.environmentId, ThreadId.make(id));
       // An archived side chat comes back when its lesson is unarchived, draft and all.
       if (readThreadShell(ref)?.deletedAt === null) continue;
-      releaseComposerDraftUploads(ref);
-      drafts.clearDraftThread(ref);
+      drafts.clearComposerContent(ref);
     }
   }
 }

@@ -15,6 +15,7 @@ import type {
 } from "@t3tools/contracts";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { releaseComposerDraftUploads } from "../../lib/composerDraftUploads";
 import { newThreadId } from "../../lib/utils";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -90,7 +91,8 @@ export async function openSideChatFromSelection(
     useRightPanelStore
       .getState()
       .closeFailedSideChat(lessonRef, threadId, topThreadId === null ? null : citation.threadId);
-    useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+    releaseComposerDraftUploads(sideChatRef);
+    useComposerDraftStore.getState().clearDraftThread(sideChatRef);
     if (isAtomCommandInterrupted(result)) return { _tag: "Interrupted" };
     const error = squashAtomCommandFailure(result);
     return {
@@ -111,7 +113,8 @@ export async function openSideChatFromSelection(
     );
     // Nothing can reach the deleted side chat's draft again.
     if (finished._tag === "Success") {
-      useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+      releaseComposerDraftUploads(sideChatRef);
+      useComposerDraftStore.getState().clearDraftThread(sideChatRef);
     }
   } else {
     usePendingSideChatStore.getState().markStarted(pendingKey);
