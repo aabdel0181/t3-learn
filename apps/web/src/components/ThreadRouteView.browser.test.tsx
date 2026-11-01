@@ -91,7 +91,7 @@ it("settles a side chat's route on its lesson with the side chat in the panel", 
   expect(screen.router?.history.length).toBe(1);
   expect(
     selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, LESSON_REF).surfaces,
-  ).toEqual([{ id: "side-chat:side-1", kind: "side-chat", threadId: "nested-1" }]);
+  ).toEqual([{ id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "nested-1" }]);
   // Like every other way into a side chat, its composer takes the cursor once the panel shows it.
   expect(usePendingSideChatStore.getState().focusThreadKey).toBe(
     scopedThreadKey(scopeThreadRef(ENVIRONMENT_ID, NESTED_1.id)),
