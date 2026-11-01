@@ -58,6 +58,7 @@ vi.mock("../state/use-atom-command", () => ({
 vi.mock("../state/terminal", () => ({ terminalEnvironment: { open: {}, close: {}, write: {} } }));
 vi.mock("../state/preview", () => ({ previewEnvironment: { close: {} } }));
 vi.mock("../state/threads", () => ({ threadEnvironment: { delete: {}, finishSideChat: {} } }));
+vi.mock("../lib/composerDraftUploads", () => ({ releaseComposerDraftUploads: () => {} }));
 vi.mock("../state/shell", () => ({ environmentShell: { stateValueAtom: () => null } }));
 vi.mock("@t3tools/client-runtime/state/runtime", () => ({
   isAtomCommandInterrupted: () => false,

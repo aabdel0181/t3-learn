@@ -111,6 +111,7 @@ import {
 import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
@@ -1490,9 +1491,9 @@ function OpenCommandPaletteDialog(props: {
           if (finished._tag === "Success") {
             // The server deleted the empty side chat, so nothing can reach its draft again.
             if (deletes) {
-              useComposerDraftStore
-                .getState()
-                .clearComposerContent(scopeThreadRef(lessonRef.environmentId, finishable.threadId));
+              const sideChatRef = scopeThreadRef(lessonRef.environmentId, finishable.threadId);
+              releaseComposerDraftUploads(sideChatRef);
+              useComposerDraftStore.getState().clearDraftThread(sideChatRef);
             }
           } else if (!isAtomCommandInterrupted(finished)) {
             throw squashAtomCommandFailure(finished);

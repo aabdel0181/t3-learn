@@ -12,6 +12,7 @@ import { closePreviewSession } from "../components/preview/closePreviewSession";
 import { shouldFinishSideChatOnClose } from "../components/sideChat/sideChatPanel.logic";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { focusPanelTerminalAfterClose } from "../lib/terminalFocus";
 import { readLocalApi } from "../localApi";
@@ -89,7 +90,8 @@ export function useRightPanelSurfaceClose(input: {
           input: { threadId: shell.id },
         }).then((result) => {
           if (result._tag === "Success") {
-            useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+            releaseComposerDraftUploads(sideChatRef);
+            useComposerDraftStore.getState().clearDraftThread(sideChatRef);
           }
         });
       }

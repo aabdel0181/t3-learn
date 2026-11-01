@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { createModelSelection } from "@t3tools/shared/model";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 
@@ -66,6 +67,9 @@ it("forgets the draft of an empty side chat that closing its tab deletes", async
     .getState()
     .openLessonSideChat(LESSON_REF, { topThreadId: "side-1", threadId: "side-1" });
   useComposerDraftStore.getState().setPrompt(SIDE_REF, "And the reward?");
+  useComposerDraftStore
+    .getState()
+    .setModelSelection(SIDE_REF, createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5"));
   await using screen = await render(
     <CloseTab surface={{ id: "side-chat:side-1", kind: "lesson-side-chat", threadId: "side-1" }} />,
   );
@@ -77,7 +81,7 @@ it("forgets the draft of an empty side chat that closing its tab deletes", async
     input: { threadId: "side-1" },
   });
   await vi.waitFor(() =>
-    expect(useComposerDraftStore.getState().getComposerDraft(SIDE_REF)?.prompt ?? "").toBe(""),
+    expect(useComposerDraftStore.getState().getComposerDraft(SIDE_REF)).toBeNull(),
   );
 });
 
