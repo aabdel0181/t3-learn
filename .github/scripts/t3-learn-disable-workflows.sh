@@ -11,7 +11,8 @@ repo="${1:-aabdel0181/t3-learn}"
 gh api "repos/$repo/actions/workflows" --paginate --jq '.workflows[]
   | select(.state == "active"
     and (.path | startswith(".github/workflows/"))
-    and .path != ".github/workflows/t3-learn-ci.yml")
+    and .path != ".github/workflows/t3-learn-ci.yml"
+    and .path != ".github/workflows/t3-learn-release.yml")
   | "\(.id) \(.path)"' |
   while read -r id path; do
     gh api -X PUT "repos/$repo/actions/workflows/$id/disable"

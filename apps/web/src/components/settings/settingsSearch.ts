@@ -70,6 +70,7 @@ export interface SettingsSearchItem {
   readonly peerLinksOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
+  readonly requiresSideChats?: boolean;
 }
 
 export interface SettingsSearchAvailability {
@@ -81,6 +82,7 @@ export interface SettingsSearchAvailability {
   readonly canManageLocalBackend: boolean;
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
+  readonly hasSideChats?: boolean;
   readonly managedTunnelActive?: boolean;
   readonly hasPeerLinkHost?: boolean;
 }
@@ -683,6 +685,33 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
   },
   {
+    id: "side-chat-model",
+    title: "Model for new side chats",
+    to: "/settings/threads",
+    environmentOnly: true,
+    scope: "environment-defaults",
+    requiresSideChats: true,
+    searchTerms: ["provider default lesson"],
+  },
+  {
+    id: "side-chat-instructions",
+    title: "How side chats explain things",
+    to: "/settings/threads",
+    environmentOnly: true,
+    scope: "environment-defaults",
+    requiresSideChats: true,
+    searchTerms: ["instructions prompt teaching learning explain custom T3 Learn"],
+  },
+  {
+    id: "side-chat-skills",
+    title: "Side chat skills",
+    to: "/settings/threads",
+    environmentOnly: true,
+    scope: "environment-defaults",
+    requiresSideChats: true,
+    searchTerms: ["mentions attach automatic"],
+  },
+  {
     id: "app-version",
     title: "Version",
     to: "/settings/about",
@@ -1252,6 +1281,7 @@ export function getSettingsSearchTargetScope(targetId: string) {
         title: item.title,
         scope: item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to],
         ...(item.requiresThreadAutoSettlement ? { requiresThreadAutoSettlement: true } : {}),
+        ...(item.requiresSideChats ? { requiresSideChats: true } : {}),
       }
     : null;
 }
@@ -1331,6 +1361,7 @@ export function filterAvailableSettingsSearchItems(
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
+      (!item.requiresSideChats || availability.hasSideChats) &&
       (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
       (!item.peerLinksOnly || availability.hasPeerLinkHost === true),
   );

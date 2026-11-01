@@ -26,6 +26,8 @@ import {
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
 } from "../components/settings/settingsSearch";
+import { supportsLessonSideChats } from "@t3tools/contracts";
+import { hasSideChatSettings } from "../components/settings/sideChatSettingsSupport";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(onRestored);
@@ -50,6 +52,19 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   const autoSettlementAvailability = searchTarget?.requiresThreadAutoSettlement
     ? getThreadAutoSettlementSearchAvailability(environments, scope)
     : null;
+  const sideChatAvailability = searchTarget?.requiresSideChats
+    ? {
+        eligibleEnvironmentIds: environments
+          .filter(
+            (environment) =>
+              environment.connection.phase === "connected" &&
+              environment.serverConfig !== null &&
+              supportsLessonSideChats(environment.serverConfig.environment) &&
+              hasSideChatSettings(environment.serverConfig.settings),
+          )
+          .map((environment) => environment.environmentId),
+      }
+    : null;
   if (
     scope.kind !== "unavailable" &&
     searchTarget &&
@@ -63,6 +78,26 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
         eligibleEnvironmentIds={autoSettlementAvailability.eligibleEnvironmentIds}
       >
         {autoSettlementAvailability.eligibleEnvironmentIds.length > 0
+          ? `${searchTarget.title} requires a supporting environment. Choose one to continue.`
+          : `${searchTarget.title} requires a supporting environment. Connect or update an environment to continue.`}
+      </SettingsScopeNotice>
+    );
+  }
+  if (
+    scope.kind !== "unavailable" &&
+    searchTarget?.requiresSideChats &&
+    sideChatAvailability &&
+    !connectedEnvironments.every((environment) =>
+      sideChatAvailability.eligibleEnvironmentIds.includes(environment.environmentId),
+    )
+  ) {
+    return (
+      <SettingsScopeNotice
+        target="environment"
+        targetId={hash}
+        eligibleEnvironmentIds={sideChatAvailability.eligibleEnvironmentIds}
+      >
+        {sideChatAvailability.eligibleEnvironmentIds.length > 0
           ? `${searchTarget.title} requires a supporting environment. Choose one to continue.`
           : `${searchTarget.title} requires a supporting environment. Connect or update an environment to continue.`}
       </SettingsScopeNotice>

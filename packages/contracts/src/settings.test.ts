@@ -114,6 +114,28 @@ describe("storage cleanup settings", () => {
   });
 });
 
+it("decodes side-chat defaults and patches", () => {
+  expect(decodeServerSettings({})).toMatchObject({
+    sideChatInstructions: "",
+    sideChatSkills: [],
+    sideChatModelSelection: null,
+  });
+  expect(
+    decodeServerSettingsPatch({
+      sideChatInstructions: "teach",
+      sideChatSkills: ["review"],
+      sideChatModelSelection: { instanceId: "codex", model: "gpt-5.5" },
+    }),
+  ).toEqual({
+    sideChatInstructions: "teach",
+    sideChatSkills: ["review"],
+    sideChatModelSelection: { instanceId: "codex", model: "gpt-5.5" },
+  });
+  expect(decodeServerSettingsPatch({ sideChatModelSelection: null })).toEqual({
+    sideChatModelSelection: null,
+  });
+});
+
 describe("ServerSettings usage price overrides", () => {
   const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
 

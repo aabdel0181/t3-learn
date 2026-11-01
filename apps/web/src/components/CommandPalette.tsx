@@ -1468,19 +1468,20 @@ function OpenCommandPaletteDialog(props: {
         kind: "action",
         value: "action:finish-side-chat",
         searchTerms: ["side chat", "done", "finish", finishable.label],
-        title: "Finish side chat (Done)",
+        title: finishable.finished ? "Close side chat (Done)" : "Finish side chat (Done)",
         description: finishable.label,
         icon: <CheckIcon className={ITEM_ICON_CLASS} />,
         run: async () => {
           const shells = readSideChatTreeShells(lessonRef);
           const rows = deriveSideChatTree(shells, lessonRef.threadId);
-          const deletes = shouldFinishSideChatOnClose(
-            shells.find((shell) => shell.id === finishable.threadId) ?? null,
-          );
           if (leaveSideChat(lessonRef, finishable.surface, rows) === "closed") {
             // The palette hands focus back to the lesson composer, which a sheet would cover.
             showLesson(lessonRef, window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches);
           }
+          if (finishable.finished) return;
+          const deletes = shouldFinishSideChatOnClose(
+            shells.find((shell) => shell.id === finishable.threadId) ?? null,
+          );
           const finished = await finishSideChat({
             environmentId: lessonRef.environmentId,
             input: { threadId: finishable.threadId },

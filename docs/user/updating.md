@@ -1,3 +1,5 @@
+> **T3 Learn:** This guide describes upstream T3 Code. For T3 Learn, use the fork installers and releases in the [T3 Learn README](../../README.md); update the Linux launcher with `t3-learn update --yes` (or set `T3CODE_HOME=~/.t3-learn` when using the plain CLI).
+
 # Updating T3 Code
 
 The app you use and the server running your agents can be on different machines.

@@ -2,11 +2,13 @@ import {
   EnvironmentId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
+  ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 import { formatInlineContextReference } from "../../lib/composerContextReferences";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { threadContextReference } from "../../lib/composerContextRecords";
 import { threadContextRecord } from "@t3tools/shared/composerContextReferences";
 import {
@@ -17,6 +19,7 @@ import {
   referencedThreadContexts,
 } from "./composerSend.logic";
 import { getComposerPromptLengthValidationMessage } from "./composerSubmission";
+import { deriveProviderInstanceEntries } from "../../providerInstances";
 
 const local = EnvironmentId.make("local");
 const remote = EnvironmentId.make("remote");
@@ -146,9 +149,23 @@ describe("planSideChatSend", () => {
     answeringPendingUserInput: false,
     providerEntry,
     model: "gpt-5.4",
-    runActive: false,
     prompt: "  What is a Box?\n",
   };
+  const antigravityEntry = deriveProviderInstanceEntries([
+    {
+      instanceId: ProviderInstanceId.make("antigravity"),
+      driver: ProviderDriverKind.make("antigravity"),
+      enabled: true,
+      installed: true,
+      version: "1.0.0",
+      status: "error",
+      auth: { status: "unauthenticated" },
+      checkedAt: "2026-10-22T00:00:00.000Z",
+      models: [],
+      slashCommands: [],
+      skills: [],
+    },
+  ])[0]!;
 
   it("sends the trimmed prompt as the side chat's message", () => {
     expect(planSideChatSend(ready)).toEqual({
@@ -173,7 +190,6 @@ describe("planSideChatSend", () => {
       { providerEntry: { ...providerEntry, isAvailable: false } },
       "provider-unavailable",
     ],
-    ["the side chat is still answering", { runActive: true }, "run-active"],
     ["the prompt is blank", { prompt: " \n " }, "empty"],
   ] as const)("blocks when %s", (_case, override, reason) => {
     expect(planSideChatSend({ ...ready, ...override })).toEqual({ _tag: "Blocked", reason });
@@ -186,7 +202,6 @@ describe("planSideChatSend", () => {
       sendInFlight: true,
       shellReady: false,
       providerEntry: undefined,
-      runActive: true,
       prompt: "",
     };
     const reasons = [
@@ -194,6 +209,13 @@ describe("planSideChatSend", () => {
       { ...everyCheckFails, canOperate: true },
       { ...everyCheckFails, canOperate: true, sendInFlight: false },
       { ...everyCheckFails, canOperate: true, sendInFlight: false, shellReady: true },
+      {
+        ...everyCheckFails,
+        canOperate: true,
+        sendInFlight: false,
+        shellReady: true,
+        providerEntry: antigravityEntry,
+      },
       {
         ...everyCheckFails,
         canOperate: true,
@@ -210,14 +232,31 @@ describe("planSideChatSend", () => {
       "in-flight",
       "starting",
       "provider-unavailable",
-      "run-active",
+      "antigravity-unavailable",
+      "empty",
     ]);
   });
 
-  it("answers a pending question even while the side chat's run is active", () => {
-    expect(
-      planSideChatSend({ ...ready, answeringPendingUserInput: true, runActive: true }),
-    ).toEqual({ _tag: "AnswerPendingInput" });
+  it("sends an image-only prompt", () => {
+    expect(planSideChatSend({ ...ready, prompt: " \n ", attachmentCount: 1 })).toEqual({
+      _tag: "Ready",
+      outgoingText: ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      message: { text: ATTACHMENT_ONLY_BOOTSTRAP_PROMPT },
+    });
+  });
+
+  it("explains why signed-out Antigravity cannot send", () => {
+    expect(planSideChatSend({ ...ready, providerEntry: antigravityEntry })).toEqual({
+      _tag: "Blocked",
+      reason: "antigravity-unavailable",
+      message: "Sign in to Antigravity in provider settings before sending.",
+    });
+  });
+
+  it("answers a pending question instead of sending", () => {
+    expect(planSideChatSend({ ...ready, answeringPendingUserInput: true })).toEqual({
+      _tag: "AnswerPendingInput",
+    });
   });
 
   it("refuses a prompt over the provider's input limit", () => {

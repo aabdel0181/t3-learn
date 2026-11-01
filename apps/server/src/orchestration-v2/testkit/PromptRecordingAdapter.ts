@@ -20,9 +20,13 @@ export interface RecordedPrompt {
   readonly text: string;
 }
 
+export interface RecordedInjection {
+  readonly history: ProviderAdapter.ProviderAdapterV2HistoricalContext;
+}
+
 /**
- * A provider that records the prompt of every turn it starts. It has no `injectHistory`, so context
- * handoffs arrive inline in the prompt. Without `replyText` every turn stays running. With it, a
+ * A provider that records the prompt of every turn it starts. With `injectHistory`, context
+ * handoffs are recorded separately and acknowledged as injected. Without `replyText` every turn stays running. With it, a
  * turn answers `replyText` and completes, unless its text contains `"[hold]"`: that turn stays
  * running until `finishHeldTurn` or an interrupt.
  */
@@ -36,10 +40,13 @@ export const makePromptRecordingAdapter = Effect.fn("makePromptRecordingAdapter"
     readonly failResume?: boolean;
     /** What every turn answers before it completes. */
     readonly replyText?: string;
+    /** Record context handoffs through the native injection path. */
+    readonly injectHistory?: boolean;
   }) {
     const { instanceId, driver, capabilities, replyText } = input;
     const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
     const prompts: Array<RecordedPrompt> = [];
+    const injected: Array<RecordedInjection> = [];
     const heldTurns = new Map<
       ThreadId,
       Deferred.Deferred<ProviderAdapter.ProviderAdapterV2TurnInput>
@@ -227,6 +234,15 @@ export const makePromptRecordingAdapter = Effect.fn("makePromptRecordingAdapter"
                   }),
                 )
               : Effect.succeed(providerThread),
+          ...(input.injectHistory === true
+            ? {
+                injectHistory: (history) =>
+                  Effect.sync(() => {
+                    injected.push({ history });
+                    return true;
+                  }),
+              }
+            : {}),
           startTurn: Effect.fn("PromptRecordingAdapter.startTurn")(function* (turn) {
             prompts.push({ threadId: turn.threadId, text: turn.message.text });
             yield* publishProviderTurn(turn, "running");
@@ -255,6 +271,6 @@ export const makePromptRecordingAdapter = Effect.fn("makePromptRecordingAdapter"
       }),
     };
 
-    return { adapter, prompts, finishHeldTurn };
+    return { adapter, prompts, injected, finishHeldTurn };
   },
 );

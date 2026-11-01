@@ -103,9 +103,9 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       context: shortcutContext,
     });
     if (!command) return;
-    // The side chat has its own composer, so the lesson's composer chords stay out of its
-    // panel. A side chat never queues, so steering there can't mean the lesson's queue, and
-    // the lesson's find bar can't search the panel, so the browser's find gets the key.
+    // The side chat has its own composer, model picker, queue and Stop, so the lesson's chords
+    // for them stay out of its panel. The lesson's find bar can't search the panel, so the
+    // browser's find gets the key.
     if (
       (LESSON_ONLY_COMMANDS.has(command) || command.startsWith("composer.")) &&
       inLessonSideChatPanel

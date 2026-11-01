@@ -16,6 +16,17 @@ import {
 export const withInlineContext = (context: string, userText: string): string =>
   context === "" ? userText : `${context}\n\nUser message:\n${userText}`;
 
+export function isPendingContextHandoff(
+  handoff: OrchestrationV2ContextHandoff,
+  nativeThreadId: string | undefined,
+): boolean {
+  return (
+    nativeThreadId === undefined ||
+    handoff.delivery?.nativeThreadId !== nativeThreadId ||
+    handoff.delivery?.status === "pending"
+  );
+}
+
 /** Persist around injection; ambiguous delivery requires a fresh native thread. Call unsent if refused before prompt consumption. */
 export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextHandoffs")(
   function* <InjectError = never, PersistError = never, BudgetError = never>(input: {
@@ -25,6 +36,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     readonly deferInline?: boolean;
     /** Handoffs that are dropped whole, rather than failing the turn, when they do not fit. */
     readonly optional?: (handoff: OrchestrationV2ContextHandoff) => boolean;
+    readonly quiet?: boolean;
     readonly alreadyDeliveredItemIds: ReadonlySet<string>;
     readonly inject?: (
       history: ProviderAdapter.ProviderAdapterV2HistoricalContext,
@@ -32,11 +44,8 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     readonly persist: (handoff: OrchestrationV2ContextHandoff) => Effect.Effect<void, PersistError>;
   }) {
     const nativeThreadId = input.providerThread.nativeThreadRef?.nativeId ?? undefined;
-    const pending = input.handoffs.filter(
-      (handoff) =>
-        nativeThreadId === undefined ||
-        handoff.delivery?.nativeThreadId !== nativeThreadId ||
-        handoff.delivery.status === "pending",
+    const pending = input.handoffs.filter((handoff) =>
+      isPendingContextHandoff(handoff, nativeThreadId),
     );
     if (pending.length === 0 || (input.deferInline && input.inject === undefined))
       return { context: "", delivered: Effect.void, unsent: Effect.void };
@@ -103,6 +112,17 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       planned = plan(remaining);
     }
     const { selected } = planned;
+    if (!planned.summariesIncluded && input.quiet !== true) {
+      yield* Effect.logWarning(
+        "Dropped context handoff summary because it exceeded the context budget",
+        {
+          handoffIds: remaining
+            .filter((handoff) => handoff.history === undefined)
+            .map((handoff) => handoff.id),
+          budget,
+        },
+      );
+    }
     if (historyCost(selected.messages, selected.context) > budget) {
       if (input.deferInline) return { context: "", delivered: Effect.void, unsent: Effect.void };
       return yield* new ContextHandoffBudgetError();

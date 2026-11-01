@@ -41,7 +41,7 @@ the PRD, §1.
   "Couldn't write the note", never as "No note sent".
 - **Side chat AI.** Same provider, model and runtime mode as the lesson, in the lesson's workspace, so it can read
   code you ask about. Its framing says: answer the question, and don't change files unless explicitly asked.
-- **Composer v1.** Text and quotes only: no attachments, slash commands, model switching or plan mode.
+- **Composer.** A compact composer supports text, image attachments, queueing, steering, stopping, and model switching; lesson-only controls remain out of the narrow panel.
 - **Notes travel up a chain.** A nested side chat reports to the side chat it came from. When that one finishes,
   its own note writer reads any undelivered notes from its children, so a gap found three levels deep can still
   reach the lesson.
@@ -287,7 +287,7 @@ None of this touches `pendingMergeBackTransfers` or the merge-back guards.
   - Slim composer: `ComposerPromptEditor` plus a small shared send helper extracted from `useComposerSend`, reusing
     the operate-scope check, in-flight dedupe, provider-available check, `formatOutgoingPrompt`,
     `getComposerPromptLengthValidationMessage` and `withMessageContext`. It sends via `threadEnvironment.startTurn`
-    with the side chat's model and modes. Send is blocked while the side chat's run is active (v1). It keeps local
+    with the side chat's selected model and its runtime and interaction modes. While answering, Send steers or queues according to the follow-up setting, and an empty composer shows Stop. It keeps local
     optimistic rows, fed into `ThreadTimeline`'s optimistic messages.
   - Pending approvals and questions from the side chat's AI render in the panel. When med opens the lesson while one
     is pending, the panel opens on that side chat.

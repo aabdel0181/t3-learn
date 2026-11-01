@@ -9,6 +9,7 @@ import {
   ProviderDriverKind,
   type ProviderInstanceId,
   type SidebarProjectGroupingMode,
+  supportsLessonSideChats,
 } from "@t3tools/contracts";
 import {
   DEFAULT_UNIFIED_SETTINGS,
@@ -96,6 +97,8 @@ import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
 import { StorageCleanupSections } from "./StorageSettings";
+import { SideChatSettings } from "./SideChatSettings";
+import { hasSideChatSettings } from "./sideChatSettingsSupport";
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: "Wait for the full response",
@@ -314,6 +317,12 @@ export function useSettingsRestore(onRestored?: () => void) {
   } = useTheme();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const { connectedEnvironments } = useSettingsScope();
+  const supportsSideChatSettings =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every((environment) =>
+      hasSideChatSettings(environment.serverConfig?.settings),
+    );
 
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
@@ -447,6 +456,18 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
       ? ["Thread title instructions"]
       : []),
+    ...(supportsSideChatSettings &&
+    settings.sideChatInstructions !== DEFAULT_UNIFIED_SETTINGS.sideChatInstructions
+      ? ["Side chat instructions"]
+      : []),
+    ...(supportsSideChatSettings &&
+    !Equal.equals(settings.sideChatSkills, DEFAULT_UNIFIED_SETTINGS.sideChatSkills)
+      ? ["Side chat skills"]
+      : []),
+    ...(supportsSideChatSettings &&
+    settings.sideChatModelSelection !== DEFAULT_UNIFIED_SETTINGS.sideChatModelSelection
+      ? ["Side chat model"]
+      : []),
     ...getChangedBrowserSettingLabels(settings),
     ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
       ? ["Agent browser access"]
@@ -552,6 +573,13 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
+      ...(supportsSideChatSettings
+        ? {
+            sideChatInstructions: DEFAULT_UNIFIED_SETTINGS.sideChatInstructions,
+            sideChatSkills: DEFAULT_UNIFIED_SETTINGS.sideChatSkills,
+            sideChatModelSelection: DEFAULT_UNIFIED_SETTINGS.sideChatModelSelection,
+          }
+        : {}),
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -1382,6 +1410,11 @@ export function ThreadsSettingsPanel() {
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const environmentId = environment?.environmentId ?? null;
   const hasServerTargets = connectedEnvironments.length > 0;
+  const supportsSideChatSettings =
+    hasServerTargets &&
+    connectedEnvironments.every((candidate) =>
+      hasSideChatSettings(candidate.serverConfig?.settings),
+    );
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
   const providersByEnvironment = useEnvironmentProviders();
   const serverProviders =
@@ -1769,6 +1802,15 @@ export function ThreadsSettingsPanel() {
           />
         </AdvancedSettings>
       </SettingsSection>
+      {!isProjectScope &&
+      supportsSideChatSettings &&
+      connectedEnvironments.every(
+        (candidate) =>
+          candidate.serverConfig !== null &&
+          supportsLessonSideChats(candidate.serverConfig.environment),
+      ) ? (
+        <SideChatSettings />
+      ) : null}
     </SettingsPageContainer>
   );
 }

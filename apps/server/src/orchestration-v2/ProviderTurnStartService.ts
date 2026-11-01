@@ -11,6 +11,8 @@ import {
   type OrchestrationV2RunAttempt,
   type OrchestrationV2SideChatOpening,
   type OrchestrationV2TurnItem,
+  type ServerProviderSkill,
+  type ServerSettings as ServerSettingsType,
   isCompactionCommandMessage,
   parseGoalCommand,
   RunId,
@@ -32,6 +34,8 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
@@ -46,7 +50,11 @@ import {
   historicalMessage,
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
-import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDelivery.ts";
+import {
+  deliverContextHandoffs,
+  isPendingContextHandoff,
+  withInlineContext,
+} from "./ContextHandoffDelivery.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -79,6 +87,7 @@ import {
 } from "./sideChat/sideChatOpening.ts";
 import { isSideChatNotesHandoff, isUserAuthoredSideChatTrigger } from "./sideChat/notes.ts";
 import { buildSideChatOpeningSummaryText, readySideChatSummary } from "./sideChat/sideChatText.ts";
+import { buildSideChatSkillMentions } from "./sideChat/sideChatSkills.ts";
 
 // Dropped whole, rather than failing the turn or forcing a fresh native thread, when they do not fit.
 const isOptionalSideChatHandoff = (handoff: OrchestrationV2ContextHandoff) =>
@@ -162,6 +171,7 @@ export const layer: Layer.Layer<
   | GitWorkflowService.GitWorkflowService
   | ProjectService.ProjectService
   | ProviderAuthService.ProviderAuthService
+  | ProviderRegistry.ProviderRegistry
   | ProjectionStore.ProjectionStoreV2
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
@@ -178,6 +188,8 @@ export const layer: Layer.Layer<
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
@@ -854,6 +866,7 @@ export const layer: Layer.Layer<
       // Codex and Claude parse /goal from the prompt, so it goes verbatim and history waits a turn.
       const goalDriver = session.driver === "codex" || session.driver === "claudeAgent";
       const goalCommand = goalDriver && parseGoalCommand(message) !== null;
+      let providerUserText = userText;
       // The provider turn marks cancellation work delivered; restart continuations use their own text or resume natively.
       const noteContinuation = isRestartNoteContinuation(
         run,
@@ -1281,6 +1294,7 @@ export const layer: Layer.Layer<
             budget: context.budget,
             deferInline: isCompactionCommandMessage(message) || goalCommand,
             optional: isOptionalSideChatHandoff,
+            quiet: true,
             alreadyDeliveredItemIds: context.deliveredItemIds,
             persist: () => Effect.void,
           }).pipe(
@@ -1296,6 +1310,7 @@ export const layer: Layer.Layer<
             providerThread: freshThread,
             budget: freshContext.budget,
             optional: isOptionalSideChatHandoff,
+            quiet: true,
             alreadyDeliveredItemIds: freshContext.deliveredItemIds,
             persist: () => Effect.void,
           }).pipe(
@@ -1421,6 +1436,47 @@ export const layer: Layer.Layer<
         (handoff) => handoff.id === openingHandoffId,
       );
       let lessonSideChatContext: SideChatContextHandoff | undefined;
+      let lessonSideChatSettings:
+        | Pick<ServerSettingsType, "sideChatInstructions" | "sideChatSkills">
+        | undefined;
+      let providerWorkspaceSkills = [] as ReadonlyArray<ServerProviderSkill>;
+      const loadLessonSideChatSettings = Effect.fn(
+        "ProviderTurnStartService.loadLessonSideChatSettings",
+      )(function* () {
+        const settings = yield* serverSettings.getSettings.pipe(
+          Effect.map((value) => {
+            const resolved = resolveProjectSettings(value, projection.thread.projectId).settings;
+            return {
+              sideChatInstructions: resolved.sideChatInstructions,
+              sideChatSkills: resolved.sideChatSkills,
+            };
+          }),
+          Effect.catch((error) =>
+            Effect.logWarning("Side chat settings are unavailable; using defaults", {
+              threadId: projection.thread.id,
+              runId,
+              error,
+            }).pipe(
+              Effect.as({
+                sideChatInstructions: "",
+                sideChatSkills: [] as ReadonlyArray<string>,
+              }),
+            ),
+          ),
+        );
+        if (settings.sideChatSkills.length > 0) {
+          const provider = (yield* providerRegistry.getProviders).find(
+            (candidate) => candidate.instanceId === run.providerInstanceId,
+          );
+          providerWorkspaceSkills =
+            provider?.workspaceSnapshots?.find(
+              (snapshot) => snapshot.cwd === resolvedRuntimePolicy.cwd,
+            )?.skills ??
+            provider?.skills ??
+            [];
+        }
+        return settings;
+      });
       if (
         lessonSideChat !== undefined &&
         (providerThread.nativeThreadRef === null || !sameNativeThread) &&
@@ -1436,6 +1492,7 @@ export const layer: Layer.Layer<
             }).pipe(Effect.as({ lessonTopic: null, parentOpeningText: null })),
           ),
         );
+        lessonSideChatSettings = yield* loadLessonSideChatSettings();
         lessonSideChatContext = buildSideChatOpeningContext({
           run,
           rootNodeId: rootNode.id,
@@ -1445,6 +1502,7 @@ export const layer: Layer.Layer<
             excerpt: lessonSideChat.excerpt,
             excerptContext: lessonSideChat.excerptContext,
             ...sources,
+            sideChatInstructions: lessonSideChatSettings.sideChatInstructions,
           }),
           withSummary: readySideChatSummary(lessonSideChat.opening) !== null,
           turnItemId: idAllocator.derive.runSignalTurnItem({
@@ -1534,6 +1592,30 @@ export const layer: Layer.Layer<
         createdAt: providerThread.createdAt,
         updatedAt: now,
       };
+      const nativeThreadId = runningProviderThread.nativeThreadRef?.nativeId ?? undefined;
+      const carriesSideChatOpening = effectiveHandoffs.some(
+        (handoff) =>
+          isSideChatOpeningHandoff(handoff) && isPendingContextHandoff(handoff, nativeThreadId),
+      );
+      if (lessonSideChatSettings === undefined && carriesSideChatOpening) {
+        lessonSideChatSettings = yield* loadLessonSideChatSettings();
+      }
+      if (carriesSideChatOpening && lessonSideChatSettings?.sideChatSkills.length) {
+        const dropped: string[] = [];
+        providerUserText = buildSideChatSkillMentions({
+          text: userText,
+          configuredNames: lessonSideChatSettings.sideChatSkills,
+          skills: providerWorkspaceSkills,
+          openingTurn: !goalCommand && !isCompactionCommandMessage(message),
+          onDropped: (name) => dropped.push(name),
+        });
+        if (dropped.length > 0) {
+          yield* Effect.logDebug("Dropped unavailable side-chat skills", {
+            runId: run.id,
+            names: dropped,
+          });
+        }
+      }
       const runningRun: OrchestrationV2Run = {
         ...run,
         status: "running",
@@ -1701,7 +1783,7 @@ export const layer: Layer.Layer<
             ...(noteContinuation ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
-              text: goalCommand ? userText : withInlineContext(context, userText),
+              text: goalCommand ? providerUserText : withInlineContext(context, providerUserText),
             },
           }).pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.

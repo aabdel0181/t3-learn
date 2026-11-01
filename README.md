@@ -4,6 +4,8 @@ T3 Learn is a fork of [T3 Code](https://github.com/pingdotgg/t3code) for learnin
 
 When a reply uses something you don't know yet, highlight it and choose **Ask in side chat** (⌥⌘S on a Mac, Ctrl+Alt+S elsewhere). A side chat opens next to the lesson. It sees your highlight and a short summary of the lesson, and nothing you say in it lands in the lesson. Side chats nest, so you can follow a question as deep as it goes. The side-chat header's map toggle (⌥⌘G on a Mac, Ctrl+Alt+G elsewhere) shows where you are without leaving the chat. Press **Done** to climb back out: the AI writes a short note, and your next lesson message carries it so the lesson picks up where you left off. The first time you open T3 Learn, a short guide walks you through this; open it again from Settings.
 
+See [Side chats](docs/user/side-chats.md) for settings and provider details.
+
 ### Install
 
 **macOS and Linux**
@@ -33,6 +35,10 @@ T3 Learn opens when the installer finishes. After that, open it like any other a
 - **From source:** you need [`vp`](#install-vp). Run `vp i`, then `vp run --filter t3 build`, then `vp env exec -- node apps/server/dist/bin.mjs serve --base-dir ~/.t3-learn`, and open the pairing URL it prints.
 
 </details>
+
+### Updating
+
+New T3 Learn versions are released automatically from `main` after CI and the install tests pass. The app shows an update button that updates the app and its connected server together. On the server box, update the launcher with `t3-learn update --yes`; with the plain CLI, point `T3CODE_HOME` at `~/.t3-learn` first.
 
 The phone app pairs with T3 Learn the same way it pairs with T3 Code. T3 Connect isn't available in T3 Learn's builds. To use T3 Learn's command line, choose **Install** next to **t3-learn command** in **Settings → About**.
 

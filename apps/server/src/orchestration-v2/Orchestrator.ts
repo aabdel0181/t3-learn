@@ -4529,6 +4529,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       creationSource: command.creationSource,
       createdAt: now,
     });
+    const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+    const configuredSideChatModel = settings.sideChatModelSelection;
+    if (
+      configuredSideChatModel !== null &&
+      resolveProjectProviderInstanceEnabled(
+        settings,
+        anchorThread.projectId,
+        configuredSideChatModel.instanceId,
+      )
+    ) {
+      const metadata =
+        providerAdapters.getMetadata === undefined
+          ? undefined
+          : yield* providerAdapters
+              .getMetadata(configuredSideChatModel.instanceId)
+              .pipe(Effect.orElseSucceed(() => undefined));
+      if (metadata?.enabled === true) {
+        Object.assign(thread, {
+          providerInstanceId: configuredSideChatModel.instanceId,
+          modelSelection: configuredSideChatModel,
+        });
+      }
+    }
     yield* emit(
       events,
       command,
@@ -12099,8 +12122,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   /**
-   * Stops the turn a side chat is still answering, the way Stop does, so Done can end it. Returns
-   * the stop's cancel value, which applies only when `threadId` is the command's own thread.
+   * Stops the turn a side chat is still answering, the way Stop does, and cancels its queued
+   * messages, held ones included, so Done can end it. Returns the stop's cancel value, which
+   * applies only when `threadId` is the command's own thread.
    */
   const stopSideChatRun = Effect.fn("Orchestrator.stopSideChatRun")(function* (
     command: OrchestrationV2ServerCommand,
@@ -12111,22 +12135,40 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const { runs } = yield* projectionStore
       .getThreadRecords(threadId, ["runs"])
       .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
-    if (!runs.some(isActiveRun)) return undefined;
-    return yield* dispatchThreadStop(
-      {
-        type: "thread.stop",
-        commandId: command.commandId,
-        threadId,
-        reason: "Side chat finished.",
-      },
-      events,
-      effects,
-    );
+    const stopResult = runs.some(isActiveRun)
+      ? yield* dispatchThreadStop(
+          {
+            type: "thread.stop",
+            commandId: command.commandId,
+            threadId,
+            reason: "Side chat finished.",
+          },
+          events,
+          effects,
+        )
+      : undefined;
+    // Stop holds queued runs. Done is terminal, so cancel them after Stop has applied its
+    // pending events; otherwise holdStoppedThread can re-emit a stale queueHeld run.
+    const projection = yield* getProjectionWithPendingEvents(threadId, events);
+    for (const run of projection.runs) {
+      if (run.status !== "queued") continue;
+      yield* dispatchQueuedRunCancel(
+        {
+          type: "queued-run.cancel",
+          commandId: command.commandId,
+          threadId,
+          runId: run.id,
+        },
+        events,
+      );
+    }
+    return stopResult;
   });
 
   /**
    * Done: writes the side chat's note, or deletes it when it is empty or discarded. Its open nested
-   * side chats are finished first, deepest first, and a turn still answering is stopped.
+   * side chats are finished first, deepest first, and a turn still answering is stopped and its
+   * queued messages are cancelled.
    */
   const dispatchSideChatDone = Effect.fn("orchestrationV2.dispatch.sideChatDone")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.side_chat.done" }>,

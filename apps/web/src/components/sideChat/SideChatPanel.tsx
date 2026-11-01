@@ -27,9 +27,12 @@ import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon, NetworkIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { useClientSettings } from "../../hooks/useSettings";
+import { primaryServerKeybindingsAtom } from "../../state/server";
+import { shortcutLabelForCommand } from "../../keybindings";
 import { ComposerHandleContext } from "../../composerHandleContext";
 import {
   AssistantCitationRevealContext,
@@ -37,17 +40,22 @@ import {
 } from "../../lib/assistantCitationNavigation";
 import { observeResize } from "../../lib/observeResize";
 import { cn, randomUUID } from "../../lib/utils";
-import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { releaseComposerDraftUploads } from "../../lib/composerDraftUploads";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
 import {
   type SideChatSurface,
   sideChatSurfaceTopThreadId,
   useRightPanelStore,
 } from "../../rightPanelStore";
-import { isLatestRunSettled } from "../../session-logic";
+import {
+  deriveCanInterruptRunningThread,
+  derivePhase,
+  isLatestRunSettled,
+} from "../../session-logic";
 import {
   useProject,
   useQuietThreadProjection,
+  useQuietThreadVisibleTurnItems,
   useQuietThreadShell,
   useSideChatNoteDelivered,
   useSideChatTreeShells,
@@ -57,9 +65,17 @@ import { useEnvironmentScope } from "../../state/session";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import type { ChatMessage } from "../../types";
+import {
+  applyOptimisticUserMessagesAction,
+  createOptimisticBlobPreviews,
+  emptyOptimisticUserMessages,
+  reconcileOptimisticUserMessages,
+} from "../chat/optimisticUserMessages";
+import { useAttachmentPreviewHandoff } from "../chat/useAttachmentPreviewHandoff";
 import type { AssistantCitationRequest } from "../chat/AssistantCitationSource";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
+import { QueuedRunsControl } from "../chat/QueuedRunsControl";
+import { getUserQueuedThreadRuns } from "@t3tools/client-runtime/state/thread-workflows";
 import { ComposerBanner } from "../chat/ComposerBanner";
 import {
   eventPathContainsSelector,
@@ -70,7 +86,10 @@ import {
 import { ComposerPendingUserInputPanel } from "../chat/ComposerPendingUserInputPanel";
 import { createPageScrollController } from "../chat/pageScrollController";
 import { usePendingThreadRequests } from "../chat/usePendingThreadRequests";
+import { useProviderWorkspaceSnapshotRefresh } from "../chat/useProviderWorkspaceSnapshotRefresh";
 import { Button } from "../ui/button";
+import { Toggle } from "../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -90,13 +109,8 @@ import {
 } from "./sideChatPanel.logic";
 import { SideChatTimeline } from "./SideChatTimeline";
 import { SideChatMap } from "./SideChatMap";
-import { primaryServerKeybindingsAtom } from "../../state/server";
-import { shortcutLabelForCommand } from "../../keybindings";
-import { Toggle } from "../ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { openExpandedImagePreview } from "../chat/ExpandedImageDialog";
 
-const NO_PROVIDERS: Parameters<typeof deriveProviderInstanceEntries>[0] = [];
-const NO_MESSAGES: ReadonlyArray<ChatMessage> = [];
 // The banner surface attaches under a ComposerSurface; the side chat's plain composer floats it.
 const FLOATING_BANNER_CLASS =
   "mx-2 mt-2 shrink-0 [--chat-composer-attachment-overlap:0px] before:rounded-2xl before:mask-t-from-black";
@@ -116,6 +130,7 @@ export function SideChatPanel(props: {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const mapShortcutLabel = shortcutLabelForCommand(keybindings, "sideChat.toggleMap");
   const navigate = useNavigate();
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
 
   const shell = useQuietThreadShell(sideChatRef);
   const detailRef = shell === null ? null : sideChatRef;
@@ -176,17 +191,29 @@ export function SideChatPanel(props: {
 
   const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const loadedProviders = useEnvironmentProviders().get(environmentId);
-  const providers = loadedProviders ?? NO_PROVIDERS;
-  const providerEntry =
-    shell === null
-      ? undefined
-      : deriveProviderInstanceEntries(providers).find(
-          (entry) => entry.instanceId === shell.modelSelection.instanceId,
-        );
   const project = useProject(
     shell === null ? null : scopeProjectRef(environmentId, shell.projectId),
   );
   const workspaceRoot = shell?.worktreePath ?? project?.workspaceRoot ?? undefined;
+  const refreshWorkspaceSnapshotOnTyping = useProviderWorkspaceSnapshotRefresh({
+    environmentId,
+    gitCwd: workspaceRoot ?? null,
+    instanceId: shell?.modelSelection.instanceId,
+  });
+  const warmedWorkspaceRef = useRef<string | null>(null);
+  // Warm the provider's workspace skill catalog while a side chat is open.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the provider workspace skill registry while this panel is mounted
+  useEffect(() => {
+    const warmKey = `${sideChatKey}:${shell?.modelSelection.instanceId ?? ""}:${workspaceRoot ?? ""}`;
+    if (warmedWorkspaceRef.current === warmKey) return;
+    warmedWorkspaceRef.current = warmKey;
+    refreshWorkspaceSnapshotOnTyping();
+  }, [
+    refreshWorkspaceSnapshotOnTyping,
+    sideChatKey,
+    shell?.modelSelection.instanceId,
+    workspaceRoot,
+  ]);
   const activityRun = projection === null ? null : deriveThreadActivityRun(projection);
   const runtime = projection === null ? null : deriveThreadStructureRuntime(projection);
   const runActive = activityRun !== null && !isLatestRunSettled(activityRun, runtime);
@@ -224,17 +251,30 @@ export function SideChatPanel(props: {
     },
   });
 
-  // Rows this panel sent, until the server's messages carry them. Walking to another
-  // side chat starts with none.
-  const [optimistic, setOptimistic] = useState<{
-    readonly key: string;
-    readonly messages: ReadonlyArray<ChatMessage>;
-  }>({ key: sideChatKey, messages: NO_MESSAGES });
-  if (optimistic.key !== sideChatKey) setOptimistic({ key: sideChatKey, messages: NO_MESSAGES });
-  const serverMessageIds = new Set<string>(projection?.messages.map((message) => message.id));
-  const optimisticMessages = optimistic.messages.some((message) => serverMessageIds.has(message.id))
-    ? optimistic.messages.filter((message) => !serverMessageIds.has(message.id))
-    : optimistic.messages;
+  const [blobPreviews] = useState(createOptimisticBlobPreviews);
+  const [optimisticState, setOptimisticState] = useState(() =>
+    emptyOptimisticUserMessages(sideChatRef.threadId),
+  );
+  const serverMessageIds = new Set<MessageId>(projection?.messages.map((message) => message.id));
+  const nextOptimisticState = reconcileOptimisticUserMessages(
+    optimisticState,
+    sideChatRef.threadId,
+    serverMessageIds,
+  );
+  if (nextOptimisticState !== optimisticState) {
+    blobPreviews.handOff(nextOptimisticState);
+    setOptimisticState(nextOptimisticState);
+  }
+  const optimisticMessages = nextOptimisticState.messages;
+  const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(detailRef);
+  const { timelineAttachmentUrlById } = useAttachmentPreviewHandoff({
+    environmentId,
+    threadId: sideChatRef.threadId,
+    serverVisibleTurnItems,
+    handoff: nextOptimisticState.handoff,
+    blobPreviews,
+    setOptimisticUserMessages: setOptimisticState,
+  });
 
   const [citationRequest, setCitationRequest] = useState<AssistantCitationRequest | null>(null);
   // A reveal belongs to the walk that made it; walking back to its thread later must not replay it.
@@ -246,6 +286,15 @@ export function SideChatPanel(props: {
   }
   const listRef = useRef<LegendListRef | null>(null);
   const composerHandleRef = useRef<SideChatComposerHandle | null>(null);
+  const shownSideChatIdRef = useRef<ThreadId | null>(sideChatRef.threadId);
+  // Keep optimistic preview ownership only while this side chat is the visible panel tab.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears ownership during a tab walk
+  useLayoutEffect(() => {
+    shownSideChatIdRef.current = sideChatRef.threadId;
+    return () => {
+      shownSideChatIdRef.current = null;
+    };
+  }, [sideChatRef.threadId]);
   const pageScrollRef = useRef<ReturnType<typeof createPageScrollController> | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the page-scroll controller for the side chat's list until unmount
   useEffect(() => {
@@ -283,7 +332,10 @@ export function SideChatPanel(props: {
     });
     if (result._tag === "Success") {
       // The server deleted the side chat, so nothing can reach its draft again.
-      if (deletes) useComposerDraftStore.getState().clearComposerContent(sideChatRef);
+      if (deletes) {
+        releaseComposerDraftUploads(sideChatRef);
+        useComposerDraftStore.getState().clearDraftThread(sideChatRef);
+      }
       return;
     }
     if (isAtomCommandInterrupted(result)) return;
@@ -301,6 +353,7 @@ export function SideChatPanel(props: {
     void reportFinish(discard);
     return leaveSideChat(lessonRef, surface, rows);
   };
+  const leaveFinishedSideChat = () => leaveSideChat(lessonRef, surface, rows);
   // The menu refocuses a clicked item, then its trigger once it closes; a closed tab takes
   // both away, so the menu hands focus to the lesson as it closes.
   const discardClosedTabRef = useRef(false);
@@ -521,7 +574,28 @@ export function SideChatPanel(props: {
               </TooltipPopup>
             </Tooltip>
           )}
-          {sideChatState === "open" ? (
+          {shell === null ? null : sideChatState === "done" ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={!canOperate}
+                    onClick={() => {
+                      // A closed tab takes this button with it, so the cursor goes back to the lesson.
+                      if (leaveFinishedSideChat() === "closed") props.onFocusLesson();
+                    }}
+                  >
+                    Done
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">
+                Already finished. Done closes it; ask something here to reopen it.
+              </TooltipPopup>
+            </Tooltip>
+          ) : (
             <Button
               size="xs"
               variant="outline"
@@ -533,7 +607,7 @@ export function SideChatPanel(props: {
             >
               Done
             </Button>
-          ) : null}
+          )}
           {shell === null ? null : (
             <Menu>
               <MenuTrigger
@@ -552,6 +626,17 @@ export function SideChatPanel(props: {
                   return false;
                 }}
               >
+                <MenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: "/settings/threads",
+                      search: { machine: environmentId },
+                      hash: "side-chat-model",
+                    })
+                  }
+                >
+                  Side chat settings
+                </MenuItem>
                 <MenuItem
                   variant="destructive"
                   onClick={() => {
@@ -595,6 +680,7 @@ export function SideChatPanel(props: {
                 // A side chat this panel just started has nothing to load yet.
                 detailLoading={detailRef !== null && projection === null && heldCitation === null}
                 optimisticMessages={optimisticMessages}
+                attachmentUrlById={timelineAttachmentUrlById}
                 listRef={listRef}
                 citationRequest={citationRequest}
                 askInSideChatPending={askPending}
@@ -620,6 +706,24 @@ export function SideChatPanel(props: {
                 respondingRequestIds={respondingRequestIds}
                 canOperate={canOperate}
                 onRespondToApproval={onRespondToApproval}
+                footer={
+                  (projection !== null && getUserQueuedThreadRuns(projection).length > 0) ||
+                  optimisticMessages.some((message) => message.inputIntent === "queued_turn") ? (
+                    <QueuedRunsControl
+                      environmentId={environmentId}
+                      threadId={sideChatRef.threadId}
+                      optimisticMessages={optimisticMessages}
+                      editingRunId={null}
+                      editBlockedReason="Remove it and send it again to change it"
+                      onEditQueuedRun={() => {}}
+                      onCancelEdit={() => {}}
+                      steerShortcutLabel={null}
+                      editShortcutLabel={null}
+                      timestampFormat={timestampFormat}
+                      onOpenThread={onOpenThread}
+                    />
+                  ) : null
+                }
               />
             </div>
             <p
@@ -658,8 +762,13 @@ export function SideChatPanel(props: {
             <SideChatComposer
               sideChatRef={sideChatRef}
               shell={shell}
-              providerEntry={providerEntry}
               providerCatalogKnown={loadedProviders !== undefined}
+              projection={projection}
+              turnRunning={runtime !== null && derivePhase(runtime) === "running"}
+              sendQueuesBehindSetup={
+                activityRun?.status === "preparing" || activityRun?.status === "starting"
+              }
+              pendingApprovalCount={pendingApprovals.length}
               openingStatus={detail?.opening.status ?? null}
               hasMessages={hasMessages}
               runActive={runActive}
@@ -672,18 +781,31 @@ export function SideChatPanel(props: {
                 if (questionId !== undefined)
                   onChangeActivePendingUserInputCustomAnswer(questionId, value);
               }}
-              onOptimisticMessage={(message) =>
-                setOptimistic((current) => ({
-                  key: sideChatKey,
-                  messages: [...(current.key === sideChatKey ? current.messages : []), message],
-                }))
+              canInterrupt={canOperate && deriveCanInterruptRunningThread(shell !== null, runtime)}
+              onExpandImage={(preview) =>
+                openExpandedImagePreview(scopedThreadKey(lessonRef), preview)
               }
-              onOptimisticMessageFailed={(messageId: MessageId) =>
-                setOptimistic((current) => ({
-                  ...current,
-                  messages: current.messages.filter((message) => message.id !== messageId),
-                }))
-              }
+              onOptimisticMessage={(message) => {
+                if (shownSideChatIdRef.current === sideChatRef.threadId)
+                  blobPreviews.track(sideChatRef.threadId, message);
+                else blobPreviews.release(sideChatRef.threadId, message);
+                setOptimisticState((current) =>
+                  applyOptimisticUserMessagesAction(current, sideChatRef.threadId, [
+                    ...current.messages,
+                    message,
+                  ]),
+                );
+              }}
+              onOptimisticMessageFailed={(message) => {
+                blobPreviews.release(sideChatRef.threadId, message);
+                setOptimisticState((current) =>
+                  applyOptimisticUserMessagesAction(
+                    current,
+                    sideChatRef.threadId,
+                    current.messages.filter((candidate) => candidate.id !== message.id),
+                  ),
+                );
+              }}
               onPageScrollKeyDown={(key) => pageScrollRef.current?.handleKeyDown(key)}
               onPageScrollKeyUp={(key) => pageScrollRef.current?.handleKeyUp(key)}
               onPageScrollRelease={() => pageScrollRef.current?.releaseActiveKey()}

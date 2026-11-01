@@ -8,6 +8,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as EventSink from "../EventSink.ts";
 import * as Orchestrator from "../Orchestrator.ts";
+import * as EffectWorker from "../EffectWorker.ts";
 import { SIDE_CHAT_OUTCOME_EXCERPT_HEADER } from "../sideChat/notes.ts";
 import {
   makeSideChatHarness,
@@ -356,6 +357,122 @@ describe("side chat Done", () => {
 
         yield* harness.awaitRun(after, question, "interrupted");
         assert.equal(finished.sideChat?.done?.outcome.note, SPACE_NOTE);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("Done cancels a side chat's queued message and leaves it out of the note", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-done-queued");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        const after = yield* harness.mark;
+        const held = yield* harness.send(space, `[hold] ${SPACE_QUESTION}`);
+        yield* harness.awaitEvent(
+          after,
+          (event) =>
+            event.type === "provider-turn.updated" &&
+            event.threadId === space &&
+            event.payload.status === "running",
+        );
+        const queued = yield* harness.send(space, "What is a bounded action space?", {
+          dispatchMode: { type: "queue_after_active" },
+          await: "none",
+        });
+        const queuedRun = (yield* orchestrator.getThreadProjection(space)).runs.find(
+          (run) => run.userMessageId === queued,
+        );
+        assert(queuedRun !== undefined);
+
+        const finished = yield* finishWithNote(harness, space, SPACE, SPACE_NOTE);
+
+        yield* harness.awaitRun(after, held, "interrupted");
+        yield* harness.awaitRun(after, queued, "cancelled");
+        assert.equal(finished.sideChat?.done?.outcome.note, SPACE_NOTE);
+        assert.notInclude(harness.outcomeInputFor(SPACE), "bounded action space");
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("Done keeps a queued message promoted onto the held turn", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-done-promoted");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        const after = yield* harness.mark;
+        const held = yield* harness.send(space, `[hold] ${SPACE_QUESTION}`);
+        yield* harness.awaitEvent(
+          after,
+          (event) =>
+            event.type === "provider-turn.updated" &&
+            event.threadId === space &&
+            event.payload.status === "running",
+        );
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        yield* worker.drain();
+        const queued = yield* harness.send(space, "Promoted question", {
+          dispatchMode: { type: "queue_after_active" },
+          await: "none",
+        });
+        const projection = yield* orchestrator.getThreadProjection(space);
+        const queuedRun = projection.runs.find((run) => run.userMessageId === queued);
+        const heldRun = projection.runs.find((run) => run.userMessageId === held);
+        assert(queuedRun !== undefined);
+        assert(heldRun !== undefined);
+        yield* orchestrator.dispatch({
+          type: "queued-message.promote-to-steer",
+          commandId: CommandId.make("promote-promoted"),
+          threadId: space,
+          queuedRunId: queuedRun.id,
+          targetRunId: heldRun.id,
+        });
+        yield* worker.drain();
+        yield* harness.finishHeldTurn(space);
+        harness.scriptNote(SPACE, { text: SPACE_NOTE });
+        yield* harness.finish(space);
+        yield* harness.awaitOutcome(after, space, "ready");
+        assert.include(harness.outcomeInputFor(SPACE), "Promoted question");
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("Done cancels a held queued message after Stop", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeSideChatHarness("side-chat-done-stop-queued");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const lesson = yield* harness.createLesson("Teach me RL environments.");
+        const space = yield* harness.openSideChat({ parentThreadId: lesson, label: SPACE });
+        const after = yield* harness.mark;
+        const held = yield* harness.send(space, `[hold] ${SPACE_QUESTION}`);
+        const queued = yield* harness.send(space, "bounded action space", {
+          dispatchMode: { type: "queue_after_active" },
+          await: "none",
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("stop-space-queued"),
+          threadId: space,
+        });
+        yield* harness.awaitRun(after, held, "interrupted");
+        const stoppedProjection = yield* orchestrator.getThreadProjection(space);
+        const heldQueue = stoppedProjection.runs.find((run) => run.userMessageId === queued);
+        assert.equal(heldQueue?.status, "queued");
+        assert.equal(heldQueue?.queueHeld, true);
+        harness.scriptNote(SPACE, { text: SPACE_NOTE });
+        yield* harness.finish(space);
+        const finished = yield* harness.awaitOutcome(after, space, "ready");
+        const finalProjection = yield* orchestrator.getThreadProjection(space);
+        assert.equal(
+          finalProjection.runs.find((run) => run.userMessageId === queued)?.status,
+          "cancelled",
+        );
+        assert.notInclude(harness.outcomeInputFor(SPACE), "bounded action space");
+        assert.equal(finished.sideChat?.done?.outcome.status, "ready");
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.scoped),
   );

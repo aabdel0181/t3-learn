@@ -4,6 +4,8 @@ import {
   EventId,
   MessageId,
   ProviderDriverKind,
+  ProviderInstanceId,
+  ProjectId,
   RunId,
   SIDE_CHAT_CONTEXT_FALLBACK_HANDOFF_TITLE,
   SIDE_CHAT_CONTEXT_HANDOFF_TITLE,
@@ -12,6 +14,7 @@ import {
   SIDE_CHAT_WAIT_CAP_MS,
   TextGenerationError,
   ThreadId,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
@@ -36,6 +39,7 @@ import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import { SIDE_CHAT_OPENING_FRAMING } from "../sideChat/sideChatText.ts";
 import { makePromptRecordingAdapter } from "./PromptRecordingAdapter.ts";
 import * as ProviderReplayHarness from "./ProviderReplayHarness.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { makeSideChatHarness } from "./SideChatHarness.ts";
 import {
   CLAUDE_SELECTION,
@@ -358,6 +362,13 @@ describe("side chat opening context", () => {
     options: {
       readonly generateSideChatText?: GenerateSideChatText;
       readonly failResume?: boolean;
+      readonly injectHistory?: boolean;
+      readonly providers?:
+        | ReadonlyArray<ServerProvider>
+        | ((cwd: string) => ReadonlyArray<ServerProvider>);
+      readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
+      readonly localLesson?: boolean;
+      readonly claudeMetadata?: "enabled" | "disabled" | "missing";
     } = {},
   ) {
     const cwd = yield* checkpointWorkspace(name);
@@ -367,6 +378,7 @@ describe("side chat opening context", () => {
       capabilities: CodexProviderCapabilitiesV2,
       cwd,
       ...(options.failResume === undefined ? {} : { failResume: options.failResume }),
+      ...(options.injectHistory === undefined ? {} : { injectHistory: options.injectHistory }),
     });
     const switched = yield* makePromptRecordingAdapter({
       instanceId: CLAUDE_SELECTION.instanceId,
@@ -374,16 +386,78 @@ describe("side chat opening context", () => {
       capabilities: ClaudeProviderCapabilitiesV2,
       cwd,
     });
+    const adapters = [lesson.adapter, switched.adapter];
+    const registry = Layer.succeed(
+      ProviderAdapterRegistry.ProviderAdapterRegistryV2,
+      ProviderAdapterRegistry.ProviderAdapterRegistryV2.of({
+        get: (instanceId) => {
+          const adapter = adapters.find((candidate) => candidate.instanceId === instanceId);
+          return adapter === undefined
+            ? Effect.fail(
+                new ProviderAdapterRegistry.ProviderAdapterRegistryLookupError({ instanceId }),
+              )
+            : Effect.succeed(adapter);
+        },
+        list: () => Effect.succeed(adapters.map((adapter) => adapter.instanceId)),
+        getMetadata: (instanceId) => {
+          const adapter = adapters.find((candidate) => candidate.instanceId === instanceId);
+          if (
+            adapter === undefined ||
+            (instanceId === CLAUDE_SELECTION.instanceId && options.claudeMetadata === "missing")
+          ) {
+            return Effect.fail(
+              new ProviderAdapterRegistry.ProviderAdapterRegistryLookupError({ instanceId }),
+            );
+          }
+          return adapter.getCapabilities().pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRegistry.ProviderAdapterRegistryMetadataError({
+                  instanceId,
+                  cause,
+                }),
+            ),
+            Effect.map((capabilities) => ({
+              driver: adapter.driver,
+              continuationKey: String(adapter.instanceId),
+              enabled:
+                instanceId === CLAUDE_SELECTION.instanceId
+                  ? options.claudeMetadata !== "disabled"
+                  : true,
+              capabilities,
+            })),
+          );
+        },
+      }),
+    );
     const layer = ProviderReplayHarness.layerWithRegistry(
-      { name },
-      ProviderAdapterRegistry.layerFromAdapters([lesson.adapter, switched.adapter]),
+      {
+        name,
+        ...(options.localLesson ? { runtimePolicyOverride: { cwd } } : {}),
+      },
+      registry,
       {
         runEffectWorker: false,
         sideChatTextGeneration:
           options.generateSideChatText ?? (() => Effect.succeed({ text: LESSON_SUMMARY })),
+        ...(options.providers === undefined
+          ? {}
+          : {
+              providers:
+                typeof options.providers === "function"
+                  ? options.providers(cwd)
+                  : options.providers,
+            }),
+        ...(options.settings === undefined ? {} : { settings: options.settings }),
       },
     );
-    return { cwd, layer, prompts: lesson.prompts, switchPrompts: switched.prompts };
+    return {
+      cwd,
+      layer,
+      prompts: lesson.prompts,
+      injected: lesson.injected,
+      switchPrompts: switched.prompts,
+    };
   });
 
   const ask = (threadId: ThreadId, commandId: string, text: string) =>
@@ -395,10 +469,10 @@ describe("side chat opening context", () => {
     });
 
   /** Opens a side chat on "observation space", lets its summary land, then asks in it. */
-  const openAndAsk = (cwd: string) =>
+  const openAndAsk = (cwd: string, localLesson = false) =>
     Effect.gen(function* () {
       const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-      yield* createLesson({ worktreePath: cwd });
+      yield* createLesson({ worktreePath: localLesson ? null : cwd });
       yield* openOnObservation;
       yield* worker.drain();
       yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask", "What is an observation space?");
@@ -408,6 +482,203 @@ describe("side chat opening context", () => {
     prompts: ReadonlyArray<{ threadId: ThreadId; text: string }>,
     threadId: ThreadId,
   ) => prompts.filter((prompt) => prompt.threadId === threadId).map((prompt) => prompt.text);
+
+  const providerWithSkill = (instanceId: ProviderInstanceId, driver: ProviderDriverKind) =>
+    ({
+      instanceId,
+      driver,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: [],
+      slashCommands: [],
+      skills: [
+        {
+          name: "review",
+          path: "/skills/review/SKILL.md",
+          enabled: true,
+          userInvocable: true,
+        },
+      ],
+    }) satisfies ServerProvider;
+
+  it.effect("attaches configured skills to Claude's inline opening once", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { cwd, layer, switchPrompts } = yield* deliveryHarness("side-chat-skills-claude", {
+          providers: [
+            providerWithSkill(LESSON_SELECTION.instanceId, ProviderDriverKind.make("codex")),
+            providerWithSkill(CLAUDE_SELECTION.instanceId, ProviderDriverKind.make("claudeAgent")),
+          ],
+          settings: { sideChatSkills: ["review"] },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* openAndAsk(cwd);
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID);
+          yield* orchestrator.dispatch(
+            sideChatMessageCommand({
+              commandId: "command:side-chat:ask-claude-skills",
+              threadId: SIDE_CHAT_THREAD_ID,
+              text: "Explain the highlighted idea.",
+              modelSelection: CLAUDE_SELECTION,
+            }),
+          );
+          yield* worker.drain();
+        }).pipe(Effect.provide(layer));
+
+        const [prompt] = promptsFor(switchPrompts, SIDE_CHAT_THREAD_ID);
+        assert.isDefined(prompt);
+        assert.equal(prompt!.split("Explain the highlighted idea.").length, 2);
+        assert.include(prompt, "User message:\nExplain the highlighted idea.\n$review");
+      }),
+    ),
+  );
+
+  it.effect("attaches configured skills to Codex's injected opening once", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const question = "What is an observation space?";
+        const { cwd, layer, prompts, injected } = yield* deliveryHarness("side-chat-skills-codex", {
+          injectHistory: true,
+          providers: [
+            providerWithSkill(LESSON_SELECTION.instanceId, ProviderDriverKind.make("codex")),
+          ],
+          settings: { sideChatSkills: ["review"] },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* createLesson({ worktreePath: cwd });
+          yield* openOnObservation;
+          yield* worker.drain();
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-codex-skills", question);
+          const projection = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.equal(
+            projection.messages.findLast((message) => message.role === "user")?.text,
+            question,
+          );
+          yield* completeLatestRun(SIDE_CHAT_THREAD_ID);
+          yield* ask(SIDE_CHAT_THREAD_ID, "command:side-chat:ask-codex-skills-again", "And a Box?");
+        }).pipe(Effect.provide(layer));
+
+        const sidePrompts = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.lengthOf(sidePrompts, 2);
+        assert.equal(sidePrompts[0], `${question}\n$review`);
+        assert.notInclude(sidePrompts[1], "$review");
+        assert.lengthOf(injected, 1);
+        assert.include(injected[0]!.history.context, SIDE_CHAT_OPENING_FRAMING);
+      }),
+    ),
+  );
+
+  it.effect("uses the workspace skill catalog for a local side chat", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-workspace-skills", {
+          localLesson: true,
+          providers: (workspaceCwd) => [
+            {
+              ...providerWithSkill(LESSON_SELECTION.instanceId, ProviderDriverKind.make("codex")),
+              skills: [],
+              workspaceSnapshots: [
+                {
+                  cwd: workspaceCwd,
+                  checkedAt: "2026-01-01T00:00:00.000Z",
+                  slashCommands: [],
+                  skills: [
+                    {
+                      name: "review",
+                      path: "/workspace/review/SKILL.md",
+                      enabled: true,
+                      userInvocable: true,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          settings: { sideChatSkills: ["review"] },
+        });
+        yield* openAndAsk(cwd, true).pipe(Effect.provide(layer));
+        const [prompt] = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.isDefined(prompt);
+        assert.include(prompt, "\n$review");
+      }),
+    ),
+  );
+
+  it.effect("applies a configured side-chat model only when its provider is usable", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const configured = yield* deliveryHarness("side-chat-model-configured", {
+          settings: { sideChatModelSelection: CLAUDE_SELECTION },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          yield* createLesson({ worktreePath: configured.cwd });
+          yield* openOnObservation;
+          const thread = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.deepEqual(thread.thread.modelSelection, CLAUDE_SELECTION);
+        }).pipe(Effect.provide(configured.layer));
+
+        const missing = yield* deliveryHarness("side-chat-model-missing", {
+          settings: {
+            sideChatModelSelection: {
+              instanceId: ProviderInstanceId.make("missing"),
+              model: "missing-model",
+            },
+            providerInstances: {
+              [ProviderInstanceId.make("missing")]: { driver: ProviderDriverKind.make("codex") },
+            },
+          },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          yield* createLesson({ worktreePath: missing.cwd });
+          yield* openOnObservation;
+          const thread = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.deepEqual(thread.thread.modelSelection, LESSON_SELECTION);
+          assert.equal(thread.thread.providerInstanceId, LESSON_SELECTION.instanceId);
+        }).pipe(Effect.provide(missing.layer));
+
+        const disabled = yield* deliveryHarness("side-chat-model-disabled", {
+          claudeMetadata: "disabled",
+          settings: { sideChatModelSelection: CLAUDE_SELECTION },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          yield* createLesson({ worktreePath: disabled.cwd });
+          yield* openOnObservation;
+          const thread = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.deepEqual(thread.thread.modelSelection, LESSON_SELECTION);
+          assert.equal(thread.thread.providerInstanceId, LESSON_SELECTION.instanceId);
+        }).pipe(Effect.provide(disabled.layer));
+
+        const disabledProject = yield* deliveryHarness("side-chat-model-disabled-project", {
+          settings: {
+            sideChatModelSelection: CLAUDE_SELECTION,
+            projectSettingsOverrides: {
+              [ProjectId.make("project:side-chat")]: {
+                providerInstances: { [CLAUDE_SELECTION.instanceId]: { enabled: false } },
+              },
+            },
+          },
+        });
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          yield* createLesson({ worktreePath: disabledProject.cwd });
+          yield* openOnObservation;
+          const thread = yield* orchestrator.getThreadProjection(SIDE_CHAT_THREAD_ID);
+          assert.deepEqual(thread.thread.modelSelection, LESSON_SELECTION);
+        }).pipe(Effect.provide(disabledProject.layer));
+      }),
+    ),
+  );
 
   it.effect(
     "gives the first turn the framing, summary and highlight and no other lesson messages",
@@ -442,6 +713,21 @@ describe("side chat opening context", () => {
           }).pipe(Effect.provide(layer));
         }),
       ),
+  );
+
+  it.effect("uses configured side-chat teaching instructions in the opening", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-opening-instructions", {
+          settings: { sideChatInstructions: "Use one concrete analogy." },
+        });
+        yield* openAndAsk(cwd).pipe(Effect.provide(layer));
+        const [prompt] = promptsFor(prompts, SIDE_CHAT_THREAD_ID);
+        assert.isDefined(prompt);
+        assert.include(prompt, "Use one concrete analogy.");
+        assert.notInclude(prompt, "Answer at their level, briefly and clearly");
+      }),
+    ),
   );
 
   it.effect(
@@ -575,6 +861,10 @@ describe("side chat opening context", () => {
       Effect.gen(function* () {
         const { cwd, layer, prompts } = yield* deliveryHarness("side-chat-opening-replaced", {
           failResume: true,
+          providers: [
+            providerWithSkill(LESSON_SELECTION.instanceId, ProviderDriverKind.make("codex")),
+          ],
+          settings: { sideChatSkills: ["review"] },
         });
         yield* Effect.gen(function* () {
           const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -598,6 +888,8 @@ describe("side chat opening context", () => {
         assert.lengthOf(sideChatPrompts, 2);
         assert.include(sideChatPrompts[1], LESSON_SUMMARY);
         assert.include(sideChatPrompts[1], "What is an observation space?");
+        assert.include(sideChatPrompts[0], "\n$review");
+        assert.include(sideChatPrompts[1], "\n$review");
       }),
     ),
   );

@@ -77,8 +77,13 @@ describe("resolveFinishableSideChat", () => {
     environmentId,
   };
 
-  it("finishes the open side chat the panel shows", () => {
-    expect(resolveFinishableSideChat(input)).toEqual({ threadId: nestedId, label: "Box", surface });
+  it("returns the open or finished side chat the panel shows", () => {
+    expect(resolveFinishableSideChat(input)).toEqual({
+      threadId: nestedId,
+      label: "Box",
+      surface,
+      finished: false,
+    });
 
     const doneNested = makeSideChatThreadFixture({
       id: nestedId,
@@ -87,7 +92,12 @@ describe("resolveFinishableSideChat", () => {
       label: "Box",
       state: "done",
     });
-    expect(resolveFinishableSideChat({ ...input, shells: [lesson, side, doneNested] })).toBeNull();
+    expect(resolveFinishableSideChat({ ...input, shells: [lesson, side, doneNested] })).toEqual({
+      threadId: nestedId,
+      label: "Box",
+      surface,
+      finished: true,
+    });
     expect(resolveFinishableSideChat({ ...input, activeSurfaceId: map.id })).toBeNull();
     expect(resolveFinishableSideChat({ ...input, surfaces: [], activeSurfaceId: null })).toBeNull();
   });

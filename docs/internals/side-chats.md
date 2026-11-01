@@ -16,8 +16,10 @@ Open and Done are dedicated commands, not flags on `thread.fork` or `thread.merg
 server rejects them instead of quietly forking. Internal completions are dropped unless their
 `requestId` and status still match
 ([Orchestrator](../../apps/server/src/orchestration-v2/Orchestrator.ts)). Done stops a running turn,
-finishes open descendants deepest first and queues the note; an empty or discarded side chat is deleted
-instead. Archive, unarchive and delete reach descendants through a `side-chat.cascade` effect; a side
+cancels queued messages, finishes open descendants deepest first and queues a note that leaves out
+messages cancelled before they started while retaining failed or interrupted messages; an empty or
+discarded side chat is deleted instead. Archive, unarchive and delete reach descendants
+through a `side-chat.cascade` effect; a side
 chat under an archived parent cannot be unarchived alone. A side chat has no page of its own: its route
 settles on the lesson with it revealed in the panel
 ([ThreadRouteView](../../apps/web/src/components/ThreadRouteView.tsx)).
@@ -50,6 +52,18 @@ is written at most once and never after an opening that carried it. A later fres
 the summary in its own opening, which drops a late summary still carried from a stopped run. The text
 is the record because the summary can land while a turn start, which holds no lock, is writing a
 fallback opening.
+
+A new side chat, including nested ones, starts with `sideChatModelSelection` when that instance is
+enabled; otherwise it uses the anchor's model. It may use another provider than the lesson, and that
+provider receives the opening: the lesson summary, the highlight and the text around it. Summaries
+and notes still use the lesson's text model described above. Skills are appended as `$name` after the
+user text, in provider text only, on the turn that delivers the opening (the first turn or a later
+fresh native thread), when the run's provider lists them in its cached catalog (the run's cwd snapshot
+if a client warmed it, otherwise the machine list); nothing is scanned at turn start. A
+first message that is a slash command, `/goal` or `/compact` gets none. After `/goal` or `/compact`,
+Claude's opening and skills wait for the next turn, while Codex injects the opening during the command
+turn. Grok expands only a leading mention, so it gets none; Claude expands one skill natively per
+message; OpenCode v1, Antigravity, the ACP registry and Muse get the text only.
 
 Notes attach at run start, not dispatch, so a queued message sees notes that became ready meanwhile.
 [`awaitNotesForRunStart`](../../apps/server/src/orchestration-v2/sideChat/SideChatLifecycleService.ts)
@@ -103,6 +117,8 @@ The fork's service-switch script, not the server, is where both are checked. Rou
   `sideChatNoteDeliveries`. After a later switch forward, those side chats show as ordinary forks, and
   ready notes may be sent to the lesson once more.
 - Persisted `lesson-side-chat` and Map panel tabs are unknown kinds on an official client; close them.
+- The Side chats settings are environment-wide `settings.json` keys; an official server drops them
+  when it rewrites the file.
 
 Older servers reject the commands and strip the optional fields, so clients hide every entry point
 unless [`supportsLessonSideChats`](../../packages/contracts/src/environment.ts) holds: the server

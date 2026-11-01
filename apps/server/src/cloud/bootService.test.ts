@@ -21,6 +21,12 @@ import {
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
 
+it("names the configured unit in stopped-service guidance", () => {
+  expect(BootService.formatBootServiceProblem("service-stopped")).toContain(
+    BootService.BOOT_SERVICE_UNIT_FILE,
+  );
+});
+
 it("reads the served T3 home back out of a rendered unit or plist", () => {
   const plan = (baseDir: string) => ({
     program: [`${baseDir}/runtime/versions/1.2.3/t3`, "__service-launcher"],
